@@ -1,0 +1,11 @@
+# Trammel runs on Linux. Keep LF line endings in every checkout, including on
+# Windows with core.autocrlf, so shell scripts and Docker files built from a
+# Windows working copy still run in the containers.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.gz binary
