@@ -92,39 +92,98 @@ def _pg_args() -> list[str]:
     return args
 
 
+def _archive_name(kind: str) -> str:
+    return f"{NAME_PREFIX}{timezone.now():%Y%m%d-%H%M%S}-{kind}{NAME_SUFFIX}"
+
+
+def write_archive(target: Path, kind: str, *, version: str | None = None) -> None:
+    """Dump the database and files into `target`. Uses no models, so it also works
+    before migrations have brought the schema up to this code's version."""
+    with tempfile.TemporaryDirectory() as tmp:
+        dump = Path(tmp) / "database.dump"
+        pg_dump = shutil.which(settings.PG_DUMP) or settings.PG_DUMP
+        subprocess.run(  # noqa: S603 — fixed argument list, no shell
+            [pg_dump, "--format=custom", "--no-owner", "--file", str(dump), *_pg_args()],
+            env=_pg_env(),
+            check=True,
+            capture_output=True,
+            timeout=3600,
+        )
+        manifest = {
+            "app": "trammel",
+            "version": version or settings.APP_VERSION,
+            "created_at": timezone.now().isoformat(),
+            "kind": kind,
+            "migrations": applied_migrations(),
+        }
+        (Path(tmp) / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+        with tarfile.open(target, "w:gz") as tar:
+            tar.add(Path(tmp) / "manifest.json", arcname="manifest.json")
+            tar.add(dump, arcname="database.dump")
+            media = Path(settings.MEDIA_ROOT)
+            for sub in ("blobs", "thumbs"):
+                if (media / sub).exists():
+                    tar.add(media / sub, arcname=f"media/{sub}")
+
+
+def pending_migrations() -> tuple[list[str], bool]:
+    """Migrations this code would apply, and whether the database is brand new."""
+    from django.db.migrations.executor import MigrationExecutor
+
+    executor = MigrationExecutor(connection)
+    plan = executor.migration_plan(executor.loader.graph.leaf_nodes())
+    pending = [f"{m.app_label}.{m.name}" for m, backwards in plan if not backwards]
+    return pending, not executor.loader.applied_migrations
+
+
+def pre_migration_archive() -> Path | None:
+    """Back up before migrating an existing database (FR-BAK-4).
+
+    Runs at container start, before `migrate`, so it writes the archive only;
+    `record_archive()` adds the Backup row once the schema matches the code.
+    None when there is nothing to migrate or nothing yet to protect. Raises if
+    the backup cannot be written.
+    """
+    pending, fresh = pending_migrations()
+    if not pending or fresh:
+        return None
+    target = backup_dir() / _archive_name(Backup.Kind.PRE_UPDATE)
+    try:
+        write_archive(target, Backup.Kind.PRE_UPDATE, version=f"before {settings.APP_VERSION}")
+    except BaseException:
+        target.unlink(missing_ok=True)
+        raise
+    return target
+
+
+def record_archive(path: Path, kind: str) -> Backup:
+    """Register an archive written by `write_archive`, copy it off-site and prune."""
+    offbox, in_s3, copy_errors = _copy_offsite(path)
+    record = Backup.objects.create(
+        kind=kind,
+        status=Backup.Status.OK,
+        filename=path.name,
+        size=path.stat().st_size,
+        offbox=offbox,
+        s3=in_s3,
+        copy_error="\n".join(copy_errors),
+    )
+    audit.record(
+        "backup.create",
+        entity_type="system.backup",
+        entity_id=str(record.pk),
+        summary=f"{record.get_kind_display()} backup taken ({path.name})",
+    )
+    prune()
+    return record
+
+
 def create(kind: str = Backup.Kind.MANUAL) -> Backup:
     record = Backup.objects.create(kind=kind)
-    stamp = timezone.now().strftime("%Y%m%d-%H%M%S")
-    name = f"trammel-{stamp}-{kind}.tar.gz"
+    name = _archive_name(kind)
     target = backup_dir() / name
     try:
-        with tempfile.TemporaryDirectory() as tmp:
-            dump = Path(tmp) / "database.dump"
-            pg_dump = shutil.which(settings.PG_DUMP) or settings.PG_DUMP
-            subprocess.run(  # noqa: S603 — fixed argument list, no shell
-                [pg_dump, "--format=custom", "--no-owner", "--file", str(dump), *_pg_args()],
-                env=_pg_env(),
-                check=True,
-                capture_output=True,
-                timeout=3600,
-            )
-            manifest = {
-                "app": "trammel",
-                "version": settings.APP_VERSION,
-                "created_at": timezone.now().isoformat(),
-                "kind": kind,
-                "migrations": applied_migrations(),
-            }
-            (Path(tmp) / "manifest.json").write_text(
-                json.dumps(manifest, indent=2), encoding="utf-8"
-            )
-            with tarfile.open(target, "w:gz") as tar:
-                tar.add(Path(tmp) / "manifest.json", arcname="manifest.json")
-                tar.add(dump, arcname="database.dump")
-                media = Path(settings.MEDIA_ROOT)
-                for sub in ("blobs", "thumbs"):
-                    if (media / sub).exists():
-                        tar.add(media / sub, arcname=f"media/{sub}")
+        write_archive(target, kind)
     except (OSError, subprocess.SubprocessError) as exc:
         detail = exc.stderr.decode(errors="replace") if getattr(exc, "stderr", None) else str(exc)
         target.unlink(missing_ok=True)

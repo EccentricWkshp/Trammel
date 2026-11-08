@@ -66,7 +66,9 @@ HTTPS is required: the shop-floor app and camera QR scanning only work over it.
   with `docker compose exec app python manage.py backup`; restore with
   `docker compose exec app python manage.py restore /data/backups/<file>`.
 - **Updates**: the admin is told when a release is out. With Docker, update by
-  pulling: `docker compose pull && docker compose up -d`. Migrations run on start.
+  pulling: `docker compose pull && docker compose up -d`. Migrations run on start;
+  when an update brings any, the database is backed up first, and the app does not
+  start if that backup fails (`docker compose logs app` says why).
   The container never updates itself (that would need the Docker socket).
 - **Full export**: Settings → Backups and export → Build export gives every
   record as newline-delimited JSON plus every file, readable without Trammel.
