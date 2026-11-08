@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import datetime as dt
 import functools
+import warnings
 from decimal import Decimal
 
 from jinja2 import TemplateSyntaxError, Undefined
@@ -84,10 +85,20 @@ def render(source: str, context: dict, *, html: bool = True) -> str:
         raise TemplateProblem(str(exc)) from exc
 
 
+def _import_weasyprint():
+    # WeasyPrint warns at import about optional system libraries it will need in
+    # a later release; that notice says nothing about whether PDFs work now.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        import weasyprint
+
+    return weasyprint
+
+
 @functools.cache
 def pdf_available() -> bool:
     try:
-        import weasyprint  # noqa: F401
+        _import_weasyprint()
     except ImportError, OSError:
         return False
     return True
@@ -96,7 +107,7 @@ def pdf_available() -> bool:
 def render_pdf(html: str) -> bytes:
     """Render a full HTML document to PDF. External URLs are never fetched."""
     try:
-        import weasyprint
+        weasyprint = _import_weasyprint()
     except (ImportError, OSError) as exc:
         raise PdfUnavailable(
             "This server cannot make PDF files: WeasyPrint's system libraries are missing "
