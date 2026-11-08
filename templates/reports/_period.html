@@ -1,0 +1,7 @@
+<form method="get" class="filters">
+  <label>From <input type="date" name="start" value="{{ start|date:'Y-m-d' }}"></label>
+  <label>To <input type="date" name="end" value="{{ end|date:'Y-m-d' }}"></label>
+  {% if groups %}<label>By <select name="group">{% for v, l in groups %}<option value="{{ v }}"{% if group == v %} selected{% endif %}>{{ l }}</option>{% endfor %}</select></label>{% endif %}
+  <button type="submit">Show</button>
+  <a href="?{{ request.GET.urlencode }}{% if request.GET %}&amp;{% endif %}format=csv">Export CSV</a>
+</form>

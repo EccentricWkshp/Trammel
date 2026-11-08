@@ -1,0 +1,21 @@
+{% extends "floor/base.html" %}
+{% block content %}
+{% if running %}
+<a class="floor-card running" href="{% url 'floor:work_order' running.work_order.pk %}">
+  <strong>Timer running</strong> on {{ running.work_order.number }} since {{ running.started_at|t }}
+</a>
+{% endif %}
+<form method="get" action="{% url 'floor:find' %}" class="floor-find">
+  <label for="q">Work order number</label>
+  <div class="row"><input id="q" name="q" type="text" inputmode="text" autocapitalize="characters" placeholder="WO-2026-0001" required><button type="submit" class="primary">Open</button></div>
+</form>
+<h1>Active work</h1>
+<ul class="floor-list">
+{% for wo in active %}
+  <li><a class="floor-card" href="{% url 'floor:work_order' wo.pk %}">
+    <strong>{{ wo.number }}</strong> {{ wo.title }}<br>
+    <span class="muted">{{ wo.job.customer.name }} · {{ wo.get_status_display }}{% if wo.target_completion %} · target {{ wo.target_completion|date:"M j" }}{% endif %}</span>
+  </a></li>
+{% empty %}<li class="muted">No active work orders.</li>{% endfor %}
+</ul>
+{% endblock %}

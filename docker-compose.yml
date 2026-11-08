@@ -1,0 +1,88 @@
+# Trammel — proxy (Caddy, TLS), app, worker, database.
+#
+#   cp .env.example .env     # set SECRET_KEY, POSTGRES_PASSWORD, SITE_ADDRESS, BASE_URL
+#   docker compose up -d
+#
+# To build from this checkout instead of pulling the published image:
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+
+name: trammel
+
+x-app: &app
+  image: eccentricwkshp/trammel:${TRAMMEL_TAG:-latest}
+  restart: unless-stopped
+  env_file: [.env]
+  environment:
+    DATABASE_URL: postgresql://${POSTGRES_USER:-trammel}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-trammel}
+    MEDIA_ROOT: /data/media
+    BACKUP_DIR: /data/backups
+    STATIC_HASHED: "true"
+    # Only Caddy can reach the app, so its X-Real-IP header can be believed.
+    TRUST_PROXY_HEADERS: "true"
+  volumes:
+    - media-data:/data/media
+    - backup-data:/data/backups
+  depends_on:
+    db: {condition: service_healthy}
+
+services:
+  proxy:
+    image: eccentricwkshp/trammel-caddy:${TRAMMEL_TAG:-latest}
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+      - "${HTTPS_PORT:-443}:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./config/caddy:/etc/caddy/modes:ro
+      - ./config/caddy/certs:/etc/caddy/certs:ro
+      - ./config/caddy/dns:/etc/caddy/dns:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-trammel.home.arpa}
+      TLS_MODE: ${TLS_MODE:-internal}
+      HTTPS_PORT: ${HTTPS_PORT:-443}
+      BASE_URL: ${BASE_URL:-}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+      ACME_DNS_PROVIDER: ${ACME_DNS_PROVIDER:-}
+      ACME_DNS_TOKEN: ${ACME_DNS_TOKEN:-}
+      ACME_CA: ${ACME_CA:-https://acme-v02.api.letsencrypt.org/directory}
+    depends_on: [app]
+
+  app:
+    <<: *app
+    command: ["web"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+
+  worker:
+    <<: *app
+    command: ["worker"]
+
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-trammel}
+      POSTGRES_USER: ${POSTGRES_USER:-trammel}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    # Postgres 18 wants the volume one level above PGDATA.
+    volumes: [db-data:/var/lib/postgresql]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-trammel} -d ${POSTGRES_DB:-trammel}"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  db-data:
+  media-data:
+  backup-data:
+  caddy-data:
+  caddy-config:

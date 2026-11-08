@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Traveler {{ wo.number }}</title>
+<style>
+  @page {
+    size: letter; margin: 0.5in 0.5in 0.65in;
+    @bottom-left { content: "{{ wo.number }} · Job {{ job.number }} · Printed {{ printed_at|dt }}"; font: 8pt Arial, Helvetica, sans-serif; color: #444; }
+    @bottom-right { content: "Page " counter(page) " of " counter(pages); font: 8pt Arial, Helvetica, sans-serif; color: #444; }
+  }
+  * { box-sizing: border-box; }
+  html { background: #e8e8e8; }
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 10.5pt; line-height: 1.35; color: #000;
+         background: #fff; max-width: 8.5in; margin: 1rem auto; padding: 0.5in; }
+  @media print { html { background: none; } body { margin: 0; padding: 0; max-width: none; } }
+
+  header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16pt; padding-bottom: 8pt; border-bottom: 3pt solid #000; }
+  .shop { font-size: 9pt; text-transform: uppercase; letter-spacing: .08em; color: #333; }
+  .doc-label { font-size: 9pt; font-weight: bold; text-transform: uppercase; letter-spacing: .12em; margin-top: 6pt; }
+  h1 { font-size: 26pt; line-height: 1.1; margin: 0; letter-spacing: .02em; }
+  .title { font-size: 14pt; font-weight: bold; margin-top: 3pt; }
+  .qr { flex: none; width: 1.25in; text-align: center; }
+  .qr svg { width: 1.25in; height: 1.25in; display: block; }
+  .qr small { display: block; font-size: 7pt; color: #333; margin-top: 2pt; }
+
+  table { width: 100%; border-collapse: collapse; }
+  thead { display: table-header-group; }
+  tr { break-inside: avoid; page-break-inside: avoid; }
+
+  table.facts { margin: 10pt 0 4pt; table-layout: fixed; }
+  table.facts td { border: 1pt solid #000; padding: 4pt 6pt; vertical-align: top; }
+  table.facts .k { display: block; font-size: 7pt; text-transform: uppercase; letter-spacing: .06em; color: #333; }
+  table.facts .v { display: block; font-size: 11pt; font-weight: bold; }
+  .due .v { font-size: 13pt; }
+
+  h2 { font-size: 11pt; text-transform: uppercase; letter-spacing: .06em; margin: 14pt 0 5pt; padding-bottom: 2pt; border-bottom: 1.5pt solid #000; break-after: avoid; page-break-after: avoid; }
+  .instructions { border: 1pt solid #000; border-left-width: 4pt; padding: 6pt 8pt; white-space: pre-wrap; }
+
+  table.grid th { font-size: 7.5pt; text-transform: uppercase; letter-spacing: .05em; text-align: left; padding: 3pt 5pt; border-bottom: 1pt solid #000; background: #eee; }
+  table.grid td { padding: 6pt 5pt; border-bottom: .5pt solid #888; vertical-align: top; }
+  table.grid .num { width: 0.35in; font-weight: bold; text-align: center; }
+  table.grid .check { width: 0.45in; text-align: center; }
+  table.grid .write { width: 0.9in; border-left: .5pt solid #bbb; }
+  table.grid .qty { width: 0.9in; text-align: right; white-space: nowrap; }
+  .box { display: inline-block; width: 12pt; height: 12pt; border: 1.5pt solid #000; vertical-align: middle; text-align: center; line-height: 10pt; font-size: 10pt; font-weight: bold; }
+  .op-name { font-weight: bold; }
+  .op-desc { font-size: 9pt; color: #222; margin-top: 2pt; white-space: pre-wrap; }
+  .machine { font-size: 9pt; }
+  .done-by { font-size: 8pt; color: #333; }
+  .skipped .op-name { text-decoration: line-through; }
+
+  ul.prior { margin: 0 0 6pt; padding-left: 14pt; font-size: 9.5pt; }
+  ul.prior .meta { color: #444; font-size: 8.5pt; }
+  .lines div { height: 22pt; border-bottom: .5pt solid #888; }
+
+  table.signoff { margin-top: 16pt; break-inside: avoid; page-break-inside: avoid; }
+  table.signoff td { padding: 18pt 8pt 2pt 0; width: 25%; }
+  table.signoff .line { border-bottom: 1pt solid #000; height: 14pt; }
+  table.signoff .k { font-size: 7.5pt; text-transform: uppercase; letter-spacing: .05em; color: #333; padding-top: 2pt; }
+
+  .images { display: flex; flex-wrap: wrap; gap: 10pt; }
+  .images figure { margin: 0; width: 3.6in; break-inside: avoid; page-break-inside: avoid; }
+  .images img { width: 100%; border: .5pt solid #888; }
+  .images figcaption { font-size: 8pt; margin-top: 2pt; }
+  .muted { color: #555; }
+</style></head>
+<body>
+
+<header>
+  <div>
+    <div class="shop">{{ business.name }}</div>
+    <div class="doc-label">Work order traveler</div>
+    <h1>{{ wo.number }}</h1>
+    <div class="title">{{ wo.title }}</div>
+  </div>
+  <div class="qr" aria-label="QR code linking to this work order">{{ qr|safe }}<small>Scan for the shop-floor page</small></div>
+</header>
+
+<table class="facts">
+  <tr>
+    <td><span class="k">Customer</span><span class="v">{{ job.customer.name|default:"Walk-in" }}</span></td>
+    <td><span class="k">Job</span><span class="v">{{ job.number }}</span>{{ job.title }}</td>
+    <td class="due"><span class="k">Due</span><span class="v">{% if job.due_date %}{{ job.due_date|date:"D" }} {{ job.due_date|d }}{% else %}—{% endif %}</span></td>
+    <td><span class="k">Target completion</span><span class="v">{% if wo.target_completion %}{{ wo.target_completion|d }}{% else %}—{% endif %}</span></td>
+    <td><span class="k">Status</span><span class="v">{{ wo.get_status_display }}</span>{% if wo.waiting_on %}waiting on {{ wo.get_waiting_on_display|lower }}{% endif %}</td>
+  </tr>
+</table>
+
+{% if wo.instructions %}
+<h2>Instructions</h2>
+<div class="instructions">{{ wo.instructions }}</div>
+{% endif %}
+
+<h2>Operations</h2>
+<table class="grid">
+  <thead><tr><th class="num">#</th><th>Operation</th><th class="check">Done</th><th class="write">Initials</th><th class="write">Date</th></tr></thead>
+  <tbody>
+  {% for op in operations %}
+    <tr class="{{ op.status }}">
+      <td class="num">{{ forloop.counter }}</td>
+      <td>
+        <div class="op-name">{{ op.name }}</div>
+        {% if op.machine %}<div class="machine">Machine: {{ op.machine }}</div>{% endif %}
+        {% if op.description %}<div class="op-desc">{{ op.description }}</div>{% endif %}
+      </td>
+      <td class="check"><span class="box">{% if op.status == "done" %}✓{% elif op.status == "skipped" %}–{% endif %}</span></td>
+      <td class="write">{% if op.completed_by %}<span class="done-by">{{ op.completed_by.get_short_name }}</span>{% endif %}</td>
+      <td class="write">{% if op.completed_at %}<span class="done-by">{{ op.completed_at|md }}</span>{% endif %}</td>
+    </tr>
+  {% empty %}
+    {% for i in blank_rows %}<tr><td class="num">{{ forloop.counter }}</td><td>&nbsp;</td><td class="check"><span class="box"></span></td><td class="write"></td><td class="write"></td></tr>{% endfor %}
+  {% endfor %}
+  </tbody>
+</table>
+
+{% if planned %}
+<h2>Materials</h2>
+<table class="grid">
+  <thead><tr><th class="check">Pulled</th><th>Material</th><th class="qty">Planned</th><th class="write">Used</th></tr></thead>
+  <tbody>
+  {% for p in planned %}
+    <tr>
+      <td class="check"><span class="box"></span></td>
+      <td>{{ p.description }}</td>
+      <td class="qty">{% if p.quantity %}{{ p.quantity|floatformat:"-4" }} {{ p.get_unit_display }}{% endif %}</td>
+      <td class="write"></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<h2>Shop notes</h2>
+{% if notes %}
+<ul class="prior">{% for n in notes %}<li><span class="meta">{{ n.created_at|md }}{% if n.author %} · {{ n.author.get_short_name }}{% endif %}:</span> {{ n.text }}</li>{% endfor %}</ul>
+{% endif %}
+<div class="lines"><div></div><div></div><div></div><div></div><div></div></div>
+
+<table class="signoff">
+  <tr>
+    <td><div class="line"></div><div class="k">Completed by</div></td>
+    <td><div class="line"></div><div class="k">Date</div></td>
+    <td><div class="line"></div><div class="k">Checked by</div></td>
+    <td><div class="line"></div><div class="k">Date</div></td>
+  </tr>
+</table>
+
+{% if images %}
+<h2>Drawings and photos</h2>
+<div class="images">{% for img in images %}<figure><img src="{{ img.src }}" alt=""><figcaption>{{ img.title }}</figcaption></figure>{% endfor %}</div>
+{% endif %}
+
+</body></html>

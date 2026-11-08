@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% load trammel %}
+{% block title %}Products{% endblock %}
+{% block content %}
+<div class="heading-row">
+  <h1>Products</h1>
+  {% if can_edit %}<a class="button" href="{% url 'catalog:create' %}">New product</a>{% endif %}
+</div>
+<form method="get" class="filters" role="search">
+  <label>Search <input type="search" name="q" value="{{ q }}" placeholder="Name, SKU or description"></label>
+  <label class="choice"><input type="checkbox" name="inactive" value="1"{% if request.GET.inactive == "1" %} checked{% endif %}> Include inactive</label>
+  <button type="submit">Search</button>
+  <a href="{% url 'catalog:csv' %}?{{ query }}">Export CSV</a>
+</form>
+<div class="table-wrap">
+<table>
+  <thead><tr><th scope="col">Product</th><th scope="col">Type</th><th scope="col">Price</th><th scope="col">Tax category</th></tr></thead>
+  <tbody>
+  {% for p in page %}
+    <tr{% if not p.is_active %} class="inactive"{% endif %}>
+      <td>{% if can_edit %}<a href="{{ p.get_absolute_url }}">{{ p.name }}</a>{% else %}{{ p.name }}{% endif %}{% if p.sku %}<br><code class="muted">{{ p.sku }}</code>{% endif %}</td>
+      <td>{{ p.get_kind_display }}</td>
+      <td>{{ p.price|money }} / {{ p.get_unit_display }}</td>
+      <td>{{ p.tax_category|default:"Default" }}</td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="4" class="muted">No products{% if q %} match{% endif %}.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% include "partials/pagination.html" %}
+{% endblock %}

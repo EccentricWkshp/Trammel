@@ -1,0 +1,94 @@
+# Lint, tests against PostgreSQL, migration check, dependency audit and image
+# build on every push and pull request; publish multi-arch images on a release
+# tag (SPEC §4.1).
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: trammel
+          POSTGRES_USER: trammel
+          POSTGRES_PASSWORD: trammel-ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U trammel" --health-interval 2s
+          --health-timeout 3s --health-retries 15
+    env:
+      DATABASE_URL: postgresql://trammel:trammel-ci@localhost:5432/trammel
+      DEBUG: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - name: System libraries for PDF output
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpango-1.0-0 libpangoft2-1.0-0
+      - run: pip install -r requirements-dev.txt pip-audit
+      - name: Lint
+        run: |
+          ruff check .
+          ruff format --check trammel config tests
+      - name: Migrations are complete
+        run: python manage.py makemigrations --check --dry-run --settings=config.settings_test
+      - name: Tests
+        run: pytest -q
+      - name: Migrations apply cleanly to an empty database
+        run: python manage.py migrate --noinput
+      - name: Dependency vulnerabilities
+        run: pip-audit -r requirements.txt
+
+  image:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to Docker Hub
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - name: App image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: ${{ startsWith(github.ref, 'refs/tags/v') }}
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+            VCS_REF=${{ github.sha }}
+          tags: |
+            eccentricwkshp/trammel:${{ steps.version.outputs.version }}
+            eccentricwkshp/trammel:latest
+      - name: Caddy image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.caddy
+          platforms: linux/amd64,linux/arm64
+          push: ${{ startsWith(github.ref, 'refs/tags/v') }}
+          tags: |
+            eccentricwkshp/trammel-caddy:${{ steps.version.outputs.version }}
+            eccentricwkshp/trammel-caddy:latest

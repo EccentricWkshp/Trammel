@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Edit {{ wo.number }}{% endblock %}
+{% block main_class %}page narrow{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{{ wo.get_absolute_url }}">{{ wo.number }}</a></p>
+<h1>Edit {{ wo.number }}</h1>
+<form method="post" class="stack" novalidate>{% csrf_token %}
+  {% include "partials/form_body.html" %}
+  <div class="actions"><button type="submit" class="primary">Save</button> <a href="{{ wo.get_absolute_url }}">Cancel</a></div>
+</form>
+{% endblock %}

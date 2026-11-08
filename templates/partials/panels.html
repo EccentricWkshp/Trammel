@@ -1,0 +1,5 @@
+{% for panel in panels %}
+<section class="panel" aria-labelledby="panel-{{ forloop.counter }}">
+  {% with ctx=panel.context heading_id=forloop.counter %}{% include panel.template %}{% endwith %}
+</section>
+{% endfor %}

@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Set up two-factor sign-in{% endblock %}
+{% block main_class %}page narrow{% endblock %}
+{% block content %}
+<h1>Set up two-factor sign-in</h1>
+{% if required and not enabled %}<p class="message warning">Your role requires two-factor sign-in. Set it up to continue.</p>{% endif %}
+{% if enabled %}<p class="message">Two-factor sign-in is already on. Setting it up again replaces your current authenticator and recovery codes.</p>{% endif %}
+<ol>
+  <li>Install an authenticator app on your phone (for example, one from your phone's app store that supports “TOTP”).</li>
+  <li>Scan this code with it, or enter the key by hand.</li>
+  <li>Enter the 6-digit code the app shows.</li>
+</ol>
+<div class="qr-box" aria-label="QR code for your authenticator app">{{ qr|safe }}</div>
+<p>Key: <code>{{ secret }}</code></p>
+{% if error %}<div class="form-errors" role="alert"><p>{{ error }}</p></div>{% endif %}
+<form method="post" class="stack">{% csrf_token %}
+  <div><label for="code">Code from the app</label><input type="text" id="code" name="code" inputmode="numeric" autocomplete="one-time-code" required></div>
+  <button type="submit" class="primary">Turn on two-factor sign-in</button>
+</form>
+{% endblock %}

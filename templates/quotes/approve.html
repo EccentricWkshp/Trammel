@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% load trammel %}
+{% block title %}Approve {{ revision }}{% endblock %}
+{% block main_class %}page narrow{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{{ revision.get_absolute_url }}">{{ revision }}</a></p>
+<h1>Record approval of {{ revision }}</h1>
+<p>Total {{ revision.total|money }}{% if revision.deposit_amount %}; a deposit invoice for {{ revision.deposit_amount|money }} will be created{% endif %}.</p>
+{% if needs_agreement %}
+<aside class="callout warn"><p>This job's customer agreement has not been accepted. Approval covers the quote and the agreement, so confirm below that the customer accepted the terms — or waive the agreement on the job page first.</p></aside>
+{% endif %}
+<form method="post" class="stack" novalidate>
+  {% csrf_token %}
+  {% include "partials/form_body.html" %}
+  <div class="actions"><button type="submit" class="primary">Record approval</button> <a href="{{ revision.get_absolute_url }}">Cancel</a></div>
+</form>
+{% endblock %}

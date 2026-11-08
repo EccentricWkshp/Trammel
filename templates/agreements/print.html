@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Agreement {{ agreement.job.number }}</title>
+<style>
+  @page { size: letter; margin: 0.8in; }
+  body { font-family: sans-serif; font-size: 10.5pt; line-height: 1.45; color: #111; }
+  h1 { font-size: 16pt; margin: 0 0 4pt; }
+  .meta { color: #555; margin-bottom: 16pt; }
+  .text { white-space: pre-wrap; }
+  .accepted { margin-top: 24pt; border-top: 1px solid #999; padding-top: 8pt; }
+</style></head>
+<body>
+<h1>{{ business.name }} — Customer agreement</h1>
+<p class="meta">Job {{ agreement.job.number }}: {{ agreement.job.title }} · {{ agreement.job.customer.name }} · {{ agreement.template_version }}</p>
+<div class="text">{{ agreement.text }}</div>
+{% if agreement.status == "accepted" %}
+<p class="accepted">Accepted by {{ agreement.accepted_by_name }} on {{ agreement.accepted_at|date:"F j, Y" }} {{ agreement.accepted_at|t }} ({{ agreement.get_method_display|lower }}).</p>
+{% endif %}
+</body></html>

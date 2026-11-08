@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% load trammel %}
+{% block title %}Sales{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{% url 'reports:index' %}">Reports</a></p>
+<h1>Sales</h1>
+<p class="lede">Issued invoices dated in the period, before tax. Credit notes subtract; deposits count when the final invoice is issued.</p>
+{% with groups="customer:Customer,product:Product,month:Month" %}{% endwith %}
+<form method="get" class="filters">
+  <label>From <input type="date" name="start" value="{{ start|date:'Y-m-d' }}"></label>
+  <label>To <input type="date" name="end" value="{{ end|date:'Y-m-d' }}"></label>
+  <label>By <select name="group">
+    <option value="customer"{% if group == "customer" %} selected{% endif %}>Customer</option>
+    <option value="product"{% if group == "product" %} selected{% endif %}>Product / category</option>
+    <option value="month"{% if group == "month" %} selected{% endif %}>Month</option>
+  </select></label>
+  <button type="submit">Show</button>
+  <a href="?{{ request.GET.urlencode }}{% if request.GET %}&amp;{% endif %}format=csv">Export CSV</a>
+</form>
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">{{ group|capfirst }}</th><th scope="col" class="num">Sales</th></tr></thead>
+  <tbody>{% for name, amount in rows %}<tr><td>{{ name }}</td><td class="num">{{ amount|money }}</td></tr>{% empty %}<tr><td colspan="2" class="muted">No sales in this period.</td></tr>{% endfor %}
+  {% if rows %}<tr><th scope="row">Total</th><td class="num"><strong>{{ total|money }}</strong></td></tr>{% endif %}</tbody>
+</table></div>
+{% endblock %}

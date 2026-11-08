@@ -1,0 +1,29 @@
+{% extends "settings_base.html" %}
+{% block title %}Vendors{% endblock %}
+{% block settings_content %}
+<div class="heading-row"><h1>Vendors</h1>{% if can_edit %}<a class="button" href="{% url 'shop:vendor_create' %}">Add vendor</a>{% endif %}</div>
+<p class="lede">Who you buy materials from. Link materials to a vendor on the materials price list.</p>
+<form method="get" class="filters" role="search">
+  <label>Search <input type="search" name="q" value="{{ q }}"></label>
+  <button type="submit">Filter</button>
+</form>
+<div class="table-wrap">
+<table>
+  <thead><tr><th scope="col">Vendor</th><th scope="col">Contact</th><th scope="col">Account</th><th scope="col">Terms</th><th scope="col" class="num">Lead time</th><th scope="col" class="num">Materials</th></tr></thead>
+  <tbody>
+  {% for v in vendors %}
+    <tr{% if not v.is_active %} class="inactive"{% endif %}>
+      <td>{% if can_edit %}<a href="{{ v.get_absolute_url }}">{{ v }}</a>{% else %}{{ v }}{% endif %}{% if v.website %}<br><a class="small" href="{{ v.website }}" target="_blank" rel="noopener noreferrer">Website</a>{% endif %}</td>
+      <td>{{ v.contact_name }}{% if v.phone %}<br><span class="muted">{{ v.phone }}</span>{% endif %}{% if v.email %}<br><a class="small" href="mailto:{{ v.email }}">{{ v.email }}</a>{% endif %}</td>
+      <td>{{ v.account_number }}</td>
+      <td>{{ v.payment_terms }}</td>
+      <td class="num">{% if v.lead_time_days is not None %}{{ v.lead_time_days }} day{{ v.lead_time_days|pluralize }}{% endif %}</td>
+      <td class="num">{{ v.material_count }}</td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="6" class="muted">No vendors{% if q %} match{% else %} yet{% endif %}.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

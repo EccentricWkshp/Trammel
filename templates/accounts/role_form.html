@@ -1,0 +1,17 @@
+{% extends "settings_base.html" %}
+{% block title %}{% if role.pk %}{{ role }}{% else %}Add role{% endif %}{% endblock %}
+{% block settings_content %}
+<h1>{% if role.pk %}{{ role }}{% else %}Add role{% endif %}</h1>
+<form method="post" class="stack permissions-form" novalidate>
+  {% csrf_token %}
+  {% include "partials/form_body.html" %}
+  <div class="actions"><button type="submit" class="primary">Save</button> <a href="{% url 'accounts:roles' %}">Cancel</a></div>
+</form>
+{% if role.pk %}
+<form method="post" action="{% url 'accounts:role_delete' role.pk %}" class="danger-zone">
+  {% csrf_token %}
+  <p>Deleting a role removes it from {{ role.users.count }} user{{ role.users.count|pluralize }}.</p>
+  <button type="submit" class="danger">Delete role</button>
+</form>
+{% endif %}
+{% endblock %}

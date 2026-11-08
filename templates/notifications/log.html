@@ -1,0 +1,12 @@
+{% extends "settings_base.html" %}
+{% block title %}Email log{% endblock %}
+{% block settings_content %}
+<h1>Email log</h1>
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">When</th><th scope="col">Event</th><th scope="col">To</th><th scope="col">Subject</th><th scope="col">Status</th></tr></thead>
+  <tbody>{% for e in page %}
+    <tr><td>{{ e.at|dt }}</td><td><code>{{ e.event }}</code></td><td>{{ e.to }}</td><td>{{ e.subject }}</td><td>{{ e.get_status_display }}{% if e.detail %}<br><span class="muted">{{ e.detail|truncatechars:160 }}</span>{% endif %}</td></tr>
+  {% empty %}<tr><td colspan="5" class="muted">No email yet.</td></tr>{% endfor %}</tbody>
+</table></div>
+{% include "partials/pagination.html" %}
+{% endblock %}

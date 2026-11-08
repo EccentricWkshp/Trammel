@@ -1,0 +1,52 @@
+{% load static trammel %}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{% endblock %}{% if business %} · {{ business.name }}{% endif %} · Trammel</title>
+  <link rel="stylesheet" href="{% static 'trammel.css' %}">
+  <script src="{% static 'trammel.js' %}" defer></script>
+  {% block head %}{% endblock %}
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+{% if user.is_authenticated %}
+<header class="topbar">
+  <a class="brand" href="{% url 'core:dashboard' %}">{{ business.name|default:"Trammel" }}</a>
+  <nav class="mainnav" aria-label="Main">
+    <ul>
+      {% for item in main_menu %}
+        <li><a href="{{ item.url }}"{% if item.url == active_main_url %} aria-current="page"{% endif %}>{{ item.label }}</a></li>
+      {% endfor %}
+    </ul>
+  </nav>
+  <form method="get" action="{% url 'core:search' %}" class="topsearch" role="search">
+    <input type="search" name="q" placeholder="Search" aria-label="Search everything" value="{{ request.GET.q|default:'' }}">
+  </form>
+  <details class="usermenu">
+    <summary>{{ user.get_short_name }}</summary>
+    <ul>
+      <li><a href="{% url 'accounts:profile' %}">Profile</a></li>
+      {% if admin_menu %}<li><a href="{% url 'core:settings' %}">Settings</a></li>{% endif %}
+      <li>
+        <form method="post" action="{% url 'accounts:logout' %}">{% csrf_token %}
+          <button type="submit" class="linklike">Sign out</button>
+        </form>
+      </li>
+    </ul>
+  </details>
+</header>
+{% endif %}
+<main id="main" class="{% block main_class %}page{% endblock %}">
+  {% if notices or messages %}
+  {# One container: on two-column pages it spans the full width above both columns. #}
+  <div class="messages" role="status">
+    {% for n in notices %}<p class="message {{ n.level }} notice">{{ n.text }}{% if n.url %} <a href="{{ n.url }}">Details</a>{% endif %}</p>{% endfor %}
+    {% for message in messages %}<p class="message {{ message.tags }}">{{ message }}</p>{% endfor %}
+  </div>
+  {% endif %}
+  {% block content %}{% endblock %}
+</main>
+<footer class="footer">Trammel {{ app_version }}</footer>
+</body>
+</html>

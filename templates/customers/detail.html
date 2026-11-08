@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% load files %}
+{% block title %}{{ customer.name }}{% endblock %}
+{% block content %}
+<header class="record-header">
+  <div class="record-title">
+    <p class="breadcrumb"><a href="{% url 'customers:list' %}">Customers</a></p>
+    <h1>{{ customer.name }}{% if customer.is_placeholder %} <span class="badge">placeholder</span>{% endif %}{% if customer.tax_exempt %} <span class="badge">tax exempt</span>{% endif %}</h1>
+    <dl class="facts-inline">
+      {% if customer.company and customer.company != customer.name %}<div><dt>Company</dt><dd>{{ customer.company }}</dd></div>{% endif %}
+      {% if customer.email %}<div><dt>Email</dt><dd><a href="mailto:{{ customer.email }}">{{ customer.email }}</a></dd></div>{% endif %}
+      {% if customer.phone %}<div><dt>Phone</dt><dd><a href="tel:{{ customer.phone }}">{{ customer.phone }}</a></dd></div>{% endif %}
+      <div><dt>Terms</dt><dd>{{ terms }} days</dd></div>
+    </dl>
+  </div>
+  <div class="actions">
+    {% if perms.jobs.create %}<a class="button primary" href="{% url 'jobs:create' %}?customer={{ customer.pk }}">New job</a>{% endif %}
+    {% if can_edit %}<a class="button" href="{% url 'customers:edit' customer.pk %}">Edit</a>{% endif %}
+    {% if can_delete %}<a href="{% url 'customers:delete' customer.pk %}">Delete</a>{% endif %}
+  </div>
+</header>
+
+{% include "partials/tabs.html" %}
+
+<div class="tab-body">
+{% if tab == "overview" %}
+  <div class="overview-grid">
+    <section class="card" aria-labelledby="details-heading">
+      <h2 id="details-heading">Details</h2>
+      <dl class="facts">
+        <dt>Type</dt><dd>{{ customer.get_kind_display }}</dd>
+        <dt>Payment terms</dt><dd>{{ terms }} days{% if customer.payment_terms_days is None %} <span class="muted">(business default)</span>{% endif %}</dd>
+        <dt>Tax</dt><dd>{% if customer.tax_exempt %}Exempt — {{ customer.tax_exempt_number }}{% if customer.tax_exempt_expires %}, expires {{ customer.tax_exempt_expires|d }}{% endif %}{% else %}Taxable{% endif %}</dd>
+      </dl>
+      {% if customer.notes %}<h3>Notes</h3><p class="prewrap">{{ customer.notes }}</p>{% endif %}
+    </section>
+
+    <section class="card" aria-labelledby="contacts-heading">
+      <div class="card-heading"><h2 id="contacts-heading">Contacts</h2>{% if can_edit %}<a href="{% url 'customers:child_create' customer.pk 'contact' %}">Add</a>{% endif %}</div>
+      {% for c in contacts %}
+      <div class="item">
+        <strong>{{ c.name }}</strong>{% if c.is_primary %} <span class="badge">primary</span>{% endif %}{% if c.role %} <span class="muted">· {{ c.role }}</span>{% endif %}
+        {% if c.email %}<br><a href="mailto:{{ c.email }}">{{ c.email }}</a>{% endif %}
+        {% if c.phone %}<br><a href="tel:{{ c.phone }}">{{ c.phone }}</a>{% endif %}
+        {% if c.notes %}<br><span class="muted">{{ c.notes }}</span>{% endif %}
+        {% if can_edit %}
+        <div class="row-actions">
+          <a href="{% url 'customers:child_edit' customer.pk 'contact' c.pk %}">Edit</a>
+          <form method="post" action="{% url 'customers:child_delete' customer.pk 'contact' c.pk %}" class="inline">{% csrf_token %}<button type="submit" class="linklike">Remove</button></form>
+        </div>
+        {% endif %}
+      </div>
+      {% empty %}<p class="muted">No contacts.</p>{% endfor %}
+    </section>
+
+    <section class="card" aria-labelledby="addresses-heading">
+      <div class="card-heading"><h2 id="addresses-heading">Addresses</h2>{% if can_edit %}<a href="{% url 'customers:child_create' customer.pk 'address' %}">Add</a>{% endif %}</div>
+      {% for a in addresses %}
+      <div class="item">
+        <strong>{{ a.label|default:"Address" }}</strong>
+        {% if a.is_default_billing %}<span class="badge">billing</span>{% endif %}
+        {% if a.is_default_shipping %}<span class="badge">shipping</span>{% endif %}
+        <address>{% for line in a.lines %}{{ line }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</address>
+        {% if can_edit %}
+        <div class="row-actions">
+          <a href="{% url 'customers:child_edit' customer.pk 'address' a.pk %}">Edit</a>
+          <form method="post" action="{% url 'customers:child_delete' customer.pk 'address' a.pk %}" class="inline">{% csrf_token %}<button type="submit" class="linklike">Remove</button></form>
+        </div>
+        {% endif %}
+      </div>
+      {% empty %}<p class="muted">No addresses.</p>{% endfor %}
+    </section>
+  </div>
+  {% include "partials/panels.html" with panels=overview_panels %}
+{% elif tab == "files" %}
+  {% attachments customer %}
+{% else %}
+  {% include "partials/panels.html" with panels=tab_panels %}
+{% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,31 @@
+<div class="heading-row">
+  <h2 id="panel-{{ heading_id }}">Customer agreement</h2>
+  {% if ctx.can_manage and not ctx.accepted %}
+  <form method="post" action="{% url 'agreements:issue' job.pk %}" class="inline">{% csrf_token %}
+    <button type="submit">{% if ctx.agreements %}Reissue from current template{% else %}Issue agreement{% endif %}</button>
+  </form>
+  {% endif %}
+</div>
+{% if ctx.accepted %}
+  <p><span class="status status-completed">Accepted</span> by {{ ctx.accepted.accepted_by_name }} on {{ ctx.accepted.accepted_at|d }} — {{ ctx.accepted.get_method_display|lower }}.
+  <a href="{{ ctx.accepted.get_absolute_url }}">View the accepted text</a></p>
+{% elif ctx.waiver %}
+  <p><span class="status status-on_hold">Waived</span> for this job: {{ ctx.waiver.reason }}
+  {% if ctx.can_manage %}<form method="post" action="{% url 'agreements:waive' job.pk %}" class="inline">{% csrf_token %}<input type="hidden" name="undo" value="1"><button type="submit" class="linklike">Require it again</button></form>{% endif %}</p>
+{% elif not ctx.required %}
+  <p class="muted">Agreements are not required before work starts (business setting).</p>
+{% else %}
+  <p class="muted">Work cannot start until the agreement is accepted or waived.</p>
+{% endif %}
+{% for a in ctx.agreements %}{% if a.status == "issued" %}
+  <p>Issued {{ a.issued_at|d }} from {{ a.template_version }} — <a href="{{ a.get_absolute_url }}">view</a>
+  {% if ctx.can_manage %} · <a href="{% url 'agreements:accept' a.pk %}">Record acceptance</a>{% endif %}</p>
+{% endif %}{% endfor %}
+{% if ctx.can_manage and ctx.required and not ctx.accepted and not ctx.waiver %}
+<details><summary>Waive for this job</summary>
+  <form method="post" action="{% url 'agreements:waive' job.pk %}" class="transition">{% csrf_token %}
+    <label for="waive-reason">Reason</label><input type="text" id="waive-reason" name="reason" required>
+    <button type="submit">Waive</button>
+  </form>
+</details>
+{% endif %}

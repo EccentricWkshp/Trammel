@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% load files %}
+{% block title %}{{ job.number }}{% endblock %}
+{% block content %}
+<header class="record-header">
+  <div class="record-title">
+    <p class="breadcrumb"><a href="{% url 'jobs:list' %}">Jobs</a> · <a href="{{ job.customer.get_absolute_url }}">{{ job.customer.name }}</a>{% if job.customer.is_placeholder %} <span class="badge">placeholder</span>{% endif %}</p>
+    <h1>{{ job.number }} · {{ job.title }}</h1>
+    <p class="status-line">
+      <span class="status status-{{ job.status }}">{{ job.get_status_display }}</span>
+      {% if job.status == "on_hold" and job.held_from %}<span class="muted">(from {{ job.held_from_label|lower }})</span>{% endif %}
+      {% if job.force_closed_at %}<span class="badge warn">force-closed {{ job.force_closed_at|d }}</span>{% endif %}
+      {% for level, message in flags %}<span class="flag flag-{{ level }}">{{ message }}</span>{% endfor %}
+    </p>
+    <dl class="facts-inline">
+      <div><dt>Due</dt><dd>{{ job.due_date|d|default:"—" }}</dd></div>
+      <div><dt>Promised</dt><dd>{{ job.promised_date|d|default:"—" }}</dd></div>
+      <div><dt>Target</dt><dd>{{ job.target_completion|d|default:"—" }}</dd></div>
+      <div><dt>Delivery</dt><dd>{% if job.delivery_actual %}{{ job.delivery_actual|d }} (done){% elif job.delivery_planned %}{{ job.delivery_planned|d }}{% else %}—{% endif %}</dd></div>
+    </dl>
+  </div>
+  <div class="actions">
+    {% if can_edit %}<a class="button" href="{% url 'jobs:edit' job.pk %}">Edit</a>{% endif %}
+    {% if can_create %}
+    <form method="post" action="{% url 'jobs:duplicate' job.pk %}" class="inline">{% csrf_token %}<button type="submit">Duplicate</button></form>
+    {% endif %}
+    {% if can_delete %}<a href="{% url 'jobs:delete' job.pk %}">Delete</a>{% endif %}
+  </div>
+</header>
+
+{% if actions or can_force %}
+<section class="lifecycle" aria-label="Status actions">
+  {% for t in actions %}
+  <form method="post" action="{% url 'jobs:transition' job.pk %}" class="transition{% if t.requires_reason %} with-reason{% endif %}">
+    {% csrf_token %}
+    <input type="hidden" name="target" value="{{ t.target }}">
+    {% if t.requires_reason %}
+      <label for="reason-{{ forloop.counter }}">Reason for “{{ t.label }}”</label>
+      <input type="text" id="reason-{{ forloop.counter }}" name="reason" required>
+    {% endif %}
+    <button type="submit"{% if t.kind == "forward" and not t.requires_reason %} class="primary"{% endif %}>{{ t.label }}</button>
+  </form>
+  {% endfor %}
+  {% if can_force %}<a class="danger-link" href="{% url 'jobs:force_close' job.pk %}">Force closeout…</a>{% endif %}
+</section>
+{% endif %}
+
+{% include "partials/tabs.html" %}
+
+<div class="tab-body">
+{% if tab == "overview" %}
+  <div class="overview-grid">
+    <section class="card" aria-labelledby="scope-heading">
+      <h2 id="scope-heading">Scope</h2>
+      {% if job.description %}<p class="prewrap">{{ job.description }}</p>{% else %}<p class="muted">No scope written yet.{% if can_edit %} <a href="{% url 'jobs:edit' job.pk %}">Add it</a>.{% endif %}</p>{% endif %}
+      <dl class="facts">
+        <dt>Customer</dt><dd><a href="{{ job.customer.get_absolute_url }}">{{ job.customer.name }}</a>{% if job.customer.is_placeholder %} <span class="muted">— edit the job to set the real customer</span>{% endif %}</dd>
+        {% if job.tags %}<dt>Tags</dt><dd>{% for t in job.tags %}<a class="badge" href="{% url 'jobs:list' %}?status=all&amp;tag={{ t|urlencode }}">{{ t }}</a> {% endfor %}</dd>{% endif %}
+        <dt>Created</dt><dd>{{ job.created_at|d }}</dd>
+      </dl>
+    </section>
+    {% for panel in overview_panels %}
+    <section class="card" aria-labelledby="panel-{{ forloop.counter }}">
+      {% with ctx=panel.context heading_id=forloop.counter %}{% include panel.template %}{% endwith %}
+    </section>
+    {% endfor %}
+  </div>
+{% elif tab == "files" %}
+  {% attachments job %}
+{% elif tab == "history" %}
+  <ol class="timeline">
+  {% for e in timeline %}
+    <li>
+      <time datetime="{{ e.at|date:'c' }}">{{ e.at|dt }}</time>
+      <span>{{ e.actor_label }}</span> — {{ e.summary }}
+      {% if e.reason %}<br><em>Reason: {{ e.reason }}</em>{% endif %}
+      {% if e.action == "update" %}
+        <dl class="diff">{% for field, old, new in e.changes %}<dt>{{ field }}</dt><dd>{% if old is not None %}<del>{{ old }}</del> → {% endif %}<ins>{{ new|default_if_none:"—" }}</ins></dd>{% endfor %}</dl>
+      {% endif %}
+    </li>
+  {% empty %}<li class="muted">No history.</li>{% endfor %}
+  </ol>
+{% else %}
+  {% include "partials/panels.html" with panels=tab_panels %}
+{% endif %}
+</div>
+{% endblock %}

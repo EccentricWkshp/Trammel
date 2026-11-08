@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Reports{% endblock %}
+{% block content %}
+<h1>Reports</h1>
+<p class="lede">Every report exports to CSV.</p>
+<ul class="cards">
+  {% if perms.core.see_costs %}<li><a class="card" href="{% url 'reports:profitability' %}"><h2>Job profitability</h2><p class="muted">Quoted versus actual, by job, over a period.</p></a></li>{% endif %}
+  <li><a class="card" href="{% url 'reports:sales' %}"><h2>Sales</h2><p class="muted">By period, customer or product.</p></a></li>
+  <li><a class="card" href="{% url 'reports:aging' %}"><h2>Receivables aging</h2><p class="muted">What customers owe, by how overdue.</p></a></li>
+  <li><a class="card" href="{% url 'reports:tax' %}"><h2>Tax</h2><p class="muted">Sales tax by jurisdiction; gross receipts tax basis by classification; bad-debt deduction.</p></a></li>
+  <li><a class="card" href="{% url 'reports:time' %}"><h2>Time</h2><p class="muted">By person, machine or job; machine utilization.</p></a></li>
+  <li><a class="card" href="{% url 'reports:force_closed' %}"><h2>Force-closed jobs and write-offs</h2><p class="muted">For review, with reasons and what was outstanding.</p></a></li>
+</ul>
+{% endblock %}

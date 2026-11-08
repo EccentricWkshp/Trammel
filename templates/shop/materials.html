@@ -1,0 +1,35 @@
+{% extends "settings_base.html" %}
+{% load trammel %}
+{% block title %}Materials{% endblock %}
+{% block settings_content %}
+<div class="heading-row"><h1>Materials price list</h1>{% if can_edit %}<a class="button" href="{% url 'shop:material_create' %}">Add material</a>{% endif %}</div>
+<p class="lede">What materials cost you, per unit. Quotes price materials from this list, plus markup. Give sheet goods their sheet size so they can be priced by area.</p>
+<form method="get" class="filters" role="search">
+  <label>Search <input type="search" name="q" value="{{ q }}"></label>
+  <label>Category
+    <select name="category"><option value="">Any</option>
+      {% for value, label in categories %}<option value="{{ value }}"{% if value == category %} selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </label>
+  <button type="submit">Filter</button>
+</form>
+<div class="table-wrap">
+<table>
+  <thead><tr><th scope="col">Material</th><th scope="col">Category</th><th scope="col">Vendor</th><th scope="col">Cost</th><th scope="col">Markup</th><th scope="col">Sheet size</th></tr></thead>
+  <tbody>
+  {% for m in materials %}
+    <tr{% if not m.is_active %} class="inactive"{% endif %}>
+      <td>{% if can_edit %}<a href="{{ m.get_absolute_url }}">{{ m }}</a>{% else %}{{ m }}{% endif %}{% if m.sku %}<br><span class="muted">{{ m.sku }}</span>{% endif %}</td>
+      <td>{{ m.get_category_display }}</td>
+      <td>{% if m.vendor %}{% if can_edit %}<a href="{{ m.vendor.get_absolute_url }}">{{ m.vendor }}</a>{% else %}{{ m.vendor }}{% endif %}{% endif %}{% if m.url %}{% if m.vendor %}<br>{% endif %}<a class="small" href="{{ m.url }}" target="_blank" rel="noopener noreferrer">Product page</a>{% endif %}</td>
+      <td>{{ m.unit_cost|money }} / {{ m.get_unit_display }}</td>
+      <td>{% if m.markup is not None %}{{ m.markup|floatformat:"-3" }}%{% else %}<span class="muted">default</span>{% endif %}</td>
+      <td>{% if m.sheet_width %}{{ m.sheet_width|floatformat:"-3" }} × {{ m.sheet_length|floatformat:"-3" }} {{ m.sheet_dimension_unit }}{% endif %}</td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="6" class="muted">No materials{% if q or category %} match{% else %} yet{% endif %}.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

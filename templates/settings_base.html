@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block main_class %}page with-sidebar{% endblock %}
+{% block content %}
+<nav class="sidebar" aria-label="Settings">
+  {% regroup admin_menu by group as groups %}
+  {% for g in groups %}
+  <h2>{{ g.grouper }}</h2>
+  <ul>
+    {% for item in g.list %}
+      <li><a href="{{ item.url }}"{% if item.url == active_admin_url %} aria-current="page"{% endif %}>{{ item.label }}</a></li>
+    {% endfor %}
+  </ul>
+  {% endfor %}
+</nav>
+<div class="content">
+  {% block settings_content %}{% endblock %}
+</div>
+{% endblock %}

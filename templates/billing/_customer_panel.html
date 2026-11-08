@@ -1,0 +1,15 @@
+{% load trammel %}
+<div class="heading-row">
+  <h2 id="panel-{{ heading_id }}">Invoices and payments</h2>
+  <div class="actions">
+    {% if ctx.can_pay %}<a class="button" href="{% url 'billing:customer_payment' customer.pk %}">Record payment</a>{% endif %}
+    {% if ctx.can_sell %}<form method="post" action="{% url 'billing:create' %}" class="inline">{% csrf_token %}<input type="hidden" name="customer" value="{{ customer.pk }}"><button type="submit">New sale</button></form>{% endif %}
+  </div>
+</div>
+<dl class="facts"><dt>Balance due</dt><dd>{{ ctx.balance|money }}</dd>{% if ctx.credit %}<dt>Credit on account</dt><dd>{{ ctx.credit|money }}</dd>{% endif %}</dl>
+{% if ctx.invoices %}
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Invoice</th><th scope="col">Date</th><th scope="col">Status</th><th scope="col" class="num">Balance</th></tr></thead>
+  <tbody>{% for i in ctx.invoices %}<tr><td><a href="{{ i.get_absolute_url }}">{{ i }}</a> <span class="muted">{{ i.get_kind_display }}</span></td><td>{{ i.invoice_date|d }}</td><td>{{ i.get_status_display }}</td><td class="num">{{ i.balance|money }}</td></tr>{% endfor %}</tbody>
+</table></div>
+{% else %}<p class="muted">No invoices.</p>{% endif %}

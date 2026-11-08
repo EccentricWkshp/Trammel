@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% load trammel %}
+{% block title %}Tax report{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{% url 'reports:index' %}">Reports</a></p>
+<h1>Tax report</h1>
+<p class="lede">Issued invoices dated in the period, grouped by the location code stored on each invoice. Credit notes subtract. Deposits are counted on the final invoice. This is a working summary for filing — check it against your state's return.</p>
+{% include "reports/_period.html" %}
+<h2>Sales tax collected, by jurisdiction</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Location</th><th scope="col" class="num">Invoices</th><th scope="col" class="num">Gross</th><th scope="col" class="num">Taxable</th><th scope="col" class="num">Exempt / not taxed</th><th scope="col" class="num">Tax collected</th></tr></thead>
+  <tbody>
+  {% for r in rows %}<tr><td><code>{{ r.code }}</code>{% if r.flagged %} <span class="badge warn">{{ r.flagged }} chosen by hand</span>{% endif %}</td><td class="num">{{ r.invoices }}</td><td class="num">{{ r.gross|money }}</td><td class="num">{{ r.taxable|money }}</td><td class="num">{{ r.exempt|money }}</td><td class="num">{{ r.tax|money }}</td></tr>
+  {% empty %}<tr><td colspan="6" class="muted">No invoices in this period.</td></tr>{% endfor %}
+  {% if rows %}<tr><th scope="row">Total</th><td></td><td class="num">{{ totals.gross|money }}</td><td class="num">{{ totals.taxable|money }}</td><td class="num">{{ totals.exempt|money }}</td><td class="num"><strong>{{ totals.tax|money }}</strong></td></tr>{% endif %}
+  </tbody>
+</table></div>
+{% if components %}
+<h3>By rate component</h3>
+<ul>{% for c in components %}<li>{{ c.name }} ({{ c.code }}): {{ c.tax|money }} on {{ c.base|money }}</li>{% endfor %}</ul>
+{% endif %}
+
+<h2>Gross receipts tax basis, by classification</h2>
+<p class="muted">Never shown on invoices. Estimated tax uses gross receipts rates entered under Settings → Tax.</p>
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Classification</th><th scope="col" class="num">Basis</th><th scope="col" class="num">Rate</th><th scope="col" class="num">Estimated tax</th></tr></thead>
+  <tbody>{% for b in bo %}<tr><td>{{ b.classification }}</td><td class="num">{{ b.basis|money }}</td><td class="num">{% if b.rate is not None %}{{ b.rate|floatformat:"-4" }}%{% else %}—{% endif %}</td><td class="num">{% if b.tax is not None %}{{ b.tax|money }}{% else %}—{% endif %}</td></tr>{% empty %}<tr><td colspan="4" class="muted">No sales in this period.</td></tr>{% endfor %}</tbody>
+</table></div>
+
+<h2>Bad-debt deduction</h2>
+<p>Written off in the period: <strong>{{ bad_debt|money }}</strong></p>
+{% if write_offs %}<ul>{% for w in write_offs %}<li>{{ w.written_off_on|d }} — {{ w.invoice }}: {{ w.amount|money }} ({{ w.reason }})</li>{% endfor %}</ul>{% endif %}
+{% endblock %}

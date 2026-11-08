@@ -1,0 +1,29 @@
+{% extends "settings_base.html" %}
+{% load files %}
+{% block title %}{{ title }}{% endblock %}
+{% block settings_content %}
+<h1>{{ title }}</h1>
+<form method="post" class="stack" novalidate>
+  {% csrf_token %}
+  {% include "partials/form_body.html" %}
+  <div class="actions">
+    <button type="submit" class="primary">Save</button>
+    <a href="{% url back %}">Cancel</a>
+  </div>
+</form>
+{% if form.instance.pk %}
+<section class="panel" aria-labelledby="supplies-heading">
+  <div class="heading-row"><h2 id="supplies-heading">Materials from {{ form.instance }}</h2>
+    <a class="button" href="{% url 'shop:material_create' %}?vendor={{ form.instance.pk }}">Add material</a></div>
+  {% if materials %}
+  <div class="table-wrap"><table>
+    <thead><tr><th scope="col">Material</th><th scope="col">Part number</th><th scope="col" class="num">Cost</th></tr></thead>
+    <tbody>{% for m in materials %}
+      <tr{% if not m.is_active %} class="inactive"{% endif %}><td><a href="{{ m.get_absolute_url }}">{{ m }}</a></td><td>{{ m.sku }}</td><td class="num">{{ m.unit_cost|money }} / {{ m.get_unit_display }}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% else %}<p class="muted">No materials are linked to this vendor yet.</p>{% endif %}
+</section>
+<div class="panel">{% attachments form.instance "Price lists, quotes and files" %}</div>
+{% endif %}
+{% endblock %}

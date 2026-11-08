@@ -1,0 +1,18 @@
+# Trammel — runtime dependencies.
+# Python 3.14+ is required: primary keys use uuid.uuid7() from the stdlib.
+
+Django>=6.1,<6.2
+django-ninja>=1.7            # REST + OpenAPI 3.1 (SPEC §4.1)
+psycopg[binary]>=3.2         # PostgreSQL is the only supported database (SPEC §3.5)
+argon2-cffi>=25.1            # Argon2id password hashing (SPEC §9)
+python-dotenv>=1.2
+whitenoise>=6.8              # serves /static/ from the app; Caddy only proxies
+Babel>=2.18                  # currency exponents and formatting (SPEC §4.4)
+Jinja2>=3.1                  # sandboxed user-authored templates (FR-QUO-5, FR-AGR-1)
+Pillow>=12.0                 # thumbnails, EXIF GPS stripping (FR-DOC-4, FR-DOC-6)
+pypdfium2>=4.30              # PDF thumbnails; bundles PDFium, no system packages
+qrcode>=8.0                  # traveler and label QR codes, as SVG (FR-WO-4)
+cryptography>=43.0           # Fernet encryption of stored credentials (SPEC §9)
+# HTML/CSS -> PDF (SPEC §4.1). Needs Pango, which the Docker image installs.
+# Without it, PDF output reports itself unavailable and nothing else breaks.
+weasyprint>=66

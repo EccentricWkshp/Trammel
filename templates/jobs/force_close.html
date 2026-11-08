@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Force closeout {{ job.number }}{% endblock %}
+{% block main_class %}page narrow{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{% url 'jobs:list' %}">Jobs</a> › <a href="{{ job.get_absolute_url }}">{{ job.number }}</a></p>
+<h1>Force closeout of {{ job.number }}</h1>
+<aside class="callout warn">
+  <p>This closes the job even though its closeout checks do not pass. Use it to clean up the books when something has gone wrong. The job will carry a <strong>force-closed</strong> marker and appear in the force-closed jobs report. It can be reopened later.</p>
+</aside>
+
+{% if errors %}<div class="form-errors" role="alert">{% for e in errors %}<p>{{ e }}</p>{% endfor %}</div>{% endif %}
+
+<form method="post" class="stack">
+  {% csrf_token %}
+  <h2>Checks that are failing</h2>
+  {% if failing %}<ul>{% for p in failing %}<li>{{ p }}</li>{% endfor %}</ul>{% else %}<p class="muted">None — a normal closeout may be possible from the job's current state.</p>{% endif %}
+
+  <h2>Outstanding items</h2>
+  {% if items %}
+    {% for item in items %}
+    <fieldset>
+      <legend>{{ item.label }}</legend>
+      {% for value, label in item.choices %}
+        <label class="choice"><input type="radio" name="resolve-{{ item.key }}" value="{{ value }}"{% if forloop.first %} checked{% endif %}> {{ label }}</label>
+      {% endfor %}
+    </fieldset>
+    {% endfor %}
+  {% else %}
+    <p class="muted">Nothing outstanding: no open work orders, running timers, unbilled work or unpaid invoices.</p>
+  {% endif %}
+
+  <div>
+    <label for="reason">Reason (required)</label>
+    <textarea id="reason" name="reason" rows="3" required>{{ reason }}</textarea>
+  </div>
+  <div>
+    <input type="checkbox" id="confirm" name="confirm" value="yes">
+    <label for="confirm">I understand that this closes {{ job.number }} with the items above resolved as chosen.</label>
+  </div>
+  <div class="actions">
+    <button type="submit" class="danger">Force closeout</button>
+    <a href="{{ job.get_absolute_url }}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

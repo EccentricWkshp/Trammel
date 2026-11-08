@@ -1,0 +1,20 @@
+<div class="heading-row">
+  <h2 id="panel-{{ heading_id }}">Jobs</h2>
+  {% if perms.jobs.create %}<a class="button" href="{% url 'jobs:create' %}?customer={{ customer.pk }}">New job</a>{% endif %}
+</div>
+{% if ctx.jobs %}
+<div class="table-wrap">
+<table>
+  <thead><tr><th scope="col">Job</th><th scope="col">Status</th><th scope="col">Due</th></tr></thead>
+  <tbody>
+  {% for job in ctx.jobs %}
+    <tr>
+      <td><a href="{{ job.get_absolute_url }}"><strong>{{ job.number }}</strong></a> {{ job.title }}</td>
+      <td><span class="status status-{{ job.status }}">{{ job.get_status_display }}</span></td>
+      <td>{{ job.due_date|d|default:"—" }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}<p class="muted">No jobs.</p>{% endif %}

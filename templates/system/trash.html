@@ -1,0 +1,13 @@
+{% extends "settings_base.html" %}
+{% block title %}Trash{% endblock %}
+{% block settings_content %}
+<h1>Trash</h1>
+<p class="lede">Deleted records stay here for 30 days and can be restored. Issued invoices are never deleted — they are voided.</p>
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Record</th><th scope="col">Kind</th><th scope="col">Deleted</th><th scope="col">Removed for good</th><th></th></tr></thead>
+  <tbody>{% for item in items %}
+    <tr><td>{{ item.obj }}</td><td>{{ item.kind|capfirst }}</td><td>{{ item.deleted_at|dt }}</td><td>{{ item.expires|d }}</td>
+      <td><form method="post" action="{% url 'system:trash_restore' item.label item.obj.pk %}">{% csrf_token %}<button type="submit">Restore</button></form></td></tr>
+  {% empty %}<tr><td colspan="5" class="muted">The trash is empty.</td></tr>{% endfor %}</tbody>
+</table></div>
+{% endblock %}

@@ -1,0 +1,84 @@
+from trammel.core import access, panels
+from trammel.core.access import SYSTEM
+from trammel.jobs import hooks
+
+from .models import ACTIVE, ChangeOrder, Status, WorkOrder
+
+
+@hooks.check("completed")
+def work_orders_complete(job):
+    open_wos = job.work_orders.filter(status__in=ACTIVE)
+    for wo in open_wos:
+        yield f"Work order {wo.number} is {wo.get_status_display().lower()}."
+
+
+@hooks.check("closed")
+def work_orders_closed(job):
+    for wo in job.work_orders.exclude(status__in=[Status.CLOSED, Status.CANCELLED]):
+        yield f"Work order {wo.number} is not closed."
+
+
+@hooks.register_outstanding
+def open_work_orders(job):
+    """§6.2: a forced closeout cancels open work orders and closes complete ones."""
+    for wo in job.work_orders.exclude(status__in=[Status.CLOSED, Status.CANCELLED]):
+        if wo.status == Status.COMPLETE:
+
+            def close(choice, wo=wo):
+                WorkOrder.objects.filter(pk=wo.pk).update(materials_confirmed=True)
+                wo.refresh_from_db()
+                WorkOrder.lifecycle.apply(wo, Status.CLOSED, actor=SYSTEM)
+
+            yield hooks.Outstanding(
+                key=f"work_order:{wo.pk}",
+                label=f"Work order {wo.number} is complete, not closed",
+                choices=[("close", "Close it")],
+                resolve=close,
+                detail={"work_order": wo.number, "status": wo.status},
+            )
+        else:
+
+            def cancel(choice, wo=wo):
+                WorkOrder.lifecycle.apply(
+                    wo, Status.CANCELLED, actor=SYSTEM, reason="Job force-closed"
+                )
+
+            yield hooks.Outstanding(
+                key=f"work_order:{wo.pk}",
+                label=f"Work order {wo.number} is {wo.get_status_display().lower()}",
+                choices=[("cancel", "Cancel it")],
+                resolve=cancel,
+                detail={"work_order": wo.number, "status": wo.status},
+            )
+
+
+@panels.register("jobs.job")
+def job_work_orders(request, job):
+    if not access.has_perm(request.actor, "workorders.view"):
+        return None
+    from trammel.quotes.models import QuoteRevision
+
+    from .services import can_create_for
+
+    return panels.Panel(
+        "Work orders",
+        "workorders/_job_panel.html",
+        {
+            "work_orders": access.scoped(
+                request.actor, "workorders.view", job.work_orders.all()
+            ).order_by("created_at"),
+            "change_orders": access.scoped(
+                request.actor, "workorders.view", ChangeOrder.objects.filter(job=job)
+            ),
+            "approved": QuoteRevision.objects.filter(
+                quote__job=job, status="approved"
+            ).select_related("quote"),
+            "can_create": access.has_perm(request.actor, "workorders.create", job),
+            "create_problems": can_create_for(job),
+            "can_change": access.has_perm(request.actor, "workorders.edit", job)
+            and job.status in ("approved", "in_progress", "completed"),
+        },
+        order=20,
+        tab="work-orders",
+        count=job.work_orders.count(),
+    )

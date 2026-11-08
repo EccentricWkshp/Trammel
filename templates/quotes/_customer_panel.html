@@ -1,0 +1,11 @@
+{% load trammel %}
+<h2 id="panel-{{ heading_id }}">Quotes</h2>
+{% if ctx.revisions %}
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Quote</th><th scope="col">Job</th><th scope="col">Status</th><th scope="col" class="num">Total</th></tr></thead>
+  <tbody>{% for r in ctx.revisions %}
+    <tr><td><a href="{{ r.get_absolute_url }}">{{ r.quote.number }}</a> {{ r.quote.title }}</td><td>{{ r.quote.job.number }}</td>
+        <td>{{ r.get_status_display }}</td><td class="num">{{ r.total|money }}</td></tr>
+  {% endfor %}</tbody>
+</table></div>
+{% else %}<p class="muted">No quotes.</p>{% endif %}

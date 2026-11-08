@@ -1,0 +1,31 @@
+# Development database only. The application runs from the working tree
+# (see docs/DEVELOPMENT.md); this gives it a PostgreSQL to talk to.
+#
+#   docker compose -f docker-compose.dev.yml up -d
+#
+# Bound to 127.0.0.1 and on 5433 so it neither reaches the LAN nor collides
+# with a PostgreSQL already on 5432. The password is a development value and
+# this file is never used to deploy.
+
+name: trammel-dev
+
+services:
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: trammel
+      POSTGRES_USER: trammel
+      POSTGRES_PASSWORD: trammel-dev
+    ports:
+      - "127.0.0.1:5433:5432"
+    # Postgres 18 wants the volume one level above PGDATA.
+    volumes: [db-data:/var/lib/postgresql]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trammel -d trammel"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  db-data:

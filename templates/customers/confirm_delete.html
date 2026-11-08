@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Delete {{ customer.name }}{% endblock %}
+{% block main_class %}page narrow{% endblock %}
+{% block content %}
+<h1>Delete {{ customer.name }}?</h1>
+<p>The customer and their contacts and addresses go to the trash, where they can be restored for 30 days.</p>
+<form method="post" class="stack">
+  {% csrf_token %}
+  <div><label for="reason">Reason (optional)</label><textarea id="reason" name="reason" rows="2"></textarea></div>
+  <div class="actions">
+    <button type="submit" class="danger">Delete</button>
+    <a href="{{ customer.get_absolute_url }}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

@@ -1,0 +1,53 @@
+{% if can_see %}
+<section class="attachments" aria-label="{{ title }}">
+  <h2>{{ title }}</h2>
+  {% if links %}
+  <ul class="file-grid">
+    {% for link in links %}{% with doc=link.document rev=link.document.current %}
+    <li class="file-card">
+      {% if rev.blob.thumb_state == "ready" or rev.blob.kind == "svg" %}
+        <a href="{% url 'files:download' rev.pk %}?inline=1"><img src="{% url 'files:thumbnail' doc.pk %}" alt="" loading="lazy"></a>
+      {% else %}
+        <span class="file-kind">{{ rev.blob.kind|upper }}</span>
+      {% endif %}
+      <div>
+        <a href="{% url 'files:download' rev.pk %}{% if rev.blob.is_previewable_inline %}?inline=1{% endif %}">{{ doc.title }}</a>
+        <span class="muted">r{{ rev.number }} · {{ rev.blob.size|filesizeformat }}</span>
+        {% if link.shared_with_customer %}<span class="badge">shared</span>{% endif %}
+      </div>
+      {% if can_upload %}
+      <details class="file-actions"><summary>Manage</summary>
+        <form method="post" action="{% url 'files:new_revision' doc.pk %}" enctype="multipart/form-data">
+          <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
+          <input type="hidden" name="next" value="{{ here }}">
+          <label>New revision <input type="file" name="file" required></label>
+          <input type="text" name="note" placeholder="What changed" aria-label="What changed">
+          <button type="submit">Upload revision</button>
+        </form>
+        {% if doc.revision_count > 1 %}
+        <ul class="muted">{% for r in doc.revisions.all %}<li><a href="{% url 'files:download' r.pk %}">r{{ r.number }}</a> {{ r.created_at|d }} {{ r.note }}</li>{% endfor %}</ul>
+        {% endif %}
+        <form method="post" action="{% url 'files:toggle_share' link.pk %}" class="inline">
+          <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}"><input type="hidden" name="next" value="{{ here }}">
+          <button type="submit" class="linklike">{% if link.shared_with_customer %}Stop sharing with customer{% else %}Share with customer{% endif %}</button>
+        </form>
+        <form method="post" action="{% url 'files:detach' link.pk %}" class="inline">
+          <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}"><input type="hidden" name="next" value="{{ here }}">
+          <button type="submit" class="linklike">Detach</button>
+        </form>
+      </details>
+      {% endif %}
+    </li>
+    {% endwith %}{% endfor %}
+  </ul>
+  {% else %}<p class="muted">No files.</p>{% endif %}
+  {% if can_upload %}
+  <form method="post" action="{% url 'files:attach' label target.pk %}" enctype="multipart/form-data" class="upload-row">
+    <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
+    <input type="hidden" name="next" value="{{ here }}">
+    <label>Add a file <input type="file" name="file" required></label>
+    <button type="submit">Upload</button>
+  </form>
+  {% endif %}
+</section>
+{% endif %}

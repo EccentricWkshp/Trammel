@@ -1,0 +1,24 @@
+{% extends "settings_base.html" %}
+{% block title %}Roles{% endblock %}
+{% block settings_content %}
+<div class="heading-row"><h1>Roles</h1><a class="button" href="{% url 'accounts:role_create' %}">Add role</a></div>
+<p class="lede">Only the system admin is built in. Build roles such as “Manager” or “Shop hand” from the permissions each module offers.</p>
+{% if roles %}
+<div class="table-wrap">
+<table>
+  <thead><tr><th scope="col">Role</th><th scope="col">Permissions</th><th scope="col">Users</th></tr></thead>
+  <tbody>
+  {% for r in roles %}
+    <tr>
+      <td><a href="{% url 'accounts:role_edit' r.pk %}">{{ r.name }}</a><br><span class="muted">{{ r.description }}</span></td>
+      <td>{{ r.permissions|length }}</td>
+      <td>{{ r.users.all|join:", "|default:"—" }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="muted">No roles yet.</p>
+{% endif %}
+{% endblock %}

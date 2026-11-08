@@ -1,0 +1,12 @@
+{% for group in reference %}
+<section class="ref-group">
+  <h3>{{ group.title }}</h3>
+  {% if group.loop %}<p class="muted small">A list. Repeat a part for each one with <code>{% templatetag openblock %} for {{ group.loop.0 }} in {{ group.loop.1 }} {% templatetag closeblock %}</code> … <code>{% templatetag openblock %} endfor {% templatetag closeblock %}</code>.</p>{% endif %}
+  <div class="table-wrap"><table class="ref-table">
+    <thead><tr><th scope="col">Placeholder</th><th scope="col">What it is</th><th scope="col">Example</th></tr></thead>
+    <tbody>{% for p in group.items %}
+      <tr><td><code class="copyable-code">{% templatetag openvariable %} {{ p.expr }} {% templatetag closevariable %}</code></td><td>{{ p.meaning }}</td><td class="muted">{{ p.example }}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+</section>
+{% endfor %}

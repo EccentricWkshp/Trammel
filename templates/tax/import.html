@@ -1,0 +1,15 @@
+{% extends "settings_base.html" %}
+{% block title %}Import tax file{% endblock %}
+{% block settings_content %}
+<h1>Import a tax file</h1>
+<ul class="lede">
+  <li><strong>SST rate and boundary files</strong> — published free each quarter by Streamlined Sales Tax member states. Give the published link or upload the file, as a <code>.zip</code> or the <code>.csv</code> inside; Trammel tells rate files from boundary files by their contents. Import both for the same quarter. States name them by state and quarter — an <code>R</code> file for rates and a <code>B</code> file for boundaries. A new quarter's files replace the previous quarter's; issued invoices keep the rates they used.</li>
+  <li><strong>Generic CSV</strong> — a header row with <code>postal_code, jurisdiction_code, jurisdiction_name, rate, effective_from, effective_to</code>. Rate is a percentage; dates are YYYY-MM-DD.</li>
+</ul>
+<p class="muted">Downloading by link is the only time Trammel fetches tax data from the internet; creating an invoice never does. It is refused while outbound traffic is switched off.</p>
+<form method="post" enctype="multipart/form-data" class="stack" novalidate>
+  {% csrf_token %}
+  {% include "partials/form_body.html" %}
+  <div class="actions"><button type="submit" class="primary">Import</button> <a href="{% url 'tax:overview' %}">Cancel</a></div>
+</form>
+{% endblock %}

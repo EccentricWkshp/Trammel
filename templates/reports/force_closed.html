@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% load trammel %}
+{% block title %}Force-closed jobs{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{% url 'reports:index' %}">Reports</a></p>
+<h1>Force-closed jobs and write-offs</h1>
+<p class="lede">Jobs closed despite failing checks, so they are reviewed rather than forgotten. <a href="?format=csv">Export CSV</a></p>
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">When</th><th scope="col">Job</th><th scope="col">By</th><th scope="col">Reason</th><th scope="col">Outstanding at closeout</th></tr></thead>
+  <tbody>{% for r in rows %}
+    <tr><td>{{ r.change.at|dt }}</td><td>{% if r.job %}<a href="{{ r.job.get_absolute_url }}">{{ r.job.number }}</a> {{ r.job.title }}{% endif %}</td><td>{{ r.change.user|default:"System" }}</td><td>{{ r.change.reason }}</td>
+      <td>{% if r.outstanding or r.failing %}<ul class="plain">{% for o in r.outstanding %}<li>{{ o.label }} → <strong>{{ o.resolution }}</strong></li>{% endfor %}{% for f in r.failing %}<li class="muted">{{ f }}</li>{% endfor %}</ul>{% else %}<span class="muted">Nothing</span>{% endif %}</td></tr>
+  {% empty %}<tr><td colspan="5" class="muted">No force-closed jobs.</td></tr>{% endfor %}</tbody>
+</table></div>
+<h2>Write-offs</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Date</th><th scope="col">Invoice</th><th scope="col">Customer</th><th scope="col" class="num">Amount</th><th scope="col">Reason</th></tr></thead>
+  <tbody>{% for w in write_offs %}<tr><td>{{ w.written_off_on|d }}</td><td><a href="{{ w.invoice.get_absolute_url }}">{{ w.invoice }}</a></td><td>{{ w.invoice.customer.name }}</td><td class="num">{{ w.amount|money }}</td><td>{{ w.reason }}{% if w.from_force_closeout %} <span class="badge">force closeout</span>{% endif %}</td></tr>{% empty %}<tr><td colspan="5" class="muted">No write-offs.</td></tr>{% endfor %}</tbody>
+</table></div>
+{% endblock %}

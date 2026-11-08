@@ -1,0 +1,25 @@
+{% extends "settings_base.html" %}
+{% load trammel %}
+{% block title %}Machines{% endblock %}
+{% block settings_content %}
+<div class="heading-row"><h1>Machines</h1>{% if can_edit %}<a class="button" href="{% url 'shop:machine_create' %}">Add machine</a>{% endif %}</div>
+<p class="lede">Each machine's hourly rate is charged for machine time on quotes. Its cost per hour, from the rate calculator, is what job costing counts against it.</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th scope="col">Machine</th><th scope="col">Type</th><th scope="col" class="num">Cost per hour</th><th scope="col" class="num">Hourly rate</th><th scope="col">Status</th></tr></thead>
+  <tbody>
+  {% for m in machines %}
+    <tr{% if not m.is_active %} class="inactive"{% endif %}>
+      <td>{% if can_edit %}<a href="{{ m.get_absolute_url }}">{{ m.name }}</a>{% else %}{{ m.name }}{% endif %}</td>
+      <td>{{ m.get_kind_display }}</td>
+      <td class="num">{% with cost=m.calculated_cost %}{% if cost is None %}<span class="muted">—</span>{% else %}{{ cost|money }}{% endif %}{% endwith %}</td>
+      <td class="num">{{ m.hourly_rate|money }}</td>
+      <td>{{ m.is_active|yesno:"Active,Inactive" }}</td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="5" class="muted">No machines yet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

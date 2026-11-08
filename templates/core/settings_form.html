@@ -1,0 +1,14 @@
+{% extends "settings_base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block settings_content %}
+<h1>{{ title }}</h1>
+{% block intro %}{% endblock %}
+<form method="post" class="stack" novalidate>
+  {% csrf_token %}
+  {% include "partials/form_body.html" %}
+  <div class="actions">
+    <button type="submit" class="primary">Save</button>
+    {% if back %}<a href="{% url back %}">Cancel</a>{% endif %}
+  </div>
+</form>
+{% endblock %}

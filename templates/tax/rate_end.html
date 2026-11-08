@@ -1,0 +1,11 @@
+{% extends "settings_base.html" %}
+{% block title %}End rate{% endblock %}
+{% block settings_content %}
+<h1>End {{ rate }}</h1>
+<p>Rates are not edited once they may have been used. End this one, then add the new rate starting the next day.</p>
+<form method="post" class="stack">
+  {% csrf_token %}
+  <div><label for="effective_to">Last day the rate applies</label><input type="date" id="effective_to" name="effective_to" required></div>
+  <div class="actions"><button type="submit" class="primary">End rate</button> <a href="{% url 'tax:overview' %}">Cancel</a></div>
+</form>
+{% endblock %}

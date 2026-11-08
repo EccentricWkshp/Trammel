@@ -1,0 +1,20 @@
+{% extends "settings_base.html" %}
+{% block title %}Placeholders{% endblock %}
+{% block settings_content %}
+<h1>Placeholders</h1>
+<p class="lede">Quote, invoice, agreement and email templates fill in these placeholders from the record they are made for. Type one where its value should appear, for example <code>{% templatetag openvariable %} customer.name {% templatetag closevariable %}</code>. Examples come from your most recent records, or from sample data.</p>
+<nav class="ref-toc" aria-label="Templates">
+  <ul>{% for s in sections %}<li><a href="#{{ s.kind.key }}">{{ s.kind.title }}</a></li>{% endfor %}<li><a href="#formatting">Formatting</a></li></ul>
+</nav>
+{% for s in sections %}
+<section class="ref-kind" id="{{ s.kind.key }}">
+  <h2>{{ s.kind.title }}</h2>
+  {% if s.kind.note %}<p class="muted">{{ s.kind.note }}</p>{% endif %}
+  {% with reference=s.reference %}{% include "core/_placeholder_reference.html" %}{% endwith %}
+</section>
+{% endfor %}
+<section class="ref-kind" id="formatting">
+  <h2>Formatting and choices</h2>
+  {% include "core/_template_formatting.html" %}
+</section>
+{% endblock %}

@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block main_class %}page narrow{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{% url 'customers:list' %}">Customers</a>{% if customer %} › <a href="{{ customer.get_absolute_url }}">{{ customer.name }}</a>{% endif %}</p>
+<h1>{{ title }}</h1>
+<form method="post" class="stack" novalidate>
+  {% csrf_token %}
+  {% include "partials/form_body.html" %}
+  <div class="actions">
+    <button type="submit" class="primary">Save</button>
+    <a href="{% if customer %}{{ customer.get_absolute_url }}{% else %}{% url 'customers:list' %}{% endif %}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

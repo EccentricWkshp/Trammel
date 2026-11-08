@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Recovery codes{% endblock %}
+{% block main_class %}page narrow{% endblock %}
+{% block content %}
+<h1>Two-factor sign-in is on</h1>
+<p>Save these recovery codes somewhere safe. Each works once, if you lose your phone. They are not shown again.</p>
+<ul class="recovery-codes">{% for c in codes %}<li><code>{{ c }}</code></li>{% endfor %}</ul>
+<p><a class="button primary" href="{% url 'accounts:profile' %}">Done</a></p>
+{% endblock %}

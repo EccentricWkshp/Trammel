@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Profile{% endblock %}
+{% block main_class %}page narrow{% endblock %}
+{% block content %}
+<h1>{{ user.display_name }}</h1>
+<p class="muted">{{ user.email }}{% if user.is_admin %} · System admin{% endif %}</p>
+<form method="post" class="stack" novalidate>
+  {% csrf_token %}
+  {% include "partials/form_body.html" %}
+  <div class="actions"><button type="submit" class="primary">Save</button> <a href="{% url 'accounts:change_password' %}">Change password</a></div>
+</form>
+
+<section class="panel" aria-labelledby="mfa-heading">
+  <h2 id="mfa-heading">Two-factor sign-in</h2>
+  {% if user.totp_confirmed_at %}
+    <p><span class="status status-completed">On</span> since {{ user.totp_confirmed_at|d }}. {{ user.recovery_codes|length }} recovery code{{ user.recovery_codes|length|pluralize }} left.</p>
+    <form method="post" action="{% url 'accounts:mfa_disable' %}" class="filters">{% csrf_token %}
+      <label>Current code <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" required></label>
+      <button type="submit">Turn off</button>
+    </form>
+  {% else %}
+    <p class="muted">Off. An authenticator app adds a code to each sign-in.</p>
+    <a class="button" href="{% url 'accounts:mfa_setup' %}">Set up</a>
+  {% endif %}
+</section>
+
+{% if api_keys is not None %}
+<section aria-labelledby="keys-heading">
+  <div class="heading-row"><h2 id="keys-heading">API keys</h2><a class="button" href="{% url 'accounts:api_key_create' %}">New key</a></div>
+  {% if api_keys %}
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th scope="col">Name</th><th scope="col">Scope</th><th scope="col">Last used</th><th scope="col">Status</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+    <tbody>
+    {% for k in api_keys %}
+      <tr>
+        <td>{{ k.name }}<br><code class="muted">trm_{{ k.lookup }}_…</code></td>
+        <td>{{ k.scopes|length }} permission{{ k.scopes|length|pluralize }}</td>
+        <td>{{ k.last_used_at|dt|default:"Never" }}</td>
+        <td>{% if k.revoked_at %}Revoked{% elif not k.is_usable %}Expired{% else %}Active{% if k.expires_at %} until {{ k.expires_at|d }}{% endif %}{% endif %}</td>
+        <td>{% if not k.revoked_at %}<form method="post" action="{% url 'accounts:api_key_revoke' k.pk %}" class="inline">{% csrf_token %}<button type="submit">Revoke</button></form>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}<p class="muted">No API keys.</p>{% endif %}
+</section>
+{% endif %}
+{% endblock %}

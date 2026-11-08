@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% load trammel %}
+{% block title %}Job profitability{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{% url 'reports:index' %}">Reports</a></p>
+<h1>Job profitability</h1>
+<p class="lede">Jobs completed or closed in the period. Actual cost is recorded time at each person's or machine's cost rate plus material used.</p>
+{% include "reports/_period.html" %}
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Job</th><th scope="col" class="num">Quoted</th><th scope="col" class="num">Quoted cost</th><th scope="col" class="num">Actual cost</th><th scope="col" class="num">Invoiced</th><th scope="col" class="num">Margin</th></tr></thead>
+  <tbody>
+  {% for r in rows %}<tr><td><a href="{{ r.job.get_absolute_url }}">{{ r.job.number }}</a> {{ r.job.title }} <span class="muted">{{ r.job.customer.name }}</span></td>
+    <td class="num">{{ r.quoted|money }}</td><td class="num">{{ r.quoted_cost|money }}</td><td class="num">{{ r.actual|money }}</td><td class="num">{{ r.invoiced|money }}</td>
+    <td class="num">{{ r.margin|money }}{% if r.margin_pct is not None %} <span class="muted">({{ r.margin_pct }}%)</span>{% endif %}</td></tr>
+  {% empty %}<tr><td colspan="6" class="muted">No jobs completed in this period.</td></tr>{% endfor %}
+  {% if rows %}<tr><th scope="row">Total</th><td class="num">{{ totals.quoted|money }}</td><td></td><td class="num">{{ totals.actual|money }}</td><td class="num">{{ totals.invoiced|money }}</td><td class="num">{{ totals.margin|money }}</td></tr>{% endif %}
+  </tbody>
+</table></div>
+{% endblock %}

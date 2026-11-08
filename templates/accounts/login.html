@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Sign in{% endblock %}
+{% block main_class %}page narrow{% endblock %}
+{% block content %}
+<h1>Sign in</h1>
+<form method="post" class="stack" novalidate>
+  {% csrf_token %}
+  {% include "partials/form_body.html" %}
+  <button type="submit" class="primary">Sign in</button>
+</form>
+{% if magic_available %}
+<details class="panel"><summary>Email me a sign-in link instead</summary>
+  <form method="post" action="{% url 'accounts:magic_request' %}" class="filters">{% csrf_token %}
+    <label>Email <input type="email" name="email" required autocomplete="username"></label>
+    <button type="submit">Send link</button>
+  </form>
+</details>
+{% endif %}
+<p class="muted">Forgotten your password? Ask the system admin for a reset link.</p>
+{% endblock %}

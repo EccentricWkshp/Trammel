@@ -1,0 +1,40 @@
+# TLS is required (SPEC §4.1, §9): the shop-floor app and camera QR scanning only
+# work in a secure context. TLS_MODE in .env picks how the certificate is
+# obtained; config/caddy/tls-<mode>.conf is copied into place at start-up and an
+# unknown value stops the proxy rather than falling back to something weaker.
+#
+#   internal  Caddy's own CA. Works with no domain; install its root on each device.
+#   acme-dns  A real Let's Encrypt certificate via a DNS challenge. Needs a domain
+#             you control, but the instance never has to be reachable from outside.
+#   custom    Your own certificate and key in config/caddy/certs/.
+
+{$SITE_ADDRESS:trammel.home.arpa} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+
+	# Uploads up to the app's own limit, plus room for form overhead.
+	request_body {
+		max_size 512MB
+	}
+
+	reverse_proxy app:8080 {
+		header_up X-Real-IP {remote_host}
+	}
+
+	import /etc/caddy/tls.conf
+
+	log {
+		output stdout
+		format console
+	}
+}
+
+http:// {
+	redir https://{host}{$HTTPS_PORT_SUFFIX}{uri} permanent
+}

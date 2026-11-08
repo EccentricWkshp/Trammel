@@ -1,0 +1,48 @@
+{% extends "settings_base.html" %}
+{% block title %}Backups and export{% endblock %}
+{% block settings_content %}
+<h1>Backups, export and updates</h1>
+
+<section aria-labelledby="backup-heading">
+  <div class="heading-row">
+    <h2 id="backup-heading">Backups</h2>
+    <form method="post" action="{% url 'system:backup_now' %}">{% csrf_token %}<button type="submit" class="primary">Back up now</button></form>
+  </div>
+  <p class="lede">{% if last %}Last successful backup: <strong>{{ last.created_at|dt }}</strong> ({{ last.created_at|timesince }} ago).{% else %}No backup yet.{% endif %}
+    Backups are written to <code>{{ backup_dir }}</code>. Keep a copy off this machine — a network folder or S3-compatible storage, in the settings below.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th scope="col">When</th><th scope="col">Kind</th><th scope="col">Result</th><th scope="col">Size</th><th></th></tr></thead>
+    <tbody>{% for b in backups %}
+      <tr><td>{{ b.created_at|dt }}</td><td>{{ b.get_kind_display }}</td>
+        <td>{{ b.get_status_display }}{% if b.offbox %} <span class="badge">copied to folder</span>{% endif %}{% if b.s3 %} <span class="badge">copied to S3</span>{% endif %}{% if b.copy_error %}<br><span class="flag flag-risk">{{ b.copy_error|linebreaksbr }}</span>{% endif %}{% if b.error %}<br><span class="muted">{{ b.error|truncatechars:200 }}</span>{% endif %}</td>
+        <td>{% if b.size %}{{ b.size|filesizeformat }}{% endif %}</td>
+        <td class="row-actions">{% if b.status == "ok" %}<a href="{% url 'system:download_backup' b.pk %}">Download</a> <a href="{% url 'system:restore' b.pk %}">Restore…</a>{% endif %}</td></tr>
+    {% empty %}<tr><td colspan="5" class="muted">No backups.</td></tr>{% endfor %}</tbody>
+  </table></div>
+  <details class="panel"><summary>Backup settings</summary>
+    <form method="post" class="stack" novalidate>{% csrf_token %}{% include "partials/form_body.html" %}<button type="submit">Save</button></form>
+    <form method="post" action="{% url 'system:test_s3' %}" class="panel">{% csrf_token %}<button type="submit">Test S3 connection</button> <span class="muted small">Writes, lists and deletes a small test file using the saved settings.</span></form>
+  </details>
+  <p class="muted">From the command line: <code>python manage.py backup</code> and <code>python manage.py restore &lt;file&gt;</code>.</p>
+</section>
+
+<section class="panel" aria-labelledby="export-heading">
+  <div class="heading-row">
+    <h2 id="export-heading">Full export</h2>
+    <form method="post" action="{% url 'system:export_now' %}">{% csrf_token %}<button type="submit">Build export</button></form>
+  </div>
+  <p class="lede">All of your data as newline-delimited JSON, plus every uploaded file, with a README describing the format. Readable without Trammel.</p>
+  <ul>{% for e in exports %}<li>{{ e.created_at|dt }} — {% if e.status == "ok" %}<a href="{% url 'system:download_export' e.pk %}">{{ e.filename }}</a> ({{ e.size|filesizeformat }}){% else %}{{ e.status }} {{ e.error }}{% endif %}</li>{% empty %}<li class="muted">No exports yet.</li>{% endfor %}</ul>
+</section>
+
+<section class="panel" aria-labelledby="update-heading">
+  <div class="heading-row">
+    <h2 id="update-heading">Updates</h2>
+    <form method="post" action="{% url 'system:check_updates' %}">{% csrf_token %}<button type="submit">Check now</button></form>
+  </div>
+  <p>This instance runs Trammel <strong>{{ version }}</strong>.
+  {% if update_available %}<strong>{{ update_available }}</strong> is available — <a href="{{ update.release_url }}" rel="noopener">release notes</a>. With Docker, pull the new image (<code>docker compose pull &amp;&amp; docker compose up -d</code>); a backup is taken automatically when a source install updates itself.
+  {% elif update.checked_at %}Up to date as of {{ update.checked_at|dt }}.{% endif %}
+  {% if update.error %}<span class="muted">{{ update.error }}</span>{% endif %}</p>
+</section>
+{% endblock %}

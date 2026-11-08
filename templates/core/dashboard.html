@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<h1>{{ business.name }}</h1>
+<p class="lede">Welcome, {{ user.get_short_name }}.</p>
+
+<section class="cards">
+  {% for item in main_menu %}
+  <a class="card" href="{{ item.url }}">
+    <h2>{{ item.label }}</h2>
+  </a>
+  {% empty %}
+  <p>Your role does not include any areas yet. Ask the system admin to assign you a role.</p>
+  {% endfor %}
+</section>
+{% endblock %}

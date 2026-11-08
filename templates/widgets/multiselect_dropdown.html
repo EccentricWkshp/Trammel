@@ -1,0 +1,6 @@
+<details class="multiselect" data-placeholder="{{ widget.placeholder }}">
+  <summary{% if widget.attrs.id %} id="{{ widget.attrs.id }}"{% endif %}><span class="multiselect-chosen">{% if widget.chosen %}{{ widget.chosen|join:", " }}{% else %}{{ widget.placeholder }}{% endif %}</span></summary>
+  <div class="multiselect-options">{% for group, options, index in widget.optgroups %}{% for option in options %}
+    <label class="check"><input type="checkbox" name="{{ option.name }}" value="{{ option.value }}"{% if option.selected %} checked{% endif %}><span>{{ option.label }}</span></label>
+  {% endfor %}{% empty %}<p class="muted">Nobody to choose yet.</p>{% endfor %}</div>
+</details>

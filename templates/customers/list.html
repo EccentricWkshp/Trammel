@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Customers{% endblock %}
+{% block content %}
+<div class="heading-row">
+  <h1>Customers</h1>
+  {% if perms.customers.create %}<a class="button" href="{% url 'customers:create' %}">New customer</a>{% endif %}
+</div>
+<form method="get" class="filters" role="search">
+  <label>Search <input type="search" name="q" value="{{ q }}" placeholder="Name, company, email or phone"></label>
+  <button type="submit">Search</button>
+  <a href="{% url 'customers:csv' %}{% if q %}?q={{ q|urlencode }}{% endif %}">Export CSV</a>
+</form>
+<div class="table-wrap">
+<table>
+  <thead><tr><th scope="col">Name</th><th scope="col">Email</th><th scope="col">Phone</th><th scope="col">Notes</th></tr></thead>
+  <tbody>
+  {% for c in page %}
+    <tr>
+      <td><a href="{{ c.get_absolute_url }}">{{ c.name }}</a>{% if c.company and c.company != c.name %}<br><span class="muted">{{ c.company }}</span>{% endif %}</td>
+      <td>{{ c.email }}</td>
+      <td>{{ c.phone }}</td>
+      <td>{% if c.is_placeholder %}<span class="badge">placeholder</span>{% endif %}{% if c.tax_exempt %}<span class="badge">tax exempt</span>{% endif %}</td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="4" class="muted">{% if q %}No customers match “{{ q }}”.{% else %}No customers yet.{% endif %}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% include "partials/pagination.html" %}
+{% endblock %}

@@ -1,0 +1,32 @@
+{% extends "settings_base.html" %}
+{% block title %}Users{% endblock %}
+{% block settings_content %}
+<div class="heading-row"><h1>Users</h1><a class="button" href="{% url 'accounts:user_create' %}">Add user</a></div>
+<p class="lede">A one-person shop needs no one but the admin. Deactivating a user signs them out and keeps everything they recorded.</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th scope="col">Name</th><th scope="col">Email</th><th scope="col">Roles</th><th scope="col">Status</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+  <tbody>
+  {% for u in users %}
+    <tr{% if not u.is_active %} class="inactive"{% endif %}>
+      <td><a href="{% url 'accounts:user_edit' u.pk %}">{{ u.display_name }}</a></td>
+      <td>{{ u.email }}</td>
+      <td>{% if u.is_admin %}<strong>System admin</strong>{% if u.roles.all %}, {% endif %}{% endif %}{{ u.roles.all|join:", " }}</td>
+      <td>{{ u.is_active|yesno:"Active,Deactivated" }}</td>
+      <td class="row-actions">
+        {% if u.is_active %}
+        <form method="post" action="{% url 'accounts:user_password_link' u.pk %}" class="inline">{% csrf_token %}<button type="submit">Password link</button></form>
+        {% endif %}
+        {% if u != user %}
+        <form method="post" action="{% url 'accounts:user_set_active' u.pk %}" class="inline">{% csrf_token %}
+          <input type="hidden" name="active" value="{{ u.is_active|yesno:"0,1" }}">
+          <button type="submit">{{ u.is_active|yesno:"Deactivate,Reactivate" }}</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

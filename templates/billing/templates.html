@@ -1,0 +1,7 @@
+{% extends "settings_base.html" %}
+{% block title %}Invoice templates{% endblock %}
+{% block settings_content %}
+<div class="heading-row"><h1>Invoice templates</h1><a class="button" href="{% url 'billing:template_create' %}">New template</a></div>
+<p class="lede">How invoices, receipts and credit notes look on screen and as PDFs. Templates are HTML; placeholders are filled in for each document, for example {% verbatim %}<code>{{ invoice.number }}</code>, <code>{% for line in invoice.lines %}</code>, <code>{% for t in invoice.taxes %}</code>, <code>{{ invoice.balance|money }}</code>{% endverbatim %}.</p>
+<ul>{% for t in templates %}<li><a href="{% url 'billing:template_edit' t.pk %}">{{ t.name }}</a>{% if t.is_default %} <span class="badge">default</span>{% endif %}</li>{% empty %}<li class="muted">No templates.</li>{% endfor %}</ul>
+{% endblock %}

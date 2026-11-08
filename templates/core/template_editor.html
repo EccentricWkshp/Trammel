@@ -1,0 +1,41 @@
+{% extends "settings_base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block settings_content %}
+<p class="breadcrumb"><a href="{% url back %}">{{ back_label|default:"Templates" }}</a></p>
+<h1>{{ title }}</h1>
+{% if intro %}<p class="lede">{{ intro }}</p>{% endif %}
+
+<div class="tabs" data-tabs hidden>
+  <ul role="tablist">
+    <li><button type="button" role="tab" id="tab-edit" aria-controls="panel-edit" aria-selected="true">Template</button></li>
+    <li><button type="button" role="tab" id="tab-preview" aria-controls="panel-preview" aria-selected="false" data-preview-tab>Preview</button></li>
+    <li><button type="button" role="tab" id="tab-placeholders" aria-controls="panel-placeholders" aria-selected="false">Placeholders</button></li>
+  </ul>
+</div>
+
+<section id="panel-edit" class="tab-body" role="tabpanel" aria-labelledby="tab-edit">
+  <form method="post" class="stack" id="template-form" novalidate>
+    {% csrf_token %}
+    {% include "partials/form_body.html" %}
+    <div class="actions">
+      <button type="submit" class="primary">Save</button>
+      <button type="submit" formaction="{{ preview_url }}" formtarget="template-preview" formnovalidate data-preview-submit>Preview</button>
+      <a href="{% url back %}">Cancel</a>
+    </div>
+  </form>
+</section>
+
+<section id="panel-preview" class="tab-body" role="tabpanel" aria-labelledby="tab-preview">
+  <h2 class="js-hide">Preview</h2>
+  <p class="muted small">Shows what you have typed, saved or not, filled in with {{ preview_source|default:"sample data" }}. Nothing is sent or saved.</p>
+  <iframe name="template-preview" class="document-preview" title="Preview"></iframe>
+</section>
+
+<section id="panel-placeholders" class="tab-body" role="tabpanel" aria-labelledby="tab-placeholders">
+  <h2 class="js-hide">Placeholders</h2>
+  <p class="muted small">Type a placeholder where its value should appear. Examples come from {{ preview_source|default:"sample data" }}. <a href="{% url 'core:template_reference' %}">Every template's placeholders</a></p>
+  {% if kind.note %}<p>{{ kind.note }}</p>{% endif %}
+  {% include "core/_placeholder_reference.html" %}
+  {% include "core/_template_formatting.html" %}
+</section>
+{% endblock %}

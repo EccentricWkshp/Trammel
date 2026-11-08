@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% load trammel %}
+{% block title %}Compare revisions{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{{ b.get_absolute_url }}">{{ b }}</a></p>
+<h1>{{ a.quote.number }}: revision {{ a.number }} → {{ b.number }}</h1>
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Line</th><th scope="col" class="num">Rev {{ a.number }}</th><th scope="col" class="num">Rev {{ b.number }}</th></tr></thead>
+  <tbody>
+  {% for row in rows %}
+    <tr{% if row.changed %} class="changed"{% endif %}>
+      <td>{{ row.description }}</td>
+      <td class="num">{% if row.a %}{{ row.a.quantity|floatformat:"-4" }} × {{ row.a.unit_price|money }} = {{ row.a.line_total|money }}{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td class="num">{% if row.b %}{{ row.b.quantity|floatformat:"-4" }} × {{ row.b.unit_price|money }} = {{ row.b.line_total|money }}{% else %}<span class="muted">—</span>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  <tr><th scope="row">Total</th><td class="num"><strong>{{ a.total|money }}</strong></td><td class="num"><strong>{{ b.total|money }}</strong></td></tr>
+  </tbody>
+</table></div>
+{% endblock %}

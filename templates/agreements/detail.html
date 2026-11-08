@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Agreement {{ agreement.job.number }}{% endblock %}
+{% block main_class %}page narrow{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{{ agreement.job.get_absolute_url }}">{{ agreement.job.number }}</a></p>
+<div class="heading-row">
+  <h1>Customer agreement</h1>
+  <div class="actions">
+    {% if pdf %}<a class="button" href="{% url 'agreements:pdf' agreement.pk %}">Download PDF</a>{% endif %}
+    {% if can_manage and agreement.status == "issued" %}<a class="button" href="{% url 'agreements:accept' agreement.pk %}">Record acceptance</a>{% endif %}
+  </div>
+</div>
+<p><span class="status status-{% if agreement.status == 'accepted' %}completed{% else %}{{ agreement.status }}{% endif %}">{{ agreement.get_status_display }}</span>
+  {{ agreement.template_version }} · issued {{ agreement.issued_at|d }}</p>
+{% if agreement.status == "accepted" %}
+<dl class="facts">
+  <dt>Accepted by</dt><dd>{{ agreement.accepted_by_name }}</dd>
+  <dt>When</dt><dd>{{ agreement.accepted_at|dt }}</dd>
+  <dt>How</dt><dd>{{ agreement.get_method_display }}{% if agreement.how %} — {{ agreement.get_how_display|lower }}{% endif %}</dd>
+  {% if agreement.evidence %}<dt>Signed document</dt><dd><a href="{% url 'files:download' agreement.evidence.current_id %}">{{ agreement.evidence }}</a></dd>{% endif %}
+  {% if agreement.recorded_by %}<dt>Recorded by</dt><dd>{{ agreement.recorded_by }}</dd>{% endif %}
+  {% if agreement.notes %}<dt>Notes</dt><dd>{{ agreement.notes }}</dd>{% endif %}
+</dl>
+{% endif %}
+<article class="agreement-text prewrap">{{ agreement.text }}</article>
+{% endblock %}

@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% load trammel %}
+{% block title %}Quotes{% endblock %}
+{% block content %}
+<h1>Quotes</h1>
+<p class="lede">Quotes are created from a job. Each row is the latest revision of a quote.</p>
+<form method="get" class="filters" role="search">
+  <label>Search <input type="search" name="q" value="{{ q }}" placeholder="Number, title or customer"></label>
+  <label>Status
+    <select name="status"><option value="">Any</option>
+      {% for value, label in statuses %}<option value="{{ value }}"{% if status == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </label>
+  <button type="submit">Filter</button>
+</form>
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Quote</th><th scope="col">Customer</th><th scope="col">Status</th><th scope="col">Valid until</th><th scope="col" class="num">Total</th></tr></thead>
+  <tbody>
+  {% for r in page %}
+    <tr>
+      <td><a href="{{ r.get_absolute_url }}"><strong>{{ r.quote.number }}</strong></a>{% if r.number > 1 %} r{{ r.number }}{% endif %} {{ r.quote.title }}<br><span class="muted">{{ r.quote.job.number }}</span></td>
+      <td>{{ r.quote.job.customer.name }}</td>
+      <td>{{ r.get_status_display }}</td>
+      <td>{{ r.valid_until|d|default:"—" }}</td>
+      <td class="num">{{ r.total|money }}</td>
+    </tr>
+  {% empty %}<tr><td colspan="5" class="muted">No quotes.</td></tr>{% endfor %}
+  </tbody>
+</table></div>
+{% include "partials/pagination.html" %}
+{% endblock %}

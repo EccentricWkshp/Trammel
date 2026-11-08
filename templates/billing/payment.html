@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% load trammel %}
+{% block title %}Record payment{% endblock %}
+{% block main_class %}page narrow{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{{ customer.get_absolute_url }}">{{ customer.name }}</a></p>
+<h1>Record a payment from {{ customer.name }}</h1>
+<p class="lede">Apply it to open invoices below. Anything not applied is held as customer credit{% if credit %} (currently {{ credit|money }}){% endif %}.</p>
+<form method="post" class="stack" novalidate>{% csrf_token %}
+  {% include "partials/form_body.html" %}
+  {% if invoices %}
+  <div class="table-wrap"><table>
+    <thead><tr><th scope="col">Invoice</th><th scope="col">Due</th><th scope="col" class="num">Balance</th><th scope="col" class="num">Apply</th></tr></thead>
+    <tbody>{% for i in invoices %}<tr><td>{{ i }}</td><td>{{ i.due_date|d }}{% if i.is_overdue %} <span class="flag flag-late">overdue</span>{% endif %}</td><td class="num">{{ i.balance|money }}</td>
+      <td class="num"><input type="number" name="apply-{{ i.pk }}" step="0.01" min="0" max="{{ i.balance }}" aria-label="Apply to {{ i }}" class="narrow-input"></td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}<p class="muted">No open invoices; the payment will be held as credit.</p>{% endif %}
+  <div class="actions"><button type="submit" class="primary">Record payment</button> <a href="{{ customer.get_absolute_url }}">Cancel</a></div>
+</form>
+{% endblock %}

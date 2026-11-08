@@ -1,0 +1,17 @@
+Trammel
+Copyright (c) EccentricWkshp. License not yet chosen (SPEC OQ-3).
+
+Code adapted from other projects
+--------------------------------
+
+Recorded so every licensing option stays open (SPEC OQ-3). Until a license is
+chosen, no outside contributions are accepted without a sign-off.
+
+* trammel/core/models.py — BaseModel, soft-delete managers and AppendOnlyModel
+  are adapted from HomeAutoShop, homeautoshop/core/models.py
+  (https://github.com/EccentricWkshp/HomeAutoShop, AGPL-3.0-or-later, same owner).
+* config/settings.py — the env()/env_bool()/env_int() helpers and the DATABASE_URL
+  parsing are adapted from HomeAutoShop, config/settings.py (same terms).
+* Caddyfile, Dockerfile.caddy, docker/caddy-entrypoint.sh and
+  config/caddy/tls-*.conf — the HTTPS proxy, its DNS-01 build and the TLS mode
+  selection are adapted from HomeAutoShop's equivalents (same terms).

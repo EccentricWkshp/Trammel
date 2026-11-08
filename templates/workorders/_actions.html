@@ -1,0 +1,20 @@
+{% if actions %}
+<section class="lifecycle" aria-label="Work order actions">
+  {% for t in actions %}
+  <form method="post" action="{% url 'workorders:transition' wo.pk %}" class="transition">
+    {% csrf_token %}
+    <input type="hidden" name="target" value="{{ t.target }}">
+    {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+    {% if t.target == "waiting" %}
+      <label for="wait-{{ wo.pk }}">Waiting on</label>
+      <select id="wait-{{ wo.pk }}" name="waiting_on">{% for v, l in waiting_choices %}<option value="{{ v }}">{{ l }}</option>{% endfor %}</select>
+    {% endif %}
+    {% if t.requires_reason %}
+      <label for="reason-{{ wo.pk }}-{{ forloop.counter }}">Reason</label>
+      <input type="text" id="reason-{{ wo.pk }}-{{ forloop.counter }}" name="reason" required>
+    {% endif %}
+    <button type="submit"{% if t.kind == "forward" and not t.requires_reason %} class="primary"{% endif %}>{{ t.label }}</button>
+  </form>
+  {% endfor %}
+</section>
+{% endif %}

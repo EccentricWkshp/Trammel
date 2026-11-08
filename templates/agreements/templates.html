@@ -1,0 +1,20 @@
+{% extends "settings_base.html" %}
+{% block title %}Agreement templates{% endblock %}
+{% block settings_content %}
+<div class="heading-row">
+  <h1>Agreement templates</h1>
+  {% if perms.agreements.manage %}<div class="actions"><a class="button" href="{% url 'agreements:template_create' %}">New template</a> <a href="{% url 'agreements:settings' %}">Settings</a></div>{% endif %}
+</div>
+<p class="lede">The terms and conditions issued with each job. Editing a template creates a new version; agreements already issued keep the exact text they were issued with.
+{% if settings.required %}An accepted agreement is required before work starts, unless waived for a job.{% else %}Agreements are optional.{% endif %}</p>
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Template</th><th scope="col">Version</th><th scope="col">Status</th></tr></thead>
+  <tbody>
+  {% for t in templates %}
+    <tr><td>{% if perms.agreements.manage %}<a href="{% url 'agreements:template_edit' t.pk %}">{{ t.name }}</a>{% else %}{{ t.name }}{% endif %}{% if t.is_default %} <span class="badge">default</span>{% endif %}</td>
+        <td>v{{ t.current.version }} <span class="muted">{{ t.current.created_at|d }}</span></td>
+        <td>{{ t.is_active|yesno:"Active,Inactive" }}</td></tr>
+  {% empty %}<tr><td colspan="3" class="muted">No templates.</td></tr>{% endfor %}
+  </tbody>
+</table></div>
+{% endblock %}

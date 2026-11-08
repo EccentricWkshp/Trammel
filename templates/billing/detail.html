@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+{% load files %}
+{% block title %}{{ invoice }}{% endblock %}
+{% block content %}
+<header class="record-header">
+  <div class="record-title">
+    <p class="breadcrumb"><a href="{% url 'billing:list' %}">Invoices</a> · <a href="{{ invoice.customer.get_absolute_url }}">{{ invoice.customer.name }}</a>{% if invoice.job %} · <a href="{{ invoice.job.get_absolute_url }}">{{ invoice.job.number }}</a>{% endif %}</p>
+    <h1>{{ invoice.get_kind_display }} {% if invoice.number %}{{ invoice.number }}{% else %}<span class="muted">(draft)</span>{% endif %}</h1>
+    <p class="status-line">
+      <span class="status status-{% if invoice.status == 'paid' %}completed{% elif invoice.status == 'void' %}cancelled{% elif invoice.status == 'draft' %}proposal{% else %}on_hold{% endif %}">{{ invoice.get_status_display }}</span>
+      {% if invoice.is_overdue %}<span class="flag flag-late">{{ invoice.days_overdue }} days overdue</span>{% endif %}
+      {% if invoice.tax_flagged %}<span class="badge warn">tax needs review</span>{% endif %}
+      {% if invoice.credit_for %}credit against <a href="{{ invoice.credit_for.get_absolute_url }}">{{ invoice.credit_for }}</a>{% endif %}
+    </p>
+    <dl class="facts-inline">
+      <div><dt>Total</dt><dd><strong>{{ invoice.total|money }}</strong></dd></div>
+      {% if not invoice.is_draft and not invoice.is_credit_note %}<div><dt>Balance</dt><dd><strong>{{ invoice.balance|money }}</strong></dd></div>{% endif %}
+      {% if invoice.invoice_date %}<div><dt>Dated</dt><dd>{{ invoice.invoice_date|d }}</dd></div>{% endif %}
+      {% if invoice.due_date and not invoice.is_credit_note %}<div><dt>Due</dt><dd>{{ invoice.due_date|d }}</dd></div>{% endif %}
+    </dl>
+  </div>
+  <div class="actions">
+    {% if can_pay %}<a class="button primary" href="?tab=payments">Record payment</a>{% endif %}
+    <a class="button" href="{% url 'billing:document' invoice.pk %}?print=1" target="_blank" rel="noopener">Print</a>
+    <a class="button" href="{% url 'billing:pdf' invoice.pk %}">Download PDF</a>
+    {% if not invoice.is_draft and invoice.status != "void" %}
+    <form method="post" action="{% url 'notifications:email_invoice' invoice.pk %}" class="inline">{% csrf_token %}<button type="submit">Email to customer</button></form>
+    {% endif %}
+  </div>
+</header>
+{% if invoice.tax_flagged %}<aside class="callout warn">The tax rate was chosen by hand because the address could not be resolved ({{ invoice.tax_note }}). Review it before filing.</aside>{% endif %}
+
+{% if draft %}
+<section class="lifecycle" aria-label="Draft actions">
+  {% if can_issue %}<form method="post" action="{% url 'billing:issue' invoice.pk %}">{% csrf_token %}<button type="submit" class="primary">Issue {{ invoice.get_kind_display|lower }}</button></form>{% endif %}
+  {% if invoice.job %}
+    {% for r in approved %}
+    <form method="post" action="{% url 'billing:pull' invoice.pk %}" class="transition">{% csrf_token %}
+      <input type="hidden" name="what" value="quote"><input type="hidden" name="revision" value="{{ r.pk }}">
+      {% if invoice.kind == "progress" %}<label for="pct-{{ r.pk }}">Percent of {{ r.quote.number }}</label><input type="number" id="pct-{{ r.pk }}" name="percent" value="50" min="1" max="100" step="0.01">{% endif %}
+      <button type="submit">Add lines from {{ r.quote.number }}</button>
+    </form>
+    {% endfor %}
+    <details class="more-actions"><summary>Add more…</summary>
+      <form method="post" action="{% url 'billing:pull' invoice.pk %}">{% csrf_token %}<input type="hidden" name="what" value="change_orders"><button type="submit">Approved change orders</button></form>
+      <form method="post" action="{% url 'billing:pull' invoice.pk %}">{% csrf_token %}<input type="hidden" name="what" value="time"><button type="submit">Unbilled time</button></form>
+      <form method="post" action="{% url 'billing:pull' invoice.pk %}">{% csrf_token %}<input type="hidden" name="what" value="materials"><button type="submit">Unbilled materials</button></form>
+      {% if invoice.kind == "final" %}<form method="post" action="{% url 'billing:pull' invoice.pk %}">{% csrf_token %}<input type="hidden" name="what" value="deposits"><button type="submit">Deposits received</button></form>{% endif %}
+    </details>
+  {% endif %}
+  <form method="post" action="{% url 'billing:delete' invoice.pk %}" class="push-right">{% csrf_token %}<button type="submit" class="linklike">Delete draft</button></form>
+</section>
+{% if not preview.resolved %}<p class="message warning">{{ preview.note }} <a href="?tab=details">Choose a tax jurisdiction</a> to issue; the invoice will be flagged for review.</p>{% endif %}
+{% endif %}
+
+{% include "partials/tabs.html" %}
+
+<div class="tab-body">
+{% if tab == "lines" %}
+  <div class="table-wrap"><table>
+    <thead><tr><th scope="col">Description</th><th scope="col" class="num">Qty</th><th scope="col" class="num">Unit price</th><th scope="col" class="num">Amount</th>{% if draft %}<th></th>{% endif %}</tr></thead>
+    <tbody>
+    {% for line in lines %}
+      <tr><td>{{ line.description|linebreaksbr }} <span class="badge">{{ line.get_category_display }}</span>{% if not draft and not line.taxable %} <span class="muted">(not taxed)</span>{% endif %}</td>
+        <td class="num">{{ line.quantity|floatformat:"-4" }} {{ line.get_unit_display }}</td>
+        <td class="num">{{ line.unit_price|money }}</td><td class="num">{{ line.line_total|money }}</td>
+        {% if draft %}<td><form method="post" action="{% url 'billing:line_delete' invoice.pk line.pk %}">{% csrf_token %}<button type="submit" class="linklike">Remove</button></form></td>{% endif %}</tr>
+    {% empty %}<tr><td colspan="5" class="muted">No lines yet.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+  {% if line_form %}
+  <details class="panel"><summary>Add a line</summary>
+    <form method="post" action="{% url 'billing:line_add' invoice.pk %}" class="stack">{% csrf_token %}{{ line_form.as_div }}<button type="submit">Add line</button></form>
+  </details>
+  {% endif %}
+  <table class="totals-table">
+    <tr><th scope="row">Subtotal</th><td class="num">{{ invoice.subtotal|money }}</td></tr>
+    {% if draft %}
+    <tr><th scope="row"><label for="shipping-amount">{{ invoice.shipping_label }}</label></th>
+      <td class="num"><form method="post" action="{% url 'billing:shipping' invoice.pk %}" class="amount-edit">{% csrf_token %}<input type="number" id="shipping-amount" name="shipping" value="{{ invoice.shipping }}" step="0.01" min="0"><button type="submit" class="linklike">Update</button></form></td></tr>
+    {% elif invoice.shipping %}
+    <tr><th scope="row">{{ invoice.shipping_label }}</th><td class="num">{{ invoice.shipping|money }}</td></tr>
+    {% endif %}
+    <tr><th scope="row">{% if invoice.is_draft and not preview.resolved %}Sales tax <span class="flag flag-risk">not resolved</span>{% else %}{{ tax_label }}{% endif %}
+      {% if tax_lines|length > 1 %}<a href="?tab=details" class="small muted">breakdown</a>{% endif %}</th><td class="num">{{ invoice.tax_total|money }}</td></tr>
+    {% if invoice.exemption_number %}<tr><th scope="row" colspan="2">Exempt — {{ invoice.exemption_number }}</th></tr>{% endif %}
+    <tr class="grand"><th scope="row">Total</th><td class="num">{{ invoice.total|money }}</td></tr>
+    {% if invoice.paid_total %}<tr><th scope="row">Paid</th><td class="num">−{{ invoice.paid_total|money }}</td></tr>{% endif %}
+    {% if invoice.credited_total %}<tr><th scope="row">Credited</th><td class="num">−{{ invoice.credited_total|money }}</td></tr>{% endif %}
+    {% if invoice.written_off %}<tr><th scope="row">Written off</th><td class="num">−{{ invoice.written_off|money }}</td></tr>{% endif %}
+    {% if not invoice.is_draft and not invoice.is_credit_note %}<tr class="grand"><th scope="row">Balance</th><td class="num">{{ invoice.balance|money }}</td></tr>{% endif %}
+  </table>
+
+{% elif tab == "details" %}
+  <div class="overview-grid">
+  {% if form %}
+  <section class="card">
+    <h2>Dates, delivery and tax</h2>
+    <form method="post" action="{% url 'billing:update' invoice.pk %}" class="stack" novalidate>{% csrf_token %}
+      {% include "partials/form_body.html" %}
+      <button type="submit" class="primary">Save</button>
+    </form>
+  </section>
+  {% else %}
+  <section class="card">
+    <h2>Delivery</h2>
+    <dl class="facts">
+      <dt>Fulfillment</dt><dd>{{ invoice.get_fulfillment_display }}</dd>
+      {% if invoice.ship_to_text and invoice.fulfillment != "pickup" %}<dt>Ship to</dt><dd>{{ invoice.ship_to_text|linebreaksbr }}</dd>{% endif %}
+      <dt>{{ invoice.shipping_label }}</dt><dd>{{ invoice.shipping|money }}</dd>
+      <dt>Payment terms</dt><dd>{{ invoice.terms_days }} days</dd>
+    </dl>
+    {% if invoice.notes %}<h3>Notes for the customer</h3><p>{{ invoice.notes|linebreaksbr }}</p>{% endif %}
+    {% if invoice.internal_notes %}<h3>Internal notes</h3><p>{{ invoice.internal_notes|linebreaksbr }}</p>{% endif %}
+  </section>
+  {% endif %}
+  <section class="card">
+    <h2>Sales tax</h2>
+    <dl class="facts">
+      {% if invoice.is_draft %}
+      <dt>Estimate</dt><dd>{% if preview.resolved %}{{ tax_label }}{% else %}Not resolved — {{ preview.note }}{% endif %}</dd>
+      {% if preview.location_code %}<dt>Location code</dt><dd>{{ preview.location_code }}</dd>{% endif %}
+      {% else %}
+      <dt>How it was set</dt><dd>{{ invoice.get_tax_method_display|default:"—" }}</dd>
+      {% if invoice.tax_location_code %}<dt>Location code</dt><dd>{{ invoice.tax_location_code }}</dd>{% endif %}
+      {% if invoice.tax_postal_code %}<dt>ZIP code</dt><dd>{{ invoice.tax_postal_code }}</dd>{% endif %}
+      {% if invoice.tax_note %}<dt>Note</dt><dd>{{ invoice.tax_note }}</dd>{% endif %}
+      {% endif %}
+      <dt>Taxable amount</dt><dd>{{ invoice.taxable_total|money }}{% if invoice.shipping_taxable %} <span class="muted">(includes {{ invoice.shipping_taxable|money }} of {{ invoice.shipping_label|lower }})</span>{% endif %}</dd>
+    </dl>
+    {% if tax_lines %}
+    <div class="table-wrap"><table>
+      <thead><tr><th scope="col">Jurisdiction</th><th scope="col">Code</th><th scope="col" class="num">Rate</th><th scope="col" class="num">Tax</th></tr></thead>
+      <tbody>{% for t in tax_lines %}<tr><td>{{ t.name }}</td><td>{{ t.code }}</td><td class="num">{{ t.rate|pct }}</td><td class="num">{{ t.amount|money }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    <p class="muted small">Customers see one combined sales tax line. This breakdown is for your records and tax filing.</p>
+    {% endif %}
+  </section>
+  </div>
+
+{% elif tab == "payments" %}
+  <div class="overview-grid">
+    {% if can_pay %}
+    <section class="card">
+      <h2>Record a payment</h2>
+      <form method="post" action="{% url 'billing:pay' invoice.pk %}" class="stack">{% csrf_token %}{{ payment_form.as_div }}<button type="submit" class="primary">Record payment</button></form>
+      {% if credit_available > 0 %}<form method="post" action="{% url 'billing:apply_credit' invoice.pk %}" class="panel">{% csrf_token %}<button type="submit">Apply {{ credit_available|money }} of customer credit</button></form>{% endif %}
+    </section>
+    {% endif %}
+    <section class="card">
+      <h2>History</h2>
+      {% if allocations or write_offs or credit_notes %}
+      <ul class="plain">
+        {% for a in allocations %}<li>{% if a.payment %}{{ a.payment.received_on|d }} — {{ a.payment.get_method_display }} {{ a.payment.reference }}{% else %}Credit note <a href="{{ a.credit_note.get_absolute_url }}">{{ a.credit_note }}</a>{% endif %}: {{ a.amount|money }}</li>{% endfor %}
+        {% for w in write_offs %}<li>{{ w.written_off_on|d }} — written off {{ w.amount|money }}: {{ w.reason }}</li>{% endfor %}
+        {% for c in credit_notes %}<li>Credit note <a href="{{ c.get_absolute_url }}">{{ c }}</a> ({{ c.get_status_display|lower }}) {{ c.total|money }}</li>{% endfor %}
+      </ul>
+      {% else %}<p class="muted">Nothing paid or credited yet.</p>{% endif %}
+    </section>
+    {% if can_credit or can_write_off or can_void %}
+    <section class="card">
+      <h2>Corrections</h2>
+      {% if can_credit %}
+      <details><summary>Issue a credit note</summary>
+        <form method="post" action="{% url 'billing:credit_note' invoice.pk %}" class="stack">{% csrf_token %}
+          <div><label for="cn-amount">Amount</label><input type="number" id="cn-amount" name="amount" step="0.01" min="0.01" required></div>
+          <div><label for="cn-desc">Description</label><input type="text" id="cn-desc" name="description" placeholder="What is being credited"></div>
+          <button type="submit">Create credit note</button>
+        </form>
+      </details>
+      {% endif %}
+      {% if can_write_off %}
+      <details><summary>Write off</summary>
+        <form method="post" action="{% url 'billing:write_off' invoice.pk %}" class="stack">{% csrf_token %}
+          <div><label for="wo-amount">Amount</label><input type="number" id="wo-amount" name="amount" step="0.01" value="{{ invoice.balance }}"></div>
+          <div><label for="wo-reason">Reason</label><input type="text" id="wo-reason" name="reason" required></div>
+          <button type="submit" class="danger">Write off</button>
+        </form>
+      </details>
+      {% endif %}
+      {% if can_void %}
+      <details><summary>Void</summary>
+        <form method="post" action="{% url 'billing:void' invoice.pk %}" class="stack">{% csrf_token %}
+          <div><label for="void-reason">Reason</label><input type="text" id="void-reason" name="reason" required></div>
+          <button type="submit" class="danger">Void {{ invoice.number }}</button>
+        </form>
+      </details>
+      {% endif %}
+    </section>
+    {% endif %}
+  </div>
+
+{% elif tab == "preview" %}
+  <iframe name="invoice-preview" class="document-preview" src="{% url 'billing:document' invoice.pk %}" sandbox title="Invoice preview"></iframe>
+{% elif tab == "files" %}
+  {% attachments invoice %}
+{% endif %}
+</div>
+{% endblock %}

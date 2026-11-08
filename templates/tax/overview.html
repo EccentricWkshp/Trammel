@@ -1,0 +1,77 @@
+{% extends "settings_base.html" %}
+{% block title %}Tax{% endblock %}
+{% block settings_content %}
+<div class="heading-row">
+  <h1>Tax</h1>
+  {% if perms.tax.manage %}
+  <div class="actions">
+    <a class="button" href="{% url 'tax:import' %}">Import file</a>
+    <a class="button" href="{% url 'tax:jurisdiction_create' %}">Add jurisdiction</a>
+    <a class="button" href="{% url 'tax:rate_create' %}">Add rate</a>
+    <a href="{% url 'tax:boundary_create' %}">Map postal codes</a>
+    <a href="{% url 'tax:settings' %}">Settings</a>
+  </div>
+  {% endif %}
+</div>
+<p class="lede">Sales tax is looked up from the delivery address — or the shop's, for pickups and origin-based states — using rates entered here or imported from files. Nothing is looked up online. Sourcing: <strong>{{ settings.get_sourcing_display }}</strong>. Shipping: <strong>{{ settings.get_shipping_tax_display|lower }}</strong>.</p>
+
+<section aria-labelledby="lookup-heading">
+  <h2 id="lookup-heading">Look up a rate</h2>
+  <form method="get" class="filters">
+    <label>ZIP or ZIP+4 {{ lookup.postal_code }}</label>
+    <label>On date {{ lookup.on }}</label>
+    <button type="submit">Look up</button>
+  </form>
+  {% if result %}
+    {% if result.resolved %}
+    <p><strong>{{ result.label }}</strong>{% if result.location_code %} — location code {{ result.location_code }}{% endif %}</p>
+    <ul>{% for c in result.components %}<li>{{ c.name }} ({{ c.code }}): {{ c.rate|floatformat:"-4" }}%</li>{% endfor %}</ul>
+    {% else %}
+    <p class="message warning">{{ result.note }} Invoices to this address will ask for a rate to be chosen by hand and be flagged for review.</p>
+    {% endif %}
+  {% endif %}
+</section>
+
+<section aria-labelledby="categories-heading">
+  <div class="heading-row"><h2 id="categories-heading">Tax categories</h2>{% if perms.tax.manage %}<a class="button" href="{% url 'tax:category_create' %}">Add category</a>{% endif %}</div>
+  {% if categories %}
+  <div class="table-wrap"><table>
+    <thead><tr><th scope="col">Category</th><th scope="col">Sales tax</th><th scope="col">Gross receipts classification</th></tr></thead>
+    <tbody>{% for c in categories %}
+      <tr><td>{% if perms.tax.manage %}<a href="{% url 'tax:category_edit' c.pk %}">{{ c.name }}</a>{% else %}{{ c.name }}{% endif %}{% if c.is_default %} <span class="badge">default</span>{% endif %}</td>
+          <td>{{ c.taxable|yesno:"Taxable,Exempt" }}</td><td>{{ c.gross_receipts_classification|default:"—" }}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% else %}<p class="muted">No categories yet. Lines without a category are taxable.</p>{% endif %}
+</section>
+
+<section aria-labelledby="jur-heading">
+  <h2 id="jur-heading">Jurisdictions and rates</h2>
+  <form method="get" class="filters"><label>Search <input type="search" name="q" value="{{ q }}"></label><button type="submit">Search</button></form>
+  <div class="table-wrap"><table>
+    <thead><tr><th scope="col">Jurisdiction</th><th scope="col">Rates</th></tr></thead>
+    <tbody>
+    {% for j in page %}
+      <tr>
+        <td>{% if perms.tax.manage %}<a href="{% url 'tax:jurisdiction_edit' j.pk %}">{{ j.name }}</a>{% else %}{{ j.name }}{% endif %}<br><code class="muted">{{ j.code }}</code> <span class="muted">{{ j.get_level_display }} · {{ j.get_source_display }}</span></td>
+        <td>
+          <ul class="plain">{% for r in j.rates.all %}
+            <li>{{ r.rate|floatformat:"-4" }}% <span class="muted">{{ r.get_kind_display }}{% if r.classification %} — {{ r.classification }}{% endif %} · {{ r.effective_from|d }} → {{ r.effective_to|d|default:"open" }}</span>
+              {% if perms.tax.manage and not r.effective_to %}<a href="{% url 'tax:rate_end' r.pk %}">End</a>{% endif %}</li>
+          {% empty %}<li class="muted">No rates</li>{% endfor %}</ul>
+          {% if perms.tax.manage %}<a href="{% url 'tax:rate_create' %}?jurisdiction={{ j.pk }}">Add rate</a>{% endif %}
+        </td>
+      </tr>
+    {% empty %}<tr><td colspan="2" class="muted">No jurisdictions yet. Add one, or import a rate file.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+  {% include "partials/pagination.html" %}
+</section>
+
+{% if batches %}
+<section aria-labelledby="imports-heading">
+  <h2 id="imports-heading">Recent imports</h2>
+  <ul>{% for b in batches %}<li>{{ b }} — {% if b.status == "done" %}{{ b.kind }}: {{ b.rows }} row(s){% if b.skipped %}, {{ b.skipped }} skipped{% endif %}{% elif b.status == "failed" %}<span class="flag flag-late">failed</span> {{ b.error }}{% else %}<span class="flag flag-risk">{{ b.get_status_display|lower }}</span>{% if b.rows %} {{ b.rows }} row(s) so far{% endif %}{% endif %}</li>{% endfor %}</ul>
+</section>
+{% endif %}
+{% endblock %}

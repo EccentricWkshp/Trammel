@@ -1,0 +1,18 @@
+{% extends "settings_base.html" %}
+{% load files %}
+{% block title %}{{ title }}{% endblock %}
+{% block settings_content %}
+<h1>{{ title }}</h1>
+<form method="post" class="stack" novalidate>
+  {% csrf_token %}
+  {% include "partials/form_body.html" %}
+  <div class="actions">
+    <button type="submit" class="primary">Save</button>
+    <a href="{% url back %}">Cancel</a>
+  </div>
+</form>
+{% if form.instance.pk %}
+{% if form.instance.url %}<p><a href="{{ form.instance.url }}" target="_blank" rel="noopener noreferrer">Open the product page</a></p>{% endif %}
+<div class="panel">{% attachments form.instance "Spec sheets, photos and files" %}</div>
+{% endif %}
+{% endblock %}

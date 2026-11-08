@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Record acceptance{% endblock %}
+{% block main_class %}page narrow{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{{ agreement.job.get_absolute_url }}">{{ agreement.job.number }}</a></p>
+<h1>Record acceptance</h1>
+<details><summary>The agreement text</summary><article class="agreement-text prewrap">{{ agreement.text }}</article></details>
+<form method="post" enctype="multipart/form-data" class="stack" novalidate>
+  {% csrf_token %}
+  {% include "partials/form_body.html" %}
+  <div class="actions"><button type="submit" class="primary">Record acceptance</button> <a href="{{ agreement.job.get_absolute_url }}">Cancel</a></div>
+</form>
+{% endblock %}

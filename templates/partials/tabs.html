@@ -1,0 +1,7 @@
+<nav class="tabs" aria-label="Sections of this page">
+  <ul>
+    {% for t in tabs %}
+    <li><a href="?tab={{ t.key }}"{% if t.active %} aria-current="page"{% endif %}>{{ t.label }}{% if t.count %} <span class="tab-count">{{ t.count }}</span>{% endif %}</a></li>
+    {% endfor %}
+  </ul>
+</nav>

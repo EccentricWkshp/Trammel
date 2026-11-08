@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% load trammel %}
+{% block title %}Time{% endblock %}
+{% block content %}
+<h1>Time</h1>
+{% if running %}<p class="callout">Your timer is running on <a href="{{ running.work_order.get_absolute_url }}">{{ running.work_order }}</a> since {{ running.started_at|t }}.</p>{% endif %}
+<form method="get" class="filters">
+  {% if can_manage %}
+  <label>Person <select name="user"><option value="">Anyone</option>{% for u in users %}<option value="{{ u.pk }}"{% if filters.user == u.pk|stringformat:"s" %} selected{% endif %}>{{ u }}</option>{% endfor %}</select></label>
+  {% endif %}
+  <label>Machine <select name="machine"><option value="">Any</option>{% for m in machines %}<option value="{{ m.pk }}"{% if filters.machine == m.pk|stringformat:"s" %} selected{% endif %}>{{ m }}</option>{% endfor %}</select></label>
+  <label>Job <input type="text" name="job" value="{{ filters.job }}"></label>
+  <label>From <input type="date" name="since" value="{{ filters.since }}"></label>
+  <label>To <input type="date" name="until" value="{{ filters.until }}"></label>
+  <button type="submit">Filter</button>
+  <a href="{% url 'time:csv' %}?{{ query }}">Export CSV</a>
+</form>
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Started</th><th scope="col">Work order</th><th scope="col">Who / machine</th><th scope="col" class="num">Minutes</th>{% if can_costs %}<th scope="col" class="num">Cost</th>{% endif %}</tr></thead>
+  <tbody>{% for e in page %}
+    <tr><td>{{ e.started_at|dt }}</td><td><a href="{{ e.work_order.get_absolute_url }}">{{ e.work_order.number }}</a> <span class="muted">{{ e.work_order.job.number }}</span></td>
+      <td>{{ e.user|default:e.machine }}</td><td class="num">{% if e.is_running %}<em>running</em>{% else %}{{ e.minutes|floatformat:"-2" }}{% endif %}</td>
+      {% if can_costs %}<td class="num">{{ e.cost|money }}</td>{% endif %}</tr>
+  {% empty %}<tr><td colspan="5" class="muted">No time recorded.</td></tr>{% endfor %}</tbody>
+</table></div>
+{% include "partials/pagination.html" %}
+{% endblock %}

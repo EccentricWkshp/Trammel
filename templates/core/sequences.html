@@ -1,0 +1,26 @@
+{% extends "settings_base.html" %}
+{% block title %}Document numbers{% endblock %}
+{% block settings_content %}
+<h1>Document numbers</h1>
+<p class="lede">Prefixes and format for each kind of document. Changing a prefix affects only numbers issued from now on. Invoice numbers are always gap-free.</p>
+{% if rows %}
+<div class="table-wrap">
+<table>
+  <thead><tr><th scope="col">Document</th><th scope="col">Prefix</th><th scope="col">Yearly</th><th scope="col">Next number</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+  <tbody>
+  {% for row in rows %}
+    <tr>
+      <td>{{ row.seq.label }}</td>
+      <td><code>{{ row.seq.prefix }}</code></td>
+      <td>{{ row.seq.yearly|yesno:"Yes,No" }}</td>
+      <td><code>{{ row.next }}</code></td>
+      <td><a href="{% url 'core:sequence_edit' row.seq.key %}">Edit</a></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="muted">No number series yet. They appear as modules that issue documents (jobs, quotes, invoices) are installed.</p>
+{% endif %}
+{% endblock %}

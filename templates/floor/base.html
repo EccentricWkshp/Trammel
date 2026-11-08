@@ -1,0 +1,26 @@
+{% load static %}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1f5f8b">
+  <title>{% block title %}Shop floor{% endblock %} · {{ business.name|default:"Trammel" }}</title>
+  <link rel="manifest" href="{% url 'floor:manifest' %}" data-sw="{% url 'floor:sw' %}">
+  <link rel="icon" href="{% static 'floor/icon-192.png' %}">
+  <link rel="apple-touch-icon" href="{% static 'floor/icon-192.png' %}">
+  <link rel="stylesheet" href="{% static 'trammel.css' %}">
+  <link rel="stylesheet" href="{% static 'floor/floor.css' %}">
+  <script src="{% static 'floor/floor.js' %}" defer></script>
+</head>
+<body class="floor">
+<header class="floor-bar">
+  <a href="{% url 'floor:home' %}" class="brand">Shop floor</a>
+  <a href="{% url 'floor:scan' %}" class="button">Scan</a>
+</header>
+<main id="main" class="floor-main">
+  {% if messages %}<div class="messages" role="status">{% for m in messages %}<p class="message {{ m.tags }}">{{ m }}</p>{% endfor %}</div>{% endif %}
+  {% block content %}{% endblock %}
+</main>
+<footer class="footer"><a href="{% url 'core:dashboard' %}">Full site</a></footer>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Delete {{ job.number }}{% endblock %}
+{% block main_class %}page narrow{% endblock %}
+{% block content %}
+<h1>Delete {{ job.number }}?</h1>
+<p>The job goes to the trash, where it can be restored for 30 days. Its number is not reused.</p>
+<form method="post" class="stack">
+  {% csrf_token %}
+  <div><label for="reason">Reason (optional)</label><textarea id="reason" name="reason" rows="2"></textarea></div>
+  <div class="actions">
+    <button type="submit" class="danger">Delete</button>
+    <a href="{{ job.get_absolute_url }}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

@@ -1,0 +1,21 @@
+{% load trammel %}
+<div class="heading-row">
+  <h2 id="panel-{{ heading_id }}">Invoices</h2>
+  {% if ctx.can_create %}
+  <form method="post" action="{% url 'billing:create' %}" class="filters">{% csrf_token %}
+    <input type="hidden" name="job" value="{{ job.pk }}">
+    <label>New <select name="kind"><option value="final">Final invoice</option><option value="progress">Progress invoice</option></select></label>
+    <button type="submit">Create</button>
+  </form>
+  {% endif %}
+</div>
+{% if ctx.invoices %}
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Invoice</th><th scope="col">Status</th><th scope="col" class="num">Total</th><th scope="col" class="num">Balance</th></tr></thead>
+  <tbody>{% for i in ctx.invoices %}
+    <tr><td><a href="{{ i.get_absolute_url }}">{{ i }}</a> <span class="muted">{{ i.get_kind_display }}</span></td>
+      <td>{{ i.get_status_display }}{% if i.is_overdue %} <span class="flag flag-late">overdue</span>{% endif %}</td>
+      <td class="num">{{ i.total|money }}</td><td class="num">{{ i.balance|money }}</td></tr>
+  {% endfor %}</tbody>
+</table></div>
+{% else %}<p class="muted">No invoices yet.</p>{% endif %}

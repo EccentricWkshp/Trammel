@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Search{% endblock %}
+{% block content %}
+<h1>Search</h1>
+<form method="get" class="filters" role="search">
+  <label>Search for <input type="search" name="q" value="{{ q }}" autofocus></label>
+  <button type="submit">Search</button>
+</form>
+{% if q|length >= 2 %}
+<div class="search-results">
+{% for kind, hits in results %}
+  <section>
+    <h2>{{ kind }}</h2>
+    <ul class="plain">{% for h in hits %}<li><a href="{{ h.url }}">{{ h.label }}</a>{% if h.detail %} <span class="muted">{{ h.detail }}</span>{% endif %}</li>{% endfor %}</ul>
+  </section>
+{% empty %}
+  <p class="muted">Nothing matches “{{ q }}”.</p>
+{% endfor %}
+</div>
+{% elif q %}<p class="muted">Type at least two characters.</p>{% endif %}
+{% endblock %}

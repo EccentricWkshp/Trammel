@@ -1,0 +1,461 @@
+from __future__ import annotations
+
+from decimal import Decimal
+
+from django.contrib import messages
+from django.core.exceptions import PermissionDenied, ValidationError
+from django.db import transaction
+from django.http import Http404, HttpResponse
+from django.shortcuts import redirect, render
+from django.utils import timezone
+from django.views.decorators.http import require_POST
+
+from trammel.catalog import services as catalog
+from trammel.core import access, audit, modules, panels, placeholders, templating
+from trammel.core.lifecycle import TransitionError
+from trammel.core.services import save_audited
+from trammel.core.web import document_response, document_view, paginate, permission_required
+from trammel.jobs.models import Job
+
+from . import services
+from .estimators import ESTIMATORS
+from .forms import (
+    LINE_FORMS,
+    ApprovalForm,
+    QuoteSettingsForm,
+    QuoteTemplateForm,
+    RevisionForm,
+)
+from .models import QuoteLine, QuoteRevision, QuoteSettings, QuoteTemplate, Status
+
+
+def _revision(request, perm, pk) -> QuoteRevision:
+    return access.get_or_404(
+        request.actor,
+        perm,
+        QuoteRevision.objects.select_related("quote__job__customer", "template"),
+        pk=pk,
+    )
+
+
+def _draft(request, pk) -> QuoteRevision:
+    revision = _revision(request, "quotes.edit", pk)
+    if not revision.is_draft:
+        messages.error(request, "This revision has been sent and cannot be changed.")
+        raise _Redirect(revision)
+    return revision
+
+
+class _Redirect(Exception):
+    def __init__(self, target):
+        self.target = target
+
+
+def _handles_redirect(view):
+    def wrapped(request, *args, **kwargs):
+        try:
+            return view(request, *args, **kwargs)
+        except _Redirect as r:
+            return redirect(r.target)
+
+    wrapped.__name__ = view.__name__
+    return wrapped
+
+
+@permission_required("quotes.view")
+def quote_list(request):
+    qs = QuoteRevision.objects.select_related("quote__job__customer").exclude(
+        status=Status.SUPERSEDED
+    )
+    status = request.GET.get("status", "")
+    if status in Status.values:
+        qs = qs.filter(status=status)
+    if term := request.GET.get("q", "").strip():
+        qs = (
+            qs.filter(quote__number__icontains=term)
+            | qs.filter(quote__title__icontains=term)
+            | qs.filter(quote__job__customer__name__icontains=term)
+        )
+    qs = access.scoped(request.actor, "quotes.view", qs).order_by("-created_at")
+    params = request.GET.copy()
+    params.pop("page", None)
+    return render(
+        request,
+        "quotes/list.html",
+        {
+            "page": paginate(request, qs),
+            "status": status,
+            "statuses": Status.choices,
+            "q": request.GET.get("q", ""),
+            "query": params.urlencode(),
+        },
+    )
+
+
+@permission_required("quotes.create")
+@require_POST
+def quote_create(request, job_pk):
+    job = access.get_or_404(request.actor, "jobs.view", Job.objects.all(), pk=job_pk)
+    try:
+        revision = services.create_quote(job, title=request.POST.get("title", ""))
+    except ValidationError as exc:
+        messages.error(request, " ".join(exc.messages))
+        return redirect(job)
+    return redirect(revision)
+
+
+@permission_required("quotes.view")
+def revision_detail(request, pk):
+    revision = _revision(request, "quotes.view", pk)
+    actor = request.actor
+    can_edit = revision.is_draft and access.has_perm(actor, "quotes.edit", revision)
+    can_costs = access.has_perm(actor, "core.see_costs")
+    lines = list(revision.lines.select_related("product", "machine", "material", "tax_category"))
+    margin = None
+    if can_costs and revision.subtotal:
+        margin = ((revision.subtotal - revision.cost_total) / revision.subtotal * 100).quantize(
+            revision.subtotal.__class__("0.1")
+        )
+    return render(
+        request,
+        "quotes/revision.html",
+        {
+            "revision": revision,
+            "quote": revision.quote,
+            "job": revision.quote.job,
+            "lines": lines,
+            "form": RevisionForm(instance=revision) if can_edit else None,
+            "can_edit": can_edit,
+            "can_costs": can_costs,
+            "margin": margin,
+            "line_kinds": [(k, QuoteLine.Kind(k).label) for k in LINE_FORMS],
+            "estimators": ESTIMATORS.values(),
+            "can_send": revision.is_draft and access.has_perm(actor, "quotes.edit", revision),
+            "can_approve": revision.status == Status.SENT
+            and access.has_perm(actor, "quotes.approve", revision),
+            "can_revise": revision.status in (Status.SENT, Status.DECLINED, Status.EXPIRED)
+            and access.has_perm(actor, "quotes.edit", revision),
+            "history": revision.quote.revisions.order_by("-number"),
+            "approval": getattr(revision, "approval", None)
+            if revision.status == Status.APPROVED
+            else None,
+            **panels.tabbed(
+                request,
+                [],
+                first=[
+                    ("lines", "Lines"),
+                    ("details", "Details"),
+                    ("preview", "Preview"),
+                    *([("revisions", "Revisions")] if revision.quote.revisions.count() > 1 else []),
+                    ("files", "Files"),
+                ],
+            ),
+        },
+    )
+
+
+@permission_required("quotes.edit")
+@_handles_redirect
+@require_POST
+def revision_update(request, pk):
+    revision = _draft(request, pk)
+    before = audit.snapshot(revision)
+    form = RevisionForm(request.POST, instance=revision)
+    if form.is_valid():
+        try:
+            services.update_revision(form.save(commit=False), before=before)
+        except ValidationError as exc:
+            messages.error(request, " ".join(exc.messages))
+        else:
+            messages.success(request, "Quote details saved.")
+    else:
+        for field, errors in form.errors.items():
+            messages.error(request, f"{field}: {' '.join(errors)}")
+    return redirect(revision)
+
+
+@permission_required("quotes.edit")
+@_handles_redirect
+@require_POST
+def shipping(request, pk):
+    revision = _draft(request, pk)
+    before = audit.snapshot(revision)
+    try:
+        revision.shipping = Decimal(request.POST.get("shipping") or "0")
+        services.update_revision(revision, before=before)
+    except ArithmeticError, ValueError:
+        messages.error(request, "Enter the shipping charge as an amount, such as 12.50.")
+    except ValidationError as exc:
+        messages.error(request, " ".join(exc.messages))
+    return redirect(revision)
+
+
+@permission_required("quotes.edit")
+@_handles_redirect
+def line_edit(request, pk, kind=None, line_pk=None):
+    revision = _draft(request, pk)
+    line = revision.lines.filter(pk=line_pk).first() if line_pk else None
+    if line_pk and line is None:
+        raise Http404
+    kind = line.kind if line else kind
+    if line and line.kind == QuoteLine.Kind.ESTIMATE:
+        return redirect("quotes:estimate", pk=revision.pk, key=line.estimator, line_pk=line.pk)
+    form_class = LINE_FORMS.get(kind)
+    if form_class is None:
+        raise Http404
+    form = form_class(request.POST or None, initial=form_class.initial_from(line) if line else None)
+    can_catalog = modules.is_enabled("catalog") and access.has_perm(request.actor, "catalog.edit")
+    if not can_catalog:
+        form.fields.pop("save_to_catalog", None)
+    if request.method == "POST" and form.is_valid():
+        built = form.build(revision, line)
+        try:
+            with transaction.atomic():
+                services.save_line(built)
+                if form.cleaned_data.get("save_to_catalog"):
+                    product, created = catalog.save_adhoc(
+                        description=built.description,
+                        price=built.unit_price,
+                        cost=built.unit_cost,
+                        unit=built.unit,
+                        tax_category=built.tax_category,
+                    )
+                    messages.success(
+                        request,
+                        f"Added “{product}” to the catalog."
+                        if created
+                        else f"“{product}” is already in the catalog.",
+                    )
+        except ValidationError as exc:
+            form.add_error(None, exc)
+        else:
+            return redirect(revision)
+    title = f"{'Edit' if line else 'Add'} {QuoteLine.Kind(kind).label.lower()} — {revision}"
+    return render(
+        request, "quotes/line_form.html", {"form": form, "title": title, "revision": revision}
+    )
+
+
+@permission_required("quotes.edit")
+@_handles_redirect
+@require_POST
+def line_delete(request, pk, line_pk):
+    revision = _draft(request, pk)
+    line = revision.lines.filter(pk=line_pk).first()
+    if line is None:
+        raise Http404
+    services.delete_line(line)
+    return redirect(revision)
+
+
+@permission_required("quotes.edit")
+@_handles_redirect
+def estimate(request, pk, key, line_pk=None):
+    revision = _draft(request, pk)
+    estimator = ESTIMATORS.get(key)
+    if estimator is None:
+        raise Http404
+    line = revision.lines.filter(pk=line_pk).first() if line_pk else None
+    form_class = estimator.form_class()
+    initial = line.inputs if line else None
+    form = form_class(request.POST or None, initial=initial)
+    preview = None
+    if request.method == "POST" and form.is_valid():
+        built = services.estimate_line(revision, key, form.cleaned_data)
+        if "add" in request.POST:
+            if line is not None:
+                built.pk, built.position = line.pk, line.position
+                built._state.adding = False
+            services.save_estimate(built)
+            messages.success(request, f"{built.description} added.")
+            return redirect(revision)
+        preview = built
+    return render(
+        request,
+        "quotes/estimate.html",
+        {
+            "form": form,
+            "estimator": estimator,
+            "revision": revision,
+            "preview": preview,
+            "can_costs": access.has_perm(request.actor, "core.see_costs"),
+        },
+    )
+
+
+@permission_required("quotes.edit")
+@require_POST
+def send(request, pk):
+    revision = _revision(request, "quotes.edit", pk)
+    try:
+        services.send(revision, actor=request.actor)
+    except TransitionError as exc:
+        for p in exc.problems:
+            messages.error(request, p)
+    else:
+        messages.success(request, f"{revision} marked as sent. It can no longer be changed.")
+    return redirect(revision)
+
+
+@permission_required("quotes.approve")
+def approve(request, pk):
+    revision = _revision(request, "quotes.approve", pk)
+    from trammel.agreements import services as agreements
+
+    needs_agreement = not agreements.satisfied(revision.quote.job)
+    form = ApprovalForm(
+        request.POST or None,
+        initial={
+            "approved_by_name": revision.quote.job.customer.name,
+            "approved_at": timezone.localtime().strftime("%Y-%m-%dT%H:%M"),
+        },
+    )
+    if request.method == "POST" and form.is_valid():
+        d = form.cleaned_data
+        try:
+            services.approve(
+                revision,
+                actor=request.actor,
+                approved_by_name=d["approved_by_name"],
+                how=d["how"],
+                approved_at=d["approved_at"],
+                notes=d["notes"],
+                accept_agreement=d["accept_agreement"],
+                user=request.user,
+            )
+        except (ValidationError, TransitionError) as exc:
+            form.add_error(None, getattr(exc, "problems", None) or exc.messages)
+        except PermissionDenied:
+            form.add_error(None, "Your role does not allow approving quotes.")
+        else:
+            messages.success(request, f"{revision} approved.")
+            return redirect(revision)
+    return render(
+        request,
+        "quotes/approve.html",
+        {"form": form, "revision": revision, "needs_agreement": needs_agreement},
+    )
+
+
+@permission_required("quotes.edit")
+@require_POST
+def decline(request, pk):
+    revision = _revision(request, "quotes.edit", pk)
+    try:
+        services.decline(revision, actor=request.actor, reason=request.POST.get("reason", ""))
+    except TransitionError as exc:
+        messages.error(request, " ".join(exc.problems))
+    return redirect(revision)
+
+
+@permission_required("quotes.edit")
+@require_POST
+def revise(request, pk):
+    revision = _revision(request, "quotes.edit", pk)
+    try:
+        new = services.revise(revision, actor=request.actor)
+    except ValidationError as exc:
+        messages.error(request, " ".join(exc.messages))
+        return redirect(revision)
+    messages.success(request, f"Revision {new.number} started.")
+    return redirect(new)
+
+
+@permission_required("quotes.view")
+@document_view
+def document(request, pk):
+    revision = _revision(request, "quotes.view", pk)
+    try:
+        html = services.render_html(revision)
+    except templating.TemplateProblem as exc:
+        html = f"<p>The quote template has a problem: {exc}</p>"
+    return document_response(request, html)
+
+
+@permission_required("quotes.view")
+def pdf(request, pk):
+    revision = _revision(request, "quotes.view", pk)
+    try:
+        data = services.render_pdf(revision)
+    except (templating.PdfUnavailable, templating.TemplateProblem) as exc:
+        messages.error(request, str(exc))
+        return redirect(revision)
+    response = HttpResponse(data, content_type="application/pdf")
+    response["Content-Disposition"] = (
+        f'attachment; filename="{revision.quote.number}-r{revision.number}.pdf"'
+    )
+    return response
+
+
+@permission_required("quotes.view")
+def compare(request, pk, other_pk):
+    a = _revision(request, "quotes.view", pk)
+    b = _revision(request, "quotes.view", other_pk)
+    if a.quote_id != b.quote_id:
+        raise Http404
+    a, b = sorted((a, b), key=lambda r: r.number)
+    rows = []
+    a_lines = {line.description: line for line in a.lines.all()}
+    b_lines = {line.description: line for line in b.lines.all()}
+    for desc in dict.fromkeys([*a_lines, *b_lines]):
+        la, lb = a_lines.get(desc), b_lines.get(desc)
+        changed = not (la and lb and la.quantity == lb.quantity and la.line_total == lb.line_total)
+        rows.append({"description": desc, "a": la, "b": lb, "changed": changed})
+    return render(request, "quotes/compare.html", {"a": a, "b": b, "rows": rows})
+
+
+@permission_required("quotes.manage_templates")
+def template_list(request):
+    return render(
+        request,
+        "quotes/templates.html",
+        {
+            "templates": QuoteTemplate.objects.all(),
+            "settings": QuoteSettings.load(),
+        },
+    )
+
+
+@permission_required("quotes.manage_templates")
+def template_edit(request, pk=None):
+    obj = QuoteTemplate.objects.filter(pk=pk).first() if pk else QuoteTemplate()
+    if pk and obj is None:
+        raise Http404
+    before = audit.snapshot(obj) if pk else None
+    form = QuoteTemplateForm(request.POST or None, instance=obj)
+    if request.method == "POST" and form.is_valid():
+        problems = templating.validate(form.cleaned_data["body"])
+        if problems:
+            form.add_error("body", problems)
+        else:
+            template = save_audited(form.save(commit=False), before=before)
+            if template.is_default:
+                QuoteTemplate.objects.exclude(pk=template.pk).update(is_default=False)
+            messages.success(request, f"{template} saved.")
+            return redirect("quotes:templates")
+    return render(
+        request,
+        "core/template_editor.html",
+        {
+            "form": form,
+            "title": f"Edit {obj}" if pk else "New quote template",
+            "back": "quotes:templates",
+            "back_label": "Quote templates",
+            **placeholders.editor_context("quote"),
+        },
+    )
+
+
+@permission_required("quotes.manage_templates")
+def settings_edit(request):
+    obj = QuoteSettings.load()
+    before = audit.snapshot(obj)
+    form = QuoteSettingsForm(request.POST or None, instance=obj)
+    if request.method == "POST" and form.is_valid():
+        save_audited(form.save(commit=False), before=before, summary="Edited quote settings")
+        return redirect("quotes:templates")
+    return render(
+        request,
+        "core/settings_form.html",
+        {"form": form, "title": "Quote settings", "back": "quotes:templates"},
+    )

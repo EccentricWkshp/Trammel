@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block main_class %}page narrow{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{% url 'jobs:list' %}">Jobs</a>{% if job %} › <a href="{{ job.get_absolute_url }}">{{ job.number }}</a>{% endif %}</p>
+<h1>{{ title }}</h1>
+<form method="post" class="stack" novalidate>
+  {% csrf_token %}
+  {% include "partials/form_body.html" %}
+  <div class="actions">
+    <button type="submit" class="primary">Save</button>
+    <a href="{% if job %}{{ job.get_absolute_url }}{% else %}{% url 'jobs:list' %}{% endif %}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

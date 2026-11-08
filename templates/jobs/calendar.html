@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Calendar{% endblock %}
+{% block content %}
+<div class="heading-row">
+  <h1>{{ month|date:"F Y" }}</h1>
+  <nav class="actions" aria-label="Month">
+    <a href="?month={{ prev }}" rel="prev">← Previous</a>
+    <a href="{% url 'jobs:calendar' %}">This month</a>
+    <a href="?month={{ next }}" rel="next">Next →</a>
+  </nav>
+</div>
+<p class="lede">Target, due, promised and delivery dates of jobs. Late jobs are marked.</p>
+<div class="table-wrap">
+<table class="calendar">
+  <thead><tr>{% for d in weekdays %}<th scope="col">{{ d }}</th>{% endfor %}</tr></thead>
+  <tbody>
+  {% for week in weeks %}
+    <tr>
+    {% for day, entries in week %}
+      <td class="{% if day.month != month.month %}other-month{% endif %}{% if day == today %} today{% endif %}">
+        <span class="day-number">{{ day.day }}</span>
+        {% for e in entries %}
+          <a class="cal-entry{% if e.late %} late{% endif %}" href="{{ e.job.get_absolute_url }}">
+            <span class="cal-label">{{ e.label }}</span> {{ e.job.number }} {{ e.job.title|truncatechars:28 }}
+          </a>
+        {% endfor %}
+      </td>
+    {% endfor %}
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

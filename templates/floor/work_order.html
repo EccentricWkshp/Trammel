@@ -1,0 +1,75 @@
+{% extends "floor/base.html" %}
+{% block title %}{{ wo.number }}{% endblock %}
+{% block content %}
+<h1>{{ wo.number }}</h1>
+<p class="floor-sub">{{ wo.title }}<br><span class="muted">{{ job.customer.name }} · job {{ job.number }}{% if job.due_date %} · due {{ job.due_date|date:"M j" }}{% endif %}</span></p>
+<p><span class="status status-{{ wo.status }}">{{ wo.get_status_display }}</span>{% if wo.waiting_on %} <span class="flag flag-risk">waiting on {{ wo.get_waiting_on_display|lower }}</span>{% endif %}</p>
+{% with next=next %}{% include "workorders/_actions.html" %}{% endwith %}
+
+{% if can_track %}
+<section class="floor-timers">
+  {% if mine %}
+  <form method="post" action="{% url 'time:stop' mine.pk %}">{% csrf_token %}<input type="hidden" name="next" value="{{ next }}">
+    <button type="submit" class="big danger">Stop my timer <small>since {{ mine.started_at|t }}</small></button></form>
+  {% else %}
+  <form method="post" action="{% url 'time:start' wo.pk %}">{% csrf_token %}<input type="hidden" name="kind" value="labor"><input type="hidden" name="next" value="{{ next }}">
+    <button type="submit" class="big primary">Start my timer</button></form>
+  {% endif %}
+  {% for e in running_machines %}
+  <form method="post" action="{% url 'time:stop' e.pk %}">{% csrf_token %}<input type="hidden" name="next" value="{{ next }}"><button type="submit" class="big">Stop {{ e.machine }} <small>since {{ e.started_at|t }}</small></button></form>
+  {% endfor %}
+  {% for pk, name in machines %}
+  <form method="post" action="{% url 'time:start' wo.pk %}">{% csrf_token %}<input type="hidden" name="kind" value="machine"><input type="hidden" name="machine" value="{{ pk }}"><input type="hidden" name="next" value="{{ next }}"><button type="submit" class="big">Start {{ name }}</button></form>
+  {% endfor %}
+</section>
+{% endif %}
+
+<h2>Operations</h2>
+<ol class="floor-ops">
+{% for op in operations %}
+  <li class="op-{{ op.status }}">
+    <span>{{ op.name }}{% if op.machine %} <span class="badge">{{ op.machine }}</span>{% endif %}</span>
+    {% if can_edit %}
+    <form method="post" action="{% url 'workorders:op_set' wo.pk op.pk %}">{% csrf_token %}<input type="hidden" name="next" value="{{ next }}">
+      {% if op.status == "pending" %}<input type="hidden" name="state" value="done"><button type="submit" class="primary">Done</button>
+      {% else %}<input type="hidden" name="state" value="pending"><button type="submit">{{ op.get_status_display }} ↺</button>{% endif %}
+    </form>
+    {% else %}<span class="muted">{{ op.get_status_display }}</span>{% endif %}
+  </li>
+{% empty %}<li class="muted">No operations.</li>{% endfor %}
+</ol>
+
+{% if drawings %}
+<h2>Drawings and files</h2>
+<ul class="file-grid">
+{% for link in drawings %}{% with rev=link.document.current %}
+  <li class="file-card"><a href="{% url 'files:download' rev.pk %}{% if rev.blob.is_previewable_inline %}?inline=1{% endif %}">
+    {% if rev.blob.thumb_state == "ready" or rev.blob.kind == "svg" %}<img src="{% url 'files:thumbnail' link.document.pk %}" alt="">{% else %}<span class="file-kind">{{ rev.blob.kind|upper }}</span>{% endif %}
+    {{ link.document.title }}</a></li>
+{% endwith %}{% endfor %}
+</ul>
+{% endif %}
+
+{% if can_edit %}
+<h2>Add a note or photo</h2>
+<form method="post" action="{% url 'workorders:note_add' wo.pk %}" enctype="multipart/form-data" class="stack">{% csrf_token %}
+  <input type="hidden" name="next" value="{{ next }}">
+  <div><label for="text">Note</label><textarea id="text" name="text" rows="2"></textarea></div>
+  <div><label for="photo">Photo</label><input id="photo" type="file" name="photo" accept="image/*" capture="environment"></div>
+  <button type="submit" class="primary">Save</button>
+</form>
+
+<details><summary><h2 class="inline-heading">Record material use</h2></summary>
+<form method="post" action="{% url 'workorders:material_add' wo.pk %}" class="stack">{% csrf_token %}
+  <input type="hidden" name="next" value="{{ next }}">
+  {{ material_form.as_div }}
+  <button type="submit">Record</button>
+</form>
+</details>
+{% endif %}
+
+{% if notes %}
+<h2>Notes</h2>
+<ol class="timeline">{% for n in notes %}<li><time>{{ n.created_at|mdt }}</time> {{ n.author.get_short_name }} — {{ n.text }}{% if n.document %} (photo){% endif %}</li>{% endfor %}</ol>
+{% endif %}
+{% endblock %}

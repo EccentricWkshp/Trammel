@@ -1,0 +1,28 @@
+{% load trammel %}
+<h2 id="panel-{{ heading_id }}">Work orders</h2>
+{% if ctx.work_orders %}
+<ul class="plain">{% for wo in ctx.work_orders %}
+  <li><a href="{{ wo.get_absolute_url }}"><strong>{{ wo.number }}</strong></a> {{ wo.title }} — <span class="status status-{{ wo.status }}">{{ wo.get_status_display }}</span>
+  · <a href="{% url 'workorders:traveler' wo.pk %}" target="_blank" rel="noopener">traveler</a></li>
+{% endfor %}</ul>
+{% else %}<p class="muted">No work orders yet.</p>{% endif %}
+{% if ctx.can_create %}
+  {% if ctx.create_problems %}<p class="muted">{{ ctx.create_problems|join:" " }}</p>
+  {% else %}
+  <form method="post" action="{% url 'workorders:create' job.pk %}" class="filters">{% csrf_token %}
+    <label>From quote <select name="revision"><option value="">— blank work order —</option>{% for r in ctx.approved %}<option value="{{ r.pk }}" selected>{{ r }}</option>{% endfor %}</select></label>
+    <button type="submit">Create work order</button>
+  </form>
+  {% endif %}
+{% endif %}
+
+<h3>Change orders</h3>
+{% if ctx.change_orders %}
+<ul class="plain">{% for co in ctx.change_orders %}<li><a href="{{ co.get_absolute_url }}">{{ co.number }}</a> {{ co.title }} — {{ co.get_status_display }}, {{ co.total|money }}</li>{% endfor %}</ul>
+{% else %}<p class="muted">None.</p>{% endif %}
+{% if ctx.can_change %}
+<form method="post" action="{% url 'workorders:change_order_create' job.pk %}" class="filters">{% csrf_token %}
+  <label>New change order <input type="text" name="title" placeholder="What is changing" required></label>
+  <button type="submit">Create</button>
+</form>
+{% endif %}

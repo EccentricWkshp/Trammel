@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% load files %}
+{% block title %}{{ wo.number }}{% endblock %}
+{% block content %}
+<header class="record-header">
+  <div class="record-title">
+    <p class="breadcrumb"><a href="{% url 'workorders:list' %}">Work orders</a> · <a href="{{ job.get_absolute_url }}">{{ job.number }} {{ job.title }}</a> · {{ job.customer.name }}</p>
+    <h1>{{ wo.number }} · {{ wo.title }}</h1>
+    <p class="status-line"><span class="status status-{{ wo.status }}">{{ wo.get_status_display }}</span>
+      {% if wo.waiting_on %}<span class="flag flag-risk">Waiting on {{ wo.get_waiting_on_display|lower }}</span>{% endif %}
+      {% if wo.materials_confirmed %}<span class="badge">materials confirmed</span>{% endif %}</p>
+    <dl class="facts-inline">
+      <div><dt>Target</dt><dd>{{ wo.target_completion|d|default:"—" }}</dd></div>
+      <div><dt>Job due</dt><dd>{{ job.due_date|d|default:"—" }}</dd></div>
+      <div><dt>Operations</dt><dd>{{ done_count }} of {{ operations|length }} done</dd></div>
+    </dl>
+  </div>
+  <div class="actions">
+    <a class="button" href="{% url 'workorders:traveler' wo.pk %}?print=1" target="_blank" rel="noopener">Print traveler</a>
+    <a class="button" href="{% url 'workorders:traveler' wo.pk %}?format=pdf">Download PDF</a>
+    <a class="button" href="{% url 'floor:work_order' wo.pk %}">Shop-floor view</a>
+    {% if can_edit %}<a href="{% url 'workorders:edit' wo.pk %}">Edit</a>{% endif %}
+  </div>
+</header>
+
+{% include "workorders/_actions.html" %}
+
+{% include "partials/tabs.html" %}
+
+<div class="tab-body">
+{% if tab == "operations" %}
+  {% if wo.instructions %}<section class="card"><h2>Instructions</h2><p class="prewrap">{{ wo.instructions }}</p></section>{% endif %}
+  <ol class="ops">
+  {% for op in operations %}
+    <li class="op op-{{ op.status }}">
+      <span class="op-main">
+        <span class="op-name">{{ op.name }}{% if op.machine %} <span class="badge">{{ op.machine }}</span>{% endif %}</span>
+        {% if op.description %}<span class="op-desc muted prewrap">{{ op.description }}</span>{% endif %}
+      </span>
+      <span class="muted">{{ op.get_status_display }}{% if op.completed_by %} · {{ op.completed_by.get_short_name }} {{ op.completed_at|mdt }}{% endif %}</span>
+      {% if can_edit %}
+      <span class="row-actions">
+        {% if op.status == "pending" %}
+          <form method="post" action="{% url 'workorders:op_set' wo.pk op.pk %}" class="inline">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="state" value="done"><button type="submit">Done</button></form>
+          <form method="post" action="{% url 'workorders:op_set' wo.pk op.pk %}" class="inline">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="state" value="skipped"><button type="submit" class="linklike">Skip</button></form>
+        {% else %}
+          <form method="post" action="{% url 'workorders:op_set' wo.pk op.pk %}" class="inline">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="state" value="pending"><button type="submit" class="linklike">Reopen</button></form>
+        {% endif %}
+        <span class="op-order">
+          <form method="post" action="{% url 'workorders:op_move' wo.pk op.pk %}" class="inline">{% csrf_token %}<input type="hidden" name="direction" value="up"><button type="submit" class="icon" aria-label="Move “{{ op.name }}” up"{% if forloop.first %} disabled{% endif %}>▲</button></form>
+          <form method="post" action="{% url 'workorders:op_move' wo.pk op.pk %}" class="inline">{% csrf_token %}<input type="hidden" name="direction" value="down"><button type="submit" class="icon" aria-label="Move “{{ op.name }}” down"{% if forloop.last %} disabled{% endif %}>▼</button></form>
+        </span>
+      </span>
+      <details class="op-edit">
+        <summary>Edit</summary>
+        <form method="post" action="{% url 'workorders:op_edit' wo.pk op.pk %}" class="op-form">{% csrf_token %}
+          <label>Name <input type="text" name="name" value="{{ op.name }}" required maxlength="200"></label>
+          <label>Machine <select name="machine"><option value="">—</option>{% if op.machine and not op.machine.is_active %}<option value="{{ op.machine_id }}" selected>{{ op.machine }} (inactive)</option>{% endif %}{% for m in machines %}<option value="{{ m.pk }}"{% if m.pk == op.machine_id %} selected{% endif %}>{{ m }}</option>{% endfor %}</select></label>
+          <label class="wide">Details <textarea name="description" rows="2">{{ op.description }}</textarea></label>
+          <div class="actions"><button type="submit" class="primary">Save</button></div>
+        </form>
+        <form method="post" action="{% url 'workorders:op_delete' wo.pk op.pk %}" class="op-delete">{% csrf_token %}
+          <button type="submit" class="linklike danger-text">Delete this operation</button>{% if op.time_entries.exists %} <span class="muted small">Time logged against it stays on the work order.</span>{% endif %}
+        </form>
+      </details>
+      {% endif %}
+    </li>
+  {% empty %}<li class="muted">No operations.</li>{% endfor %}
+  </ol>
+  {% if can_edit %}
+  <form method="post" action="{% url 'workorders:op_add' wo.pk %}" class="filters">{% csrf_token %}
+    <label>New operation <input type="text" name="name" required maxlength="200"></label>
+    <label>Machine <select name="machine"><option value="">—</option>{% for m in machines %}<option value="{{ m.pk }}">{{ m }}</option>{% endfor %}</select></label>
+    <button type="submit">Add</button>
+  </form>
+  {% endif %}
+
+{% elif tab == "materials" %}
+  <div class="overview-grid">
+    <section class="card">
+      <h2>Planned</h2>
+      {% if planned %}<ul class="plain">{% for p in planned %}<li>{{ p.description }}{% if p.quantity %} — {{ p.quantity|floatformat:"-4" }} {{ p.unit }}{% endif %}</li>{% endfor %}</ul>{% else %}<p class="muted">Nothing planned.</p>{% endif %}
+    </section>
+    {% if can_edit %}
+    <section class="card">
+      <h2>Record material use</h2>
+      <form method="post" action="{% url 'workorders:material_add' wo.pk %}" class="stack">{% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        {{ material_form.as_div }}
+        <button type="submit">Record</button>
+      </form>
+    </section>
+    {% endif %}
+  </div>
+  <h2>Used</h2>
+  {% if usage %}
+  <div class="table-wrap"><table>
+    <thead><tr><th scope="col">Material</th><th scope="col">Quantity</th>{% if can_costs %}<th scope="col" class="num">Cost</th>{% endif %}<th scope="col">By</th></tr></thead>
+    <tbody>{% for u in usage %}<tr><td>{{ u.description }}{% if not u.billable %} <span class="badge">not billable</span>{% endif %}</td><td>{{ u.quantity|floatformat:"-4" }} {{ u.unit }}</td>{% if can_costs %}<td class="num">{{ u.total_cost|money }}</td>{% endif %}<td>{{ u.recorded_by.get_short_name }} {{ u.created_at|md }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}<p class="muted">No material use recorded.</p>{% endif %}
+  {% if can_edit %}
+  <form method="post" action="{% url 'workorders:materials_confirm' wo.pk %}" class="panel">{% csrf_token %}
+    <input type="hidden" name="confirmed" value="{{ wo.materials_confirmed|yesno:'0,1' }}">
+    {% if wo.materials_confirmed %}<span class="status status-completed">Material use confirmed</span> <button type="submit" class="linklike">Undo</button>{% else %}<button type="submit">Confirm all material use is recorded</button> <span class="muted">Needed before close-out.</span>{% endif %}
+  </form>
+  {% endif %}
+
+{% elif tab == "notes" %}
+  {% if can_edit %}
+  <form method="post" action="{% url 'workorders:note_add' wo.pk %}" enctype="multipart/form-data" class="card stack">{% csrf_token %}
+    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+    <div><label for="note-text">Note</label><textarea id="note-text" name="text" rows="2"></textarea></div>
+    <div><label for="note-photo">Photo</label><input type="file" id="note-photo" name="photo" accept="image/*" capture="environment"></div>
+    <button type="submit">Add note</button>
+  </form>
+  {% endif %}
+  <ol class="timeline">
+  {% for n in notes %}
+    <li><time datetime="{{ n.created_at|date:'c' }}">{{ n.created_at|dt }}</time> {{ n.author.get_short_name }} — {{ n.text|linebreaksbr }}
+      {% if n.document %}<br><a href="{% url 'files:download' n.document.current_id %}?inline=1"><img class="note-photo" src="{% url 'files:thumbnail' n.document.pk %}" alt="Photo: {{ n.document.title }}"></a>{% endif %}</li>
+  {% empty %}<li class="muted">No notes.</li>{% endfor %}
+  </ol>
+
+{% elif tab == "files" %}
+  {% attachments wo %}
+{% else %}
+  {% include "partials/panels.html" with panels=tab_panels %}
+{% endif %}
+</div>
+{% endblock %}

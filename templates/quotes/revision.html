@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% load files %}
+{% block title %}{{ revision }}{% endblock %}
+{% block content %}
+<header class="record-header">
+  <div class="record-title">
+    <p class="breadcrumb"><a href="{% url 'quotes:list' %}">Quotes</a> · <a href="{{ job.get_absolute_url }}">{{ job.number }} {{ job.title }}</a> · {{ job.customer.name }}</p>
+    <h1>{{ quote.number }} <span class="muted">rev {{ revision.number }}</span> · {{ quote.title }}</h1>
+    <p class="status-line"><span class="status status-{% if revision.status == 'approved' %}completed{% elif revision.status == 'draft' %}proposal{% else %}{{ revision.status }}{% endif %}">{{ revision.get_status_display }}</span>
+      {% if revision.rates_overridden %}<span class="badge warn">rates overridden</span>{% endif %}</p>
+    <dl class="facts-inline">
+      <div><dt>Total</dt><dd><strong>{{ revision.total|money }}</strong></dd></div>
+      {% if revision.deposit_amount %}<div><dt>Deposit</dt><dd>{{ revision.deposit_amount|money }}</dd></div>{% endif %}
+      <div><dt>Valid until</dt><dd>{{ revision.valid_until|d|default:"—" }}</dd></div>
+      {% if revision.sent_at %}<div><dt>Sent</dt><dd>{{ revision.sent_at|d }}</dd></div>{% endif %}
+    </dl>
+  </div>
+  <div class="actions">
+    <a class="button" href="{% url 'quotes:document' revision.pk %}?print=1" target="_blank" rel="noopener">Print</a>
+    <a class="button" href="{% url 'quotes:pdf' revision.pk %}">Download PDF</a>
+    {% if revision.status == "sent" and perms.quotes.edit %}
+    <form method="post" action="{% url 'notifications:email_quote' revision.pk %}" class="inline">{% csrf_token %}<button type="submit">Email to customer</button></form>
+    {% endif %}
+  </div>
+</header>
+
+{% if approval %}
+<aside class="callout">
+  Approved by <strong>{{ approval.approved_by_name }}</strong> on {{ approval.approved_at|dt }} ({{ approval.get_how_display|lower }}){% if approval.recorded_by %}, recorded by {{ approval.recorded_by }}{% endif %}.
+  {% if approval.agreement %}The customer agreement was accepted with it.{% endif %}
+  {% if approval.notes %}<br>{{ approval.notes }}{% endif %}
+</aside>
+{% endif %}
+
+<section class="lifecycle" aria-label="Quote actions">
+  {% if can_send %}
+  <form method="post" action="{% url 'quotes:send' revision.pk %}">{% csrf_token %}<button type="submit" class="primary">Mark as sent</button></form>
+  {% endif %}
+  {% if can_approve %}
+  <a class="button primary" href="{% url 'quotes:approve' revision.pk %}">Record approval…</a>
+  <form method="post" action="{% url 'quotes:decline' revision.pk %}" class="transition">{% csrf_token %}
+    <label for="decline-reason">Reason (optional)</label><input type="text" id="decline-reason" name="reason">
+    <button type="submit">Customer declined</button>
+  </form>
+  {% endif %}
+  {% if can_revise %}
+  <form method="post" action="{% url 'quotes:revise' revision.pk %}">{% csrf_token %}<button type="submit">Create new revision</button></form>
+  {% endif %}
+  {% if not can_send and not can_approve and not can_revise %}<span class="muted">{% if revision.status == "approved" %}Changes after approval are made with a change order.{% else %}No actions available.{% endif %}</span>{% endif %}
+</section>
+
+{% include "partials/tabs.html" %}
+
+<div class="tab-body">
+{% if tab == "lines" %}
+<section aria-label="Lines">
+  <div class="table-wrap">
+  <table class="lines">
+    <thead><tr><th scope="col">Description</th><th scope="col" class="num">Qty</th><th scope="col" class="num">Unit price</th><th scope="col" class="num">Amount</th>{% if can_costs %}<th scope="col" class="num">Cost</th>{% endif %}{% if can_edit %}<th scope="col"><span class="visually-hidden">Actions</span></th>{% endif %}</tr></thead>
+    <tbody>
+    {% for line in lines %}
+      <tr>
+        <td>{{ line.description|linebreaksbr }} <span class="badge">{{ line.get_kind_display }}</span>
+          {% if line.discount_pct %}<span class="muted">({{ line.discount_pct|floatformat:"-3" }}% off)</span>{% endif %}
+          {% if line.breakdown %}
+          <details><summary>Breakdown</summary>
+            <table class="breakdown">
+              {% for row in line.breakdown %}<tr><td>{{ row.label }}</td><td class="muted">{{ row.detail }}</td>{% if can_costs %}<td class="num">{{ row.cost|money }}</td>{% endif %}<td class="num">{{ row.price|money }}</td></tr>{% endfor %}
+            </table>
+          </details>
+          {% endif %}
+        </td>
+        <td class="num">{{ line.quantity|floatformat:"-4" }} {{ line.get_unit_display }}</td>
+        <td class="num">{{ line.unit_price|money }}</td>
+        <td class="num">{{ line.line_total|money }}</td>
+        {% if can_costs %}<td class="num muted">{{ line.cost_total|money }}</td>{% endif %}
+        {% if can_edit %}
+        <td class="row-actions">
+          <a href="{% url 'quotes:line_edit' revision.pk line.pk %}">Edit</a>
+          <form method="post" action="{% url 'quotes:line_delete' revision.pk line.pk %}" class="inline">{% csrf_token %}<button type="submit" class="linklike">Remove</button></form>
+        </td>
+        {% endif %}
+      </tr>
+    {% empty %}
+      <tr><td colspan="6" class="muted">No lines yet.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% if can_edit %}
+  <div class="add-lines">
+    <span>Add:</span>
+    {% for kind, label in line_kinds %}<a class="button" href="{% url 'quotes:line_create' revision.pk kind %}">{{ label }}</a>{% endfor %}
+    {% for e in estimators %}<a class="button" href="{% url 'quotes:estimate' revision.pk e.key %}">Estimate: {{ e.name }}</a>{% endfor %}
+  </div>
+  {% endif %}
+
+  <table class="totals-table">
+    {% if revision.discount_amount %}
+    <tr><th scope="row">Lines</th><td class="num">{{ revision.lines_total|money }}</td></tr>
+    <tr><th scope="row">Discount ({{ revision.discount_pct|floatformat:"-3" }}%)</th><td class="num">−{{ revision.discount_amount|money }}</td></tr>
+    {% endif %}
+    {% if revision.minimum_adjustment %}<tr><th scope="row">Minimum job charge</th><td class="num">{{ revision.minimum_adjustment|money }}</td></tr>{% endif %}
+    <tr><th scope="row">Subtotal</th><td class="num">{{ revision.subtotal|money }}</td></tr>
+    {% if revision.is_draft and can_edit %}
+    <tr><th scope="row"><label for="shipping-amount">{{ revision.shipping_label }}</label></th>
+      <td class="num"><form method="post" action="{% url 'quotes:shipping' revision.pk %}" class="amount-edit">{% csrf_token %}<input type="number" id="shipping-amount" name="shipping" value="{{ revision.shipping }}" step="0.01" min="0"><button type="submit" class="linklike">Update</button></form></td></tr>
+    {% elif revision.shipping %}
+    <tr><th scope="row">{{ revision.shipping_label }}</th><td class="num">{{ revision.shipping|money }}</td></tr>
+    {% endif %}
+    <tr><th scope="row">{{ revision.tax_label|default:"Sales tax" }}</th><td class="num">{{ revision.tax_amount|money }}</td></tr>
+    <tr class="grand"><th scope="row">Total</th><td class="num">{{ revision.total|money }}</td></tr>
+    {% if revision.deposit_amount %}<tr><th scope="row">Deposit on approval</th><td class="num">{{ revision.deposit_amount|money }}</td></tr>{% endif %}
+    {% if can_costs %}<tr class="muted"><th scope="row">Estimated cost{% if margin is not None %} · margin {{ margin }}%{% endif %}</th><td class="num">{{ revision.cost_total|money }}</td></tr>{% endif %}
+  </table>
+</section>
+
+{% elif tab == "details" %}
+{% if form %}
+<section class="card">
+  <h2>Validity, deposit, notes and rates</h2>
+  <form method="post" action="{% url 'quotes:revision_update' revision.pk %}" class="stack" novalidate>
+    {% csrf_token %}
+    {% include "partials/form_body.html" %}
+    <button type="submit" class="primary">Save details</button>
+  </form>
+</section>
+{% else %}
+<dl class="facts">
+  <dt>Valid until</dt><dd>{{ revision.valid_until|d|default:"—" }}</dd>
+  <dt>Fulfillment</dt><dd>{{ revision.get_fulfillment_display }}</dd>
+  <dt>Deposit</dt><dd>{% if revision.deposit_amount %}{{ revision.deposit_amount|money }}{% else %}None{% endif %}</dd>
+  <dt>Labor rate</dt><dd>{{ revision.labor_rate|money }}/h{% if revision.rates_overridden %} <span class="badge warn">overridden</span>{% endif %}</dd>
+</dl>
+{% if revision.customer_notes %}<h3>Notes for the customer</h3><p class="prewrap">{{ revision.customer_notes }}</p>{% endif %}
+{% endif %}
+
+{% elif tab == "preview" %}
+<iframe name="quote-preview" class="document-preview" src="{% url 'quotes:document' revision.pk %}" sandbox title="Quote preview"></iframe>
+{% elif tab == "revisions" %}
+<section>
+  <ul>
+  {% for r in history %}
+    <li>{% if r.pk == revision.pk %}<strong>Revision {{ r.number }}</strong>{% else %}<a href="{{ r.get_absolute_url }}">Revision {{ r.number }}</a>{% endif %}
+      — {{ r.get_status_display }}, {{ r.total|money }}
+      {% if r.pk != revision.pk %}· <a href="{% url 'quotes:compare' revision.pk r.pk %}">compare</a>{% endif %}</li>
+  {% endfor %}
+  </ul>
+</section>
+
+{% elif tab == "files" %}
+{% attachments quote %}
+{% endif %}
+</div>
+{% endblock %}

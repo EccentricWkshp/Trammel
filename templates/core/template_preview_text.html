@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Preview</title>
+<style>
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 1.25rem 1.5rem; color: #1d1f21; background: #fff; line-height: 1.5; }
+  .meta { font-size: .9rem; color: #5a5f66; border-bottom: 1px solid #d9d6cf; padding-bottom: .6rem; margin-bottom: 1rem; }
+  .meta strong { color: #1d1f21; }
+  pre { white-space: pre-wrap; font: inherit; margin: 0; }
+  .problem { background: #fbe6e3; color: #8a1f15; padding: .75rem 1rem; border-radius: 6px; }
+</style>
+</head>
+<body>
+{% if problem %}
+  <p class="problem"><strong>This template has a problem:</strong> {{ problem }}</p>
+{% else %}
+  {% if has_subject %}<p class="meta">Subject: <strong>{{ subject }}</strong></p>{% endif %}
+  <pre>{{ text }}</pre>
+{% endif %}
+</body>
+</html>

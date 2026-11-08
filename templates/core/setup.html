@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Set up Trammel{% endblock %}
+{% block main_class %}page narrow{% endblock %}
+{% block content %}
+<h1>Set up Trammel</h1>
+<p class="lede">This page runs once. It creates the system admin account — there is no default login — and records the basics about your business. Everything here can be changed later in Settings, except the currency once quotes or invoices exist.</p>
+
+{% if not secure %}
+<aside class="callout warn" aria-labelledby="tls-heading">
+  <h2 id="tls-heading">This connection is not encrypted</h2>
+  <p>You are on <code>http://</code>. That is fine for this first step on a development machine, but the shop-floor app (installable on phones and tablets) and QR-code scanning with the camera only work over HTTPS.</p>
+  <p>In the Docker install, Caddy provides HTTPS for <code>{{ base_url }}</code>. With its built-in certificate authority, install Caddy's root certificate on each phone, tablet and computer that will use Trammel, once. With a DNS-validated certificate, nothing needs installing. See the install guide.</p>
+</aside>
+{% endif %}
+
+<form method="post" class="stack" novalidate>
+  {% csrf_token %}
+  {% include "partials/form_body.html" %}
+  <button type="submit" class="primary">Create admin and finish setup</button>
+</form>
+{% endblock %}

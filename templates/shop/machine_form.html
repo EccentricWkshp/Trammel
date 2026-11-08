@@ -1,0 +1,85 @@
+{% extends "settings_base.html" %}
+{% load static files %}
+{% block title %}{{ title }}{% endblock %}
+{% block settings_content %}
+<h1>{{ title }}</h1>
+<form method="post" class="machine-form" novalidate>
+  {% csrf_token %}
+  {% if form.non_field_errors %}<div class="form-errors" role="alert">{% for e in form.non_field_errors %}<p>{{ e }}</p>{% endfor %}</div>{% endif %}
+
+  <div class="machine-layout">
+    <div class="machine-inputs">
+      <section class="card stack">
+        <h2>Machine</h2>
+        <div class="field">{{ form.name.as_field_group }}</div>
+        <div class="field">{{ form.kind.as_field_group }}</div>
+        <div class="field">{{ form.is_active.as_field_group }}</div>
+        <div class="field">{{ form.notes.as_field_group }}</div>
+      </section>
+
+      <section class="card">
+        <div class="card-heading"><h2>Rate calculator</h2><span class="muted small">All optional — fill in what you know.</span></div>
+        <div class="calc-groups">
+          {% for title, fields in form.group_fields %}
+          <fieldset class="calc-group">
+            <legend>{{ title }}</legend>
+            {% for field in fields %}{{ field.as_field_group }}{% endfor %}
+          </fieldset>
+          {% if forloop.counter == 2 %}
+          <fieldset class="calc-group wide">
+            <legend>Wear parts</legend>
+            <p class="muted small">Parts replaced on a schedule — tubes, nozzles, bits, blades. Changing the machine type fills in typical parts when these rows are empty.</p>
+            <table class="wear-table">
+              <thead><tr><th scope="col">Part</th><th scope="col">Cost</th><th scope="col">Lasts (hours)</th></tr></thead>
+              <tbody>
+              {% for name, cost, life in form.wear_rows %}
+                <tr>
+                  <td>{{ name }}{{ name.errors }}</td>
+                  <td>{{ cost }}{{ cost.errors }}</td>
+                  <td>{{ life }}{{ life.errors }}</td>
+                </tr>
+              {% endfor %}
+              </tbody>
+            </table>
+          </fieldset>
+          {% endif %}
+          {% endfor %}
+        </div>
+      </section>
+    </div>
+
+    <aside class="card machine-result" aria-live="polite">
+      <h2>Cost per hour</h2>
+      <table class="rate-table">
+        <tbody data-rate-rows>
+        {% for row in breakdown.rows %}
+          <tr><th scope="row">{{ row.label }}<small>{{ row.detail }}</small></th><td class="num">{{ row.per_hour|money }}</td></tr>
+        {% empty %}
+          <tr class="muted"><td colspan="2">Fill in the calculator to see what an hour of this machine costs.</td></tr>
+        {% endfor %}
+        </tbody>
+        <tbody>
+          <tr data-rate-failure{% if not breakdown.failure %} hidden{% endif %}><th scope="row">Failure allowance <small data-rate-failure-pct>{{ breakdown.failure_pct|floatformat:"-3" }}%</small></th><td class="num" data-rate-failure-amount>{{ breakdown.failure|money }}</td></tr>
+          <tr class="grand"><th scope="row">Cost</th><td class="num" data-rate-cost>{{ breakdown.cost|money }}</td></tr>
+          <tr><th scope="row">Suggested rate <small data-rate-markup>{% if breakdown.markup_pct %}with {{ breakdown.markup_pct|floatformat:"-3" }}% markup{% else %}no markup set{% endif %}</small></th><td class="num"><strong data-rate-suggested>{{ breakdown.suggested|money }}</strong></td></tr>
+        </tbody>
+      </table>
+      <ul class="rate-notes muted small" data-rate-notes>{% for note in breakdown.notes %}<li>{{ note }}</li>{% endfor %}</ul>
+
+      <div class="rate-charge">
+        {{ form.hourly_rate.as_field_group }}
+        <button type="submit" name="use_suggested" value="1" class="secondary">Use suggested rate and save</button>
+      </div>
+      <p class="muted small">Electricity is priced at {{ electricity_rate|money }} per kWh (<a href="{% url 'core:rates' %}">Shop rates</a>). Shop overhead is added on quotes separately, so leave it out here.</p>
+    </aside>
+  </div>
+
+  <div class="actions">
+    <button type="submit" class="primary">Save</button>
+    {% if back %}<a href="{% url back %}">Cancel</a>{% endif %}
+  </div>
+</form>
+{% if form.instance.pk %}<div class="panel">{% attachments form.instance "Manuals and files" %}</div>{% endif %}
+{{ presets|json_script:"machine-presets" }}
+<script src="{% static 'shop/machine_rate.js' %}" data-electricity="{{ electricity_rate }}" defer></script>
+{% endblock %}

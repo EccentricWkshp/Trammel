@@ -1,0 +1,15 @@
+{% extends "settings_base.html" %}
+{% block title %}Restore{% endblock %}
+{% block settings_content %}
+<h1>Restore {{ record }}</h1>
+<p>Taken {{ manifest.created_at }} by Trammel {{ manifest.version }}.</p>
+{% if newer %}
+<p class="message error">This backup is from a newer version of Trammel and cannot be restored here. Update Trammel first.</p>
+{% else %}
+<aside class="callout warn"><p>Restoring replaces <strong>all</strong> current data and files with the backup's. A backup of the current state is taken first, so this can be undone. Everyone may need to sign in again.</p></aside>
+<form method="post" class="stack">{% csrf_token %}
+  <div><label for="confirm">Type RESTORE to confirm</label><input type="text" id="confirm" name="confirm" autocomplete="off" required></div>
+  <div class="actions"><button type="submit" class="danger">Restore</button> <a href="{% url 'system:maintenance' %}">Cancel</a></div>
+</form>
+{% endif %}
+{% endblock %}

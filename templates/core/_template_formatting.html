@@ -1,0 +1,19 @@
+<section class="ref-group">
+  <h3>Formatting</h3>
+  <div class="table-wrap"><table class="ref-table">
+    <thead><tr><th scope="col">Write</th><th scope="col">To show</th><th scope="col">Example</th></tr></thead>
+    <tbody>{% for code, meaning, example in filters %}
+      <tr><td><code>{{ code }}</code></td><td>{{ meaning }}</td><td class="muted">{{ example }}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+</section>
+<section class="ref-group">
+  <h3>Showing parts only sometimes</h3>
+  <div class="table-wrap"><table class="ref-table">
+    <thead><tr><th scope="col">Write</th><th scope="col">To</th></tr></thead>
+    <tbody>{% for code, meaning in logic %}
+      <tr><td><code>{{ code }}</code></td><td>{{ meaning }}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+  <p class="muted small">A placeholder with no value prints nothing.</p>
+</section>

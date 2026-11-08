@@ -1,0 +1,36 @@
+{% load trammel %}
+<h2 id="panel-{{ heading_id }}">Time</h2>
+{% if ctx.can_track %}
+<div class="lifecycle">
+  {% if ctx.mine %}
+    <span class="timer-running">Your timer has been running since {{ ctx.mine.started_at|t }}</span>
+    <form method="post" action="{% url 'time:stop' ctx.mine.pk %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button type="submit" class="primary">Stop my timer</button></form>
+  {% else %}
+    <form method="post" action="{% url 'time:start' wo.pk %}">{% csrf_token %}<input type="hidden" name="kind" value="labor"><input type="hidden" name="next" value="{{ request.get_full_path }}"><button type="submit" class="primary">Start my timer</button></form>
+  {% endif %}
+  {% for e in ctx.running_machines %}
+    <form method="post" action="{% url 'time:stop' e.pk %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button type="submit">Stop {{ e.machine }} (since {{ e.started_at|t }})</button></form>
+  {% endfor %}
+  {% if ctx.machines %}
+  <form method="post" action="{% url 'time:start' wo.pk %}" class="transition">{% csrf_token %}
+    <input type="hidden" name="kind" value="machine"><input type="hidden" name="next" value="{{ request.get_full_path }}">
+    <label for="mt-{{ wo.pk }}">Machine</label>
+    <select id="mt-{{ wo.pk }}" name="machine">{% for m in ctx.machines %}<option value="{{ m.pk }}">{{ m }}</option>{% endfor %}</select>
+    <button type="submit">Start machine timer</button>
+  </form>
+  {% endif %}
+  <a href="{% url 'time:manual' wo.pk %}">Add time by hand</a>
+</div>
+{% endif %}
+{% if ctx.entries %}
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">When</th><th scope="col">Who / machine</th><th scope="col" class="num">Minutes</th>{% if ctx.can_costs %}<th scope="col" class="num">Cost</th>{% endif %}<th></th></tr></thead>
+  <tbody>{% for e in ctx.entries %}
+    <tr><td>{{ e.started_at|dt }}{% if e.source == "manual" %} <span class="badge">manual</span>{% endif %}{% if not e.billable %} <span class="badge">non-billable</span>{% endif %}</td>
+        <td>{{ e.user|default:e.machine }}</td>
+        <td class="num">{% if e.is_running %}<em>running</em>{% else %}{{ e.minutes|floatformat:"-2" }}{% endif %}</td>
+        {% if ctx.can_costs %}<td class="num">{{ e.cost|money }}</td>{% endif %}
+        <td>{% if perms.time.manage %}<a href="{% url 'time:correct' e.pk %}">Correct</a>{% endif %}</td></tr>
+  {% endfor %}</tbody>
+</table></div>
+{% else %}<p class="muted">No time recorded.</p>{% endif %}

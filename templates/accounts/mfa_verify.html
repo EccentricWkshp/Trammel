@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Two-factor sign-in{% endblock %}
+{% block main_class %}page narrow{% endblock %}
+{% block content %}
+<h1>Enter your code</h1>
+<p>Open your authenticator app and enter the 6-digit code for {{ business.name|default:"Trammel" }}. A recovery code works too.</p>
+{% if error %}<div class="form-errors" role="alert"><p>{{ error }}</p></div>{% endif %}
+<form method="post" class="stack">{% csrf_token %}
+  <div><label for="code">Code</label><input type="text" id="code" name="code" inputmode="numeric" autocomplete="one-time-code" autofocus required></div>
+  <button type="submit" class="primary">Sign in</button>
+</form>
+<p class="muted"><a href="{% url 'accounts:login' %}">Start over</a></p>
+{% endblock %}

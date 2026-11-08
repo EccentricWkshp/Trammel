@@ -1,0 +1,15 @@
+{% load trammel %}
+<h2 id="panel-{{ heading_id }}">Job costing</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col"></th><th scope="col" class="num">Quoted</th>{% if ctx.can_costs %}<th scope="col" class="num">Actual cost</th>{% endif %}</tr></thead>
+  <tbody>
+  {% for label, quoted, actual in ctx.c.rows %}<tr><td>{{ label }}</td><td class="num">{{ quoted|money }}</td>{% if ctx.can_costs %}<td class="num">{{ actual|money }}</td>{% endif %}</tr>{% endfor %}
+  <tr><th scope="row">Total</th><td class="num"><strong>{{ ctx.c.quoted_total|money }}</strong></td>{% if ctx.can_costs %}<td class="num"><strong>{{ ctx.c.actual_total|money }}</strong></td>{% endif %}</tr>
+  </tbody>
+</table></div>
+<dl class="facts">
+  <dt>Hours</dt><dd>{{ ctx.c.hours.labor|floatformat:"-2" }} labor, {{ ctx.c.hours.machine|floatformat:"-2" }} machine</dd>
+  <dt>Invoiced</dt><dd>{{ ctx.c.invoiced|money }}</dd>
+  <dt>Paid</dt><dd>{{ ctx.c.paid|money }}</dd>
+  {% if ctx.can_costs %}<dt>Margin</dt><dd>{{ ctx.c.margin|money }}{% if ctx.c.margin_pct is not None %} ({{ ctx.c.margin_pct }}%){% endif %}{% if ctx.c.quoted_cost %} · quoted cost {{ ctx.c.quoted_cost|money }}{% endif %}</dd>{% endif %}
+</dl>

@@ -1,0 +1,33 @@
+{% extends "settings_base.html" %}
+{% block title %}Modules{% endblock %}
+{% block settings_content %}
+<h1>Modules</h1>
+<p class="lede">Turn off what your shop does not use. A disabled module is hidden from menus, record pages and search. Its data is kept, and comes back when you enable it again. Core modules cannot be disabled.</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th scope="col">Module</th><th scope="col">Status</th><th scope="col">Depends on</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+  <tbody>
+  {% for row in rows %}
+    <tr>
+      <td><strong>{{ row.m.name }}</strong> <span class="muted">{{ row.m.version }}</span><br><span class="muted">{{ row.m.description }}</span></td>
+      <td>{% if row.m.core %}Core{% elif row.enabled %}Enabled{% else %}Disabled{% endif %}</td>
+      <td>{{ row.depends_on|join:", "|default:"—" }}</td>
+      <td>
+        {% if not row.m.core %}
+        <form method="post" action="{% url 'core:module_toggle' row.m.key %}" class="inline">
+          {% csrf_token %}
+          <input type="hidden" name="enable" value="{% if row.enabled %}0{% else %}1{% endif %}">
+          {% if row.enabled and row.dependents %}
+            <span class="muted">Needed by {{ row.dependents|join:", " }}</span>
+          {% else %}
+            <button type="submit">{% if row.enabled %}Disable{% else %}Enable{% endif %}</button>
+          {% endif %}
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}
