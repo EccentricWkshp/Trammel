@@ -20,7 +20,11 @@
 
 ARG CADDY_VERSION=2
 
-FROM caddy:${CADDY_VERSION}-builder AS builder
+# The builder runs on the build machine's own architecture and cross-compiles
+# for the target: Go needs no emulation for that, so an arm64 build takes
+# minutes rather than the better part of an hour under QEMU.
+FROM --platform=$BUILDPLATFORM caddy:${CADDY_VERSION}-builder AS builder
+ARG TARGETOS TARGETARCH
 
 # Space-separated. Each becomes its own --with flag.
 ARG CADDY_DNS_MODULES="\
@@ -32,7 +36,7 @@ github.com/caddy-dns/duckdns"
 RUN set -eux; \
     args=""; \
     for module in ${CADDY_DNS_MODULES}; do args="${args} --with ${module}"; done; \
-    xcaddy build ${args}
+    CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" xcaddy build ${args}
 
 FROM caddy:${CADDY_VERSION}-alpine
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy

@@ -1,6 +1,7 @@
 # Lint, tests against PostgreSQL, migration check, dependency audit and image
 # build on every push and pull request; publish multi-arch images on a release
-# tag (SPEC §4.1).
+# tag (SPEC §4.1). Branch builds are amd64 only, to check the Dockerfiles
+# quickly; arm64 is built (under emulation) for release tags.
 name: CI
 
 on:
@@ -11,6 +12,11 @@ on:
 
 permissions:
   contents: read
+
+# A newer push to the same branch or pull request supersedes a running build.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
   test:
@@ -60,6 +66,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-qemu-action@v4
+        if: startsWith(github.ref, 'refs/tags/v')
       - uses: docker/setup-buildx-action@v4
       - name: Log in to Docker Hub
         if: startsWith(github.ref, 'refs/tags/v')
@@ -69,7 +76,13 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Version
         id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "platforms=linux/amd64,linux/arm64" >> "$GITHUB_OUTPUT"
+          else
+            echo "platforms=linux/amd64" >> "$GITHUB_OUTPUT"
+          fi
       - name: Release tag matches VERSION
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
@@ -81,8 +94,10 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ steps.version.outputs.platforms }}
           push: ${{ startsWith(github.ref, 'refs/tags/v') }}
+          cache-from: type=gha,scope=app
+          cache-to: type=gha,mode=max,scope=app
           build-args: |
             VERSION=${{ steps.version.outputs.version }}
             VCS_REF=${{ github.sha }}
@@ -94,8 +109,10 @@ jobs:
         with:
           context: .
           file: Dockerfile.caddy
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ steps.version.outputs.platforms }}
           push: ${{ startsWith(github.ref, 'refs/tags/v') }}
+          cache-from: type=gha,scope=caddy
+          cache-to: type=gha,mode=max,scope=caddy
           tags: |
             eccentricwkshp/trammel-caddy:${{ steps.version.outputs.version }}
             eccentricwkshp/trammel-caddy:latest
