@@ -19,7 +19,7 @@
         <td class="row-actions">{% if b.status == "ok" %}<a href="{% url 'system:download_backup' b.pk %}">Download</a> <a href="{% url 'system:restore' b.pk %}">Restore…</a>{% endif %}</td></tr>
     {% empty %}<tr><td colspan="5" class="muted">No backups.</td></tr>{% endfor %}</tbody>
   </table></div>
-  <details class="panel"{% if form.errors %} open{% endif %}><summary>Backup settings</summary>
+  <details class="panel" id="backup-settings"{% if form.errors or request.GET.settings == "open" %} open{% endif %}><summary>Backup settings</summary>
     <form method="post" class="stack" novalidate>{% csrf_token %}
       {% if form.non_field_errors %}<div class="form-errors" role="alert">{% for e in form.non_field_errors %}<p>{{ e }}</p>{% endfor %}</div>{% endif %}
       {% for field in form.general %}<div class="field{% if field.widget_type == 'checkbox' %} field-check{% endif %}">{{ field.as_field_group }}</div>{% endfor %}
@@ -33,17 +33,17 @@
           {% for field in fields %}<div class="field{% if field.widget_type == 'checkbox' %} field-check{% endif %}">{{ field.as_field_group }}</div>{% endfor %}
           {% if switch.name == "smb_enabled" %}
           <p class="muted small">Windows shares and most NAS boxes. Trammel connects to the share itself, so nothing needs mounting. It is local storage, so the outbound traffic switch does not stop it.</p>
-          <button type="submit" formaction="{% url 'system:test_smb' %}" formnovalidate>Test the saved share</button>
+          <button type="submit" name="test" value="smb">Save and test the share</button>
           {% elif switch.name == "s3_enabled" %}
           <p class="muted small">AWS S3, Backblaze B2, Cloudflare R2, Wasabi, MinIO. Skipped while outbound traffic is switched off.</p>
-          <button type="submit" formaction="{% url 'system:test_s3' %}" formnovalidate>Test the saved S3 settings</button>
+          <button type="submit" name="test" value="s3">Save and test S3</button>
           {% endif %}
         </div>
       </div>
       {% endfor %}
       <div class="actions"><button type="submit" class="primary">Save</button></div>
     </form>
-    <p class="muted small">The test buttons use the saved settings: save first. Each writes, lists and deletes a small test file.</p>
+    <p class="muted small">Each test button saves the settings, then writes, lists and deletes a small test file.</p>
   </details>
   <p class="muted">From the command line: <code>python manage.py backup</code> and <code>python manage.py restore &lt;file&gt;</code>.</p>
 </section>

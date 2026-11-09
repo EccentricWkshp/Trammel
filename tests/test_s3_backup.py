@@ -171,7 +171,7 @@ def test_connection_test_and_settings_screen(admin_client, s3_settings):
     response = admin_client.post("/settings/maintenance/backup/test-s3/", follow=True)
     assert "Trammel can write" in response.content.decode()
     page = admin_client.get("/settings/maintenance/").content.decode()
-    assert "Test the saved S3 settings" in page and 'value="secret"' not in page
+    assert "Save and test S3" in page and 'value="secret"' not in page
 
 
 @pytest.mark.django_db

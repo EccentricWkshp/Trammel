@@ -41,8 +41,20 @@ class Target:
 
 
 def _describe(exc: Exception) -> str:
+    """The error in words, with the server's own message after it."""
     text = " ".join(str(exc).split()) or type(exc).__name__
-    return text[:300]
+    lower = text.lower()
+    if "access_denied" in lower:
+        hint = (
+            "The server accepted the connection but refused access. Without a user name "
+            "Trammel connects as a guest, and this share needs an account: enter a user "
+            "name and password that can write to it."
+        )
+    elif any(m in lower for m in ("logon_failure", "spnegoerror", "authenticate", "guest")):
+        hint = "The server refused the sign-in. Check the user name and password."
+    else:
+        return text[:300]
+    return f"{hint} ({text[:200]})"
 
 
 @contextlib.contextmanager
@@ -50,12 +62,20 @@ def _connected(target: Target):
     import smbclient
 
     cache: dict = {}
-    options = {
-        "username": target.username or None,
-        "password": target.password or None,
-        "connection_timeout": TIMEOUT_SECONDS,
-        "connection_cache": cache,
-    }
+    options = {"connection_timeout": TIMEOUT_SECONDS, "connection_cache": cache}
+    if target.username:
+        options |= {"username": target.username, "password": target.password or ""}
+    else:
+        # A share open to guests. Without a user name the client would look for
+        # a Kerberos ticket instead; guest sign-in is NTLM with no password, and
+        # SMB allows guests only on unsigned, unencrypted sessions.
+        options |= {
+            "username": "Guest",
+            "password": "",
+            "auth_protocol": "ntlm",
+            "require_signing": False,
+            "encrypt": False,
+        }
     try:
         yield smbclient, options
     except SMBError:

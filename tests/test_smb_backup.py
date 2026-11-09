@@ -32,6 +32,7 @@ class FakeShare:
 
     def _check(self, options):
         self.sessions.append((options["username"], options["password"]))
+        self.options = options
         if self.fail:
             raise self.fail
 
@@ -146,7 +147,56 @@ def test_connection_test(admin_client, share):
     assert list((share.root / "nas" / "backups" / "shop" / "trammel").iterdir()) == []
     share.fail = OSError("STATUS_LOGON_FAILURE")
     response = admin_client.post("/settings/maintenance/backup/test-smb/", follow=True)
-    assert "Failed: STATUS_LOGON_FAILURE" in response.content.decode()
+    assert "Failed: The server refused the sign-in." in response.content.decode()
+
+
+@pytest.mark.django_db
+def test_blank_user_name_signs_in_as_a_guest(share):
+    cfg = BackupSettings.load()
+    cfg.smb_username = ""
+    cfg.save()
+    secrets.clear(BackupSettings.SMB_SECRET)
+    assert backup.test_smb().startswith("OK")
+    # Not a Kerberos lookup: NTLM as Guest, on the unsigned, unencrypted
+    # session that guest access requires.
+    assert share.options["username"] == "Guest" and share.options["password"] == ""
+    assert share.options["auth_protocol"] == "ntlm"
+    assert share.options["require_signing"] is False and share.options["encrypt"] is False
+
+
+@pytest.mark.django_db
+def test_a_share_that_needs_an_account_says_so(share):
+    share.fail = OSError(
+        "[Error 0] [NtStatus 0xc0000022] Unknown NtStatus error returned "
+        r"'STATUS_ACCESS_DENIED': '\\nas\backups'"
+    )
+    result = backup.test_smb()
+    assert result.startswith("Failed: The server accepted the connection but refused access.")
+    assert "enter a user name and password" in result and "STATUS_ACCESS_DENIED" in result
+
+
+@pytest.mark.django_db
+def test_save_and_test_uses_what_is_on_the_screen(admin_client, share):
+    # Nothing is saved yet except the fixture's server; the form posts new values
+    # with the test button, and the test runs against them.
+    data = {
+        "scheduled": "on",
+        "interval_hours": "24",
+        "keep": "14",
+        "warn_after_days": "7",
+        "smb_enabled": "on",
+        "smb_server": "nas",
+        "smb_share": "backups",
+        "smb_folder": "fresh",
+        "smb_username": "",
+        "test": "smb",
+    }
+    response = admin_client.post("/settings/maintenance/", data)
+    assert response.status_code == 302 and response.url.endswith("?settings=open")
+    assert BackupSettings.load().smb_folder == "fresh"
+    page = admin_client.get(response.url).content.decode()
+    assert r"Settings saved. OK — Trammel can write, list and delete in \\nas\backups\fresh" in page
+    assert '<details class="panel" id="backup-settings" open>' in page
 
 
 @pytest.mark.django_db

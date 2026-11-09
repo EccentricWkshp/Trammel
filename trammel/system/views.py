@@ -7,6 +7,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.views.decorators.http import require_POST
 
 from trammel.core import audit, secrets, tasks
@@ -19,19 +20,19 @@ from .models import Backup, BackupSettings, Export
 
 class BackupSettingsForm(forms.ModelForm):
     smb_password = forms.CharField(
-        label="password",
+        label="Password",
         required=False,
         widget=forms.PasswordInput(render_value=False),
         help_text="Stored encrypted and never shown again. Leave blank to keep the current one.",
     )
-    smb_clear_password = forms.BooleanField(label="forget the saved password", required=False)
+    smb_clear_password = forms.BooleanField(label="Forget the saved password", required=False)
     s3_secret_key = forms.CharField(
-        label="secret access key",
+        label="Secret access key",
         required=False,
         widget=forms.PasswordInput(render_value=False),
         help_text="Stored encrypted and never shown again. Leave blank to keep the current one.",
     )
-    s3_clear_secret = forms.BooleanField(label="forget the saved secret key", required=False)
+    s3_clear_secret = forms.BooleanField(label="Forget the saved secret key", required=False)
 
     #: Each off-box target: its switch, the fields shown while it is on, and the
     #: fields it cannot work without.
@@ -99,6 +100,9 @@ class BackupSettingsForm(forms.ModelForm):
                 ].help_text = f"{saved} is saved (encrypted). Leave blank to keep it."
             else:
                 del self.fields[clear]
+        self.fields[
+            "smb_username"
+        ].help_text = "Leave blank for a share open to guests. For a domain account, DOMAIN\\name."
 
     def general(self):
         return [self[n] for n in self.GENERAL]
@@ -142,8 +146,15 @@ def maintenance(request):
     if request.method == "POST" and form.is_valid():
         save_audited(form.save(commit=False), before=before, summary="Edited backup settings")
         form.save_secret()
-        messages.success(request, "Backup settings saved.")
-        return redirect("system:maintenance")
+        # "Save and test" buttons: test exactly what is on the screen, once saved.
+        test = {"smb": backup.test_smb, "s3": backup.test_s3}.get(request.POST.get("test", ""))
+        if test is None:
+            messages.success(request, "Backup settings saved.")
+        else:
+            result = test()
+            report = messages.success if result.startswith("OK") else messages.error
+            report(request, f"Settings saved. {result}")
+        return redirect(reverse("system:maintenance") + "?settings=open")
     return render(
         request,
         "system/maintenance.html",
