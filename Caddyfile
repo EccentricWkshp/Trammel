@@ -7,6 +7,19 @@
 #   acme-dns  A real Let's Encrypt certificate via a DNS challenge. Needs a domain
 #             you control, but the instance never has to be reachable from outside.
 #   custom    Your own certificate and key in config/caddy/certs/.
+#
+# A network that already has a reverse proxy does not need this one at all:
+# see docker-compose.external-proxy.yml.
+
+# Caddy listens on the same ports the host publishes (HTTP_PORT and HTTPS_PORT
+# in .env; 8726 and 8727 unless changed), not on 80 and 443 behind a remap.
+# What it tells browsers then names the right port: the HTTP/3 advertisement
+# (Alt-Svc) carries Caddy's own port, and pointing it at 443 on a host where
+# something else owns 443 sends browsers to that service and its certificate.
+{
+	http_port {$HTTP_PORT:8726}
+	https_port {$HTTPS_PORT:8727}
+}
 
 {$SITE_ADDRESS:trammel.home.arpa} {
 	encode zstd gzip
@@ -23,9 +36,9 @@
 		max_size 512MB
 	}
 
-	reverse_proxy app:8080 {
-		header_up X-Real-IP {remote_host}
-	}
+	# Caddy sets X-Forwarded-For to the connecting address, discarding whatever
+	# the client sent, and the app believes it (TRUSTED_PROXIES in compose).
+	reverse_proxy app:8080
 
 	import /etc/caddy/tls.conf
 

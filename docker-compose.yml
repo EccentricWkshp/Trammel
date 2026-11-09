@@ -3,6 +3,9 @@
 #   cp .env.example .env     # set SECRET_KEY, POSTGRES_PASSWORD, SITE_ADDRESS, BASE_URL
 #   docker compose up -d
 #
+# The built-in proxy (Caddy) handles HTTPS. To use a reverse proxy the network
+# already has instead, see docker-compose.external-proxy.yml.
+#
 # To build from this checkout instead of pulling the published image:
 #   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 
@@ -17,8 +20,9 @@ x-app: &app
     MEDIA_ROOT: /data/media
     BACKUP_DIR: /data/backups
     STATIC_HASHED: "true"
-    # Only Caddy can reach the app, so its X-Real-IP header can be believed.
-    TRUST_PROXY_HEADERS: "true"
+    # Only the built-in proxy can reach the app, so its X-Forwarded-For can be
+    # believed. docker-compose.external-proxy.yml narrows this.
+    TRUSTED_PROXIES: "*"
   volumes:
     - media-data:/data/media
     - backup-data:/data/backups
@@ -29,10 +33,11 @@ services:
   proxy:
     image: eccentricwkshp/trammel-caddy:${TRAMMEL_TAG:-latest}
     restart: unless-stopped
+    # Published on the same port inside and out; the Caddyfile says why.
     ports:
-      - "${HTTP_PORT:-80}:80"
-      - "${HTTPS_PORT:-443}:443"
-      - "${HTTPS_PORT:-443}:443/udp"
+      - "${HTTP_PORT:-8726}:${HTTP_PORT:-8726}"
+      - "${HTTPS_PORT:-8727}:${HTTPS_PORT:-8727}"
+      - "${HTTPS_PORT:-8727}:${HTTPS_PORT:-8727}/udp"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./config/caddy:/etc/caddy/modes:ro
@@ -43,7 +48,8 @@ services:
     environment:
       SITE_ADDRESS: ${SITE_ADDRESS:-trammel.home.arpa}
       TLS_MODE: ${TLS_MODE:-internal}
-      HTTPS_PORT: ${HTTPS_PORT:-443}
+      HTTP_PORT: ${HTTP_PORT:-8726}
+      HTTPS_PORT: ${HTTPS_PORT:-8727}
       BASE_URL: ${BASE_URL:-}
       ACME_EMAIL: ${ACME_EMAIL:-}
       ACME_DNS_PROVIDER: ${ACME_DNS_PROVIDER:-}

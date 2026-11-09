@@ -20,9 +20,10 @@ cp .env.example .env
 | `SECRET_KEY` | A long random value: `python3 -c "import secrets; print(secrets.token_urlsafe(50))"` |
 | `POSTGRES_PASSWORD` | Another long random value. |
 | `SITE_ADDRESS` | The name devices will use, e.g. `trammel.home.arpa` or `shop.example.com`. |
-| `BASE_URL` | `https://` + that name (plus `:port` if HTTPS is not on 443). Links in emails and the QR codes on travelers are built from it. |
+| `BASE_URL` | `https://` + that name + `:` + `HTTPS_PORT`, e.g. `https://trammel.home.arpa:8727`. Links in emails and the QR codes on travelers are built from it. |
+| `HTTP_PORT`, `HTTPS_PORT` | The ports Trammel listens on, `8726` and `8727` by default so it can share a machine with anything on 80 and 443. Set `HTTPS_PORT=443` (and drop the port from `BASE_URL`) if the machine is Trammel's alone. |
 | `ALLOWED_HOSTS` | The same host name. |
-| `TLS_MODE` | `internal`, `acme-dns` or `custom` — see step 4. |
+| `TLS_MODE` | `internal`, `acme-dns` or `custom` — see step 4. Already running a reverse proxy for other services? See [Using the reverse proxy you already have](#using-the-reverse-proxy-you-already-have) instead. |
 
 Everything about the business itself — name, currency, time zone, rates — is
 entered on the setup page, not here.
@@ -34,7 +35,9 @@ docker compose up -d
 docker compose logs -f app      # wait for "Listening at: http://0.0.0.0:8080"
 ```
 
-Open `https://<SITE_ADDRESS>`. A new instance shows the **setup page**, which
+Open `https://<SITE_ADDRESS>:8727` (or whatever `HTTPS_PORT` is). The port is
+part of the address: DNS points a name at a machine, never at a port, so
+without it the browser goes to 443 and whatever answers there. A new instance shows the **setup page**, which
 creates the system admin account; there is no default login. If the machine
 may be reachable by anyone else before you finish setup, set `SETUP_TOKEN` in
 `.env` first and the page will ask for it.
@@ -55,6 +58,46 @@ HTTPS is required: the shop-floor app and camera QR scanning only work over it.
   `ACME_DNS_PROVIDER` (`acmedns`, `cloudflare`, `desec` or `duckdns` are built
   in) and `ACME_DNS_TOKEN`.
 - **`custom`**: put `fullchain.pem` and `privkey.pem` in `config/caddy/certs/`.
+
+### Using the reverse proxy you already have
+
+If your network already runs a reverse proxy (Caddy, nginx, Traefik and so on)
+in front of other services, let it serve Trammel too, and skip the built-in
+proxy. Then Trammel is reached at a plain `https://<name>` with no port, the same as
+everything else. In `.env`:
+
+```ini
+COMPOSE_FILE=docker-compose.yml:docker-compose.external-proxy.yml
+TRUSTED_PROXIES=192.168.1.10          # your proxy's IP address
+BASE_URL=https://trammel.example.com  # the name your proxy serves, no port
+ALLOWED_HOSTS=trammel.example.com
+```
+
+`SITE_ADDRESS`, `TLS_MODE`, `HTTPS_PORT` and the ACME settings are not used. The
+app is published on `HTTP_PORT` (8726). Point your proxy at it over plain HTTP.
+For Caddy:
+
+```caddyfile
+trammel.example.com {
+    reverse_proxy <trammel host>:8726
+}
+```
+
+Your proxy must:
+
+- **terminate HTTPS** with a certificate devices trust. Trammel only works over
+  HTTPS.
+- **pass the `Host` header through unchanged.** Caddy does by default.
+- **send `X-Forwarded-For` and `X-Forwarded-Proto`.** Caddy does by default.
+- **accept uploads up to 512 MB.**
+
+Trammel believes `X-Forwarded-For` only from the addresses in `TRUSTED_PROXIES`,
+so a device on the network that connects to port 8726 directly cannot forge its
+address in the audit log. Firewall that port so only the proxy can reach it, if
+you can.
+
+Switching an existing install over: `docker compose rm -sf proxy`, then
+`docker compose up -d`.
 
 ## 5. Day to day
 
@@ -88,18 +131,20 @@ WSL2 sits behind NAT by default, so other devices cannot reach it. Either:
   hostAddressLoopback=true
   ```
   then `wsl --shutdown` and start the distribution again; or
-- a Windows port forward from 443 to the WSL address
-  (`netsh interface portproxy add v4tov4 listenport=443 connectport=443 connectaddress=<wsl ip>`),
-  which must be redone when the WSL address changes.
+- a Windows port forward to the WSL address for each port
+  (`netsh interface portproxy add v4tov4 listenport=8727 connectport=8727 connectaddress=<wsl ip>`,
+  and the same for 8726), which must be redone when the WSL address changes.
 
-Then allow HTTPS through Windows Firewall (PowerShell as administrator):
+Then allow the ports through Windows Firewall (PowerShell as administrator;
+use your own values if you changed `HTTP_PORT` or `HTTPS_PORT`):
 
 ```powershell
-New-NetFirewallRule -DisplayName "Trammel HTTPS" -Direction Inbound -Protocol TCP -LocalPort 443 -Action Allow
+New-NetFirewallRule -DisplayName "Trammel" -Direction Inbound -Protocol TCP -LocalPort 8726,8727 -Action Allow
+New-NetFirewallRule -DisplayName "Trammel HTTP/3" -Direction Inbound -Protocol UDP -LocalPort 8727 -Action Allow
 ```
 
-With mirrored networking also allow it through the Hyper-V firewall:
-`New-NetFirewallHyperVRule -Name TrammelHTTPS -DisplayName "Trammel HTTPS" -Direction Inbound -VMCreatorId '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -Protocol TCP -LocalPorts 443`.
+With mirrored networking also allow them through the Hyper-V firewall:
+`New-NetFirewallHyperVRule -Name Trammel -DisplayName "Trammel" -Direction Inbound -VMCreatorId '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -Protocol TCP -LocalPorts 8726,8727`.
 
 ### Starting on boot and staying up
 

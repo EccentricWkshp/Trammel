@@ -1,0 +1,25 @@
+# Use a reverse proxy the network already has instead of the built-in one.
+#
+# In .env:
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.external-proxy.yml
+#   TRUSTED_PROXIES=<the proxy's IP address>
+#   BASE_URL=https://<the name the proxy serves Trammel on>
+#
+# The built-in proxy is then not started, and the app is published on
+# HTTP_PORT (8726 by default) for your proxy to forward to over plain HTTP.
+# Your proxy terminates HTTPS, which Trammel still requires: the shop-floor app
+# and camera QR scanning only work in a secure context. docs/INSTALL.md has an
+# example for Caddy.
+
+services:
+  proxy:
+    # A service whose profile is not requested does not start.
+    profiles: [built-in-proxy]
+
+  app:
+    ports:
+      - "${HTTP_PORT:-8726}:8080"
+    environment:
+      # The app is now reachable by anything on the network, so only the proxy's
+      # X-Forwarded-For is believed; from anyone else it could be forged.
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:?set TRUSTED_PROXIES in .env to your reverse proxy's IP address}

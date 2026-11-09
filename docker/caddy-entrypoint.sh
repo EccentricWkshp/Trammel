@@ -32,21 +32,29 @@ fi
 cp "$SOURCE" /etc/caddy/tls.conf
 echo "TLS strategy: ${TLS_MODE}"
 
-# The port the *host* publishes HTTPS on, which is not always 443: a machine
-# with something already on 443 remaps it in compose, and Caddy goes on
-# listening on 443 inside the container none the wiser.
+# The ports Caddy listens on, which compose also publishes unchanged on the
+# host (the Caddyfile's global options read them). They default to 8726 and
+# 8727 so the stack can share a machine with anything already on 80 and 443.
 #
-# One thing does need telling. The http:// redirect sends the browser to
-# https://{host}, and {host} carries no port — so on a remapped instance it
-# lands on 443, where nothing is listening, and the failure looks like the
-# site being down rather than a redirect being wrong. Hence the suffix.
-HTTPS_PORT="${HTTPS_PORT:-443}"
-case "$HTTPS_PORT" in
-    ''|*[!0-9]*)
-        echo "HTTPS_PORT=${HTTPS_PORT} is not a port number." >&2
-        exit 1
-        ;;
-esac
+# The http:// redirect sends the browser to https://{host}, and {host} carries
+# no port, so anything but 443 has to be added back or the redirect lands on
+# 443, where Trammel is not listening. Hence the suffix.
+HTTP_PORT="${HTTP_PORT:-8726}"
+HTTPS_PORT="${HTTPS_PORT:-8727}"
+for name in HTTP_PORT HTTPS_PORT; do
+    eval "value=\${$name}"
+    case "$value" in
+        ''|*[!0-9]*)
+            echo "${name}=${value} is not a port number." >&2
+            exit 1
+            ;;
+    esac
+done
+if [ "$HTTP_PORT" = "$HTTPS_PORT" ]; then
+    echo "HTTP_PORT and HTTPS_PORT are both ${HTTPS_PORT}; they must differ." >&2
+    exit 1
+fi
+export HTTP_PORT HTTPS_PORT
 
 if [ "$HTTPS_PORT" = "443" ]; then
     HTTPS_PORT_SUFFIX=""

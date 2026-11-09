@@ -9,6 +9,7 @@ in the application (FR-ADM-1..4, FR-ADM-7).
 
 from __future__ import annotations
 
+import ipaddress
 import os
 from pathlib import Path
 from urllib.parse import unquote, urlparse
@@ -70,10 +71,21 @@ CSRF_TRUSTED_ORIGINS = [
     o for o in env_list("CSRF_TRUSTED_ORIGINS", BASE_URL) if o.startswith("http")
 ]
 
-# Believe X-Real-IP / X-Forwarded-For for the client address (audit log, rate
-# limits). True only when the app is reachable solely through the proxy, as in
-# the Compose stack; otherwise a client could forge its own address.
-TRUST_PROXY_HEADERS = env_bool("TRUST_PROXY_HEADERS", False)
+# Reverse proxies whose X-Forwarded-For is believed for the client address
+# (audit log, login rate limits): comma-separated addresses or networks, such
+# as 192.168.1.20 or 10.0.0.0/8. "*" believes any sender, which is right only
+# when nothing but the proxy can reach the app, as with the Compose stack's
+# built-in proxy; anywhere else a client could forge its own address. Empty
+# means the connecting address is the client.
+TRUSTED_PROXIES = env_list("TRUSTED_PROXIES", "")
+for _proxy in TRUSTED_PROXIES:
+    if _proxy != "*":
+        try:
+            ipaddress.ip_network(_proxy, strict=False)
+        except ValueError:
+            raise ImproperlyConfigured(
+                f"TRUSTED_PROXIES: {_proxy!r} is not an IP address or network."
+            ) from None
 
 # Optional one-time token required by the setup page. Set it when a fresh
 # instance might be reachable by someone other than you before setup is done.

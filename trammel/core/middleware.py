@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import functools
+import ipaddress
 import zoneinfo
 
 from django.conf import settings
@@ -34,14 +36,45 @@ class SetupRequiredMiddleware:
         return self.get_response(request)
 
 
+@functools.cache
+def _trusted_networks(entries: tuple[str, ...]):
+    """The TRUSTED_PROXIES networks, or None when "*" trusts every sender."""
+    if "*" in entries:
+        return None
+    return tuple(ipaddress.ip_network(entry, strict=False) for entry in entries)
+
+
+def _trusted(address: str, networks) -> bool:
+    if networks is None:
+        return True
+    try:
+        ip = ipaddress.ip_address(address)
+    except ValueError:
+        return False
+    return any(ip in network for network in networks)
+
+
 def client_ip(request) -> str | None:
-    """The client address. Proxy headers are believed only when configured to be."""
-    if settings.TRUST_PROXY_HEADERS:
-        if real := request.META.get("HTTP_X_REAL_IP"):
-            return real.strip()
-        if forwarded := request.META.get("HTTP_X_FORWARDED_FOR"):
-            return forwarded.split(",")[0].strip()
-    return request.META.get("REMOTE_ADDR")
+    """The client address, from X-Forwarded-For only as far as it can be believed.
+
+    The header is read only when the connection comes from a trusted proxy, and
+    then from the right: each hop was appended by the proxy before it, so the
+    first address that is not itself a trusted proxy is the client. Anything to
+    its left was written by the client and could say anything.
+    """
+    remote = request.META.get("REMOTE_ADDR")
+    entries = tuple(settings.TRUSTED_PROXIES)
+    if not entries or not remote:
+        return remote
+    networks = _trusted_networks(entries)
+    if not _trusted(remote, networks):
+        return remote
+    forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
+    hops = [hop.strip() for hop in forwarded.split(",") if hop.strip()]
+    for hop in reversed(hops):
+        if not _trusted(hop, networks):
+            return hop
+    return hops[0] if hops else remote
 
 
 class AuditContextMiddleware:
