@@ -23,7 +23,7 @@
 {% endif %}{% endfor %}
 {% if ctx.can_manage and ctx.required and not ctx.accepted and not ctx.waiver %}
 <details><summary>Waive for this job</summary>
-  <form method="post" action="{% url 'agreements:waive' job.pk %}" class="transition">{% csrf_token %}
+  <form method="post" action="{% url 'agreements:waive' job.pk %}" class="reason-row">{% csrf_token %}
     <label for="waive-reason">Reason</label><input type="text" id="waive-reason" name="reason" required>
     <button type="submit">Waive</button>
   </form>

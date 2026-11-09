@@ -8,6 +8,7 @@ from django.core.exceptions import ValidationError
 from django.http import Http404
 from ninja import ModelSchema, Router, Schema, Status
 
+from trammel.api.types import choices
 from trammel.core import access
 from trammel.customers.models import Customer
 from trammel.jobs.models import Job
@@ -18,7 +19,7 @@ from .models import Invoice, InvoiceLine, InvoiceTax
 router = Router(tags=["invoices"])
 
 
-class LineOut(ModelSchema):
+class InvoiceLineOut(ModelSchema):
     class Meta:
         model = InvoiceLine
         fields = [
@@ -43,7 +44,7 @@ class TaxOut(ModelSchema):
 
 
 class InvoiceOut(ModelSchema):
-    lines: list[LineOut]
+    lines: list[InvoiceLineOut]
     taxes: list[TaxOut]
     is_overdue: bool
 
@@ -90,13 +91,13 @@ class InvoiceOut(ModelSchema):
         return obj.is_overdue
 
 
-class CreateIn(Schema):
+class InvoiceCreateIn(Schema):
     customer: UUID | None = None
     job: UUID | None = None
-    kind: Invoice.Kind = Invoice.Kind.FINAL
+    kind: choices(Invoice.Kind) = Invoice.Kind.FINAL
 
 
-class LineIn(Schema):
+class InvoiceLineIn(Schema):
     description: str
     quantity: Decimal = Decimal("1")
     unit: str = "each"
@@ -116,7 +117,7 @@ class VoidIn(Schema):
     reason: str
 
 
-class DraftIn(Schema):
+class InvoiceDraftIn(Schema):
     shipping: Decimal | None = None
     fulfillment: Invoice.Fulfillment | None = None
 
@@ -145,7 +146,7 @@ def get_invoice(request, invoice_id: UUID):
 
 
 @router.post("/", response={201: InvoiceOut})
-def create(request, payload: CreateIn):
+def create(request, payload: InvoiceCreateIn):
     access.require(request.actor, "billing.create")
     job = None
     if payload.job:
@@ -161,7 +162,7 @@ def create(request, payload: CreateIn):
 
 
 @router.post("/{invoice_id}/lines", response={201: InvoiceOut})
-def add_line(request, invoice_id: UUID, payload: LineIn):
+def add_line(request, invoice_id: UUID, payload: InvoiceLineIn):
     invoice = _inv(request, "billing.create", invoice_id)
     data = payload.dict()
     data["tax_category_id"] = data.pop("tax_category")
@@ -171,7 +172,7 @@ def add_line(request, invoice_id: UUID, payload: LineIn):
 
 
 @router.patch("/{invoice_id}", response=InvoiceOut)
-def update_draft(request, invoice_id: UUID, payload: DraftIn):
+def update_draft(request, invoice_id: UUID, payload: InvoiceDraftIn):
     """Change a draft's fulfillment or shipping charge; totals are recalculated."""
     invoice = _inv(request, "billing.create", invoice_id)
     if not invoice.is_draft:

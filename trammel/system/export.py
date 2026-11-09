@@ -15,6 +15,7 @@ Never exported: password hashes, stored credentials, API key hashes, sessions.
 
 from __future__ import annotations
 
+import base64
 import json
 import zipfile
 from pathlib import Path
@@ -46,7 +47,9 @@ Exported {when} from {business}, Trammel {version}.
 - `data/` — one file per kind of record, named `<app>.<model>.ndjson`.
   Each line is one JSON object: every field of the record. A field that refers
   to another record holds that record's `id`. Money is a decimal string;
-  times are ISO 8601 in UTC; dates are `YYYY-MM-DD`.
+  times are ISO 8601 in UTC; dates are `YYYY-MM-DD`. Binary content (the
+  business logo, `core.businessprofile.logo`) is base64, with its type in
+  `logo_type`.
   Records in the trash are included, with `deleted_at` set.
 - `files/` — every uploaded file, byte-for-byte, in `files/<document id>/`,
   named `r<revision>-<original file name>`. `data/files.documentrevision.ndjson`
@@ -61,11 +64,20 @@ Passwords, stored credentials and API keys are not exported.
 """
 
 
+def _value(value):
+    # Binary content (the business logo) as base64, since JSON has no bytes.
+    if isinstance(value, bytes | bytearray | memoryview):
+        return base64.b64encode(bytes(value)).decode("ascii")
+    return value
+
+
 def _rows(model):
     fields = [f for f in model._meta.concrete_fields if f.name not in EXCLUDED_FIELDS]
     manager = getattr(model, "all_objects", model._base_manager)
     for obj in manager.all().iterator():
-        yield {f.attname if f.is_relation else f.name: getattr(obj, f.attname) for f in fields}
+        yield {
+            f.attname if f.is_relation else f.name: _value(getattr(obj, f.attname)) for f in fields
+        }
 
 
 def build() -> Export:

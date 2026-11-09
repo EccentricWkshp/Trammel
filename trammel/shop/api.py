@@ -5,6 +5,7 @@ from uuid import UUID
 
 from ninja import ModelSchema, Router, Schema, Status
 
+from trammel.api.types import choices
 from trammel.core import access, audit
 from trammel.core.services import save_audited
 
@@ -21,7 +22,7 @@ class MachineOut(ModelSchema):
 
 class MachineIn(Schema):
     name: str
-    kind: Machine.Kind = Machine.Kind.OTHER
+    kind: choices(Machine.Kind) = Machine.Kind.OTHER
     hourly_rate: Decimal = Decimal("0")
     is_active: bool = True
     notes: str = ""

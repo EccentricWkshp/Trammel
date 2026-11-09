@@ -299,11 +299,41 @@ class BusinessProfile(SingletonModel):
         help_text="Locked once any quote or invoice exists.",
     )
 
+    # The logo lives in the row itself: it is small, it is part of every
+    # database backup, and documents embed it inline (PDF rendering never fetches
+    # anything). Set through trammel.core.logo, which checks and re-encodes it.
+    logo = models.BinaryField(blank=True, default=b"", editable=False)
+    logo_type = models.CharField(max_length=40, blank=True, editable=False)
+
+    # Which details quotes, invoices, agreements and emails show. Hidden ones are
+    # left out of what templates receive, so custom templates follow them too.
+    show_logo = models.BooleanField("logo", default=True)
+    show_address = models.BooleanField("address", default=True)
+    show_phone = models.BooleanField("phone", default=True)
+    show_email = models.BooleanField("email", default=True)
+    show_website = models.BooleanField("website", default=True)
+    show_tax_registration_numbers = models.BooleanField("tax registration numbers", default=True)
+
+    DOCUMENT_DETAILS = (
+        "show_logo",
+        "show_address",
+        "show_phone",
+        "show_email",
+        "show_website",
+        "show_tax_registration_numbers",
+    )
+
     class Meta:
         verbose_name = "business profile"
 
     def __str__(self) -> str:
         return self.name
+
+    @property
+    def logo_data_uri(self) -> str:
+        from .logo import data_uri
+
+        return data_uri(self)
 
 
 class ShopRates(SingletonModel):

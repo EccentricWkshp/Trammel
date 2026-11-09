@@ -84,6 +84,7 @@ BUSINESS = Group(
     (
         P("business.name", "Business name"),
         P("business.legal_name", "Legal name (the business name if not set)"),
+        P("business.logo", "Logo image, for an <img> tag's src. Blank when there is none"),
         P("business.phone", "Phone"),
         P("business.email", "Email"),
         P("business.website", "Website"),
@@ -120,6 +121,12 @@ LOGIC = (
     ("{% if invoice.balance > 0 %}…{% else %}…{% endif %}", "Choose between two parts"),
     ("{% for line in quote.lines %}…{% endfor %}", "Repeat a part for each item in a list"),
     ("{% for line in business.address_lines %}{{ line }}<br>{% endfor %}", "Print a list"),
+    (
+        "{% if business.logo %}"
+        '<img src="{{ business.logo }}" alt="{{ business.name }}">'
+        "{% endif %}",
+        "Show the logo",
+    ),
 )
 
 

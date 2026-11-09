@@ -123,7 +123,14 @@ def render_pdf(html: str) -> bytes:
 
 
 def business_context(business) -> dict:
-    """The business as a template sees it."""
+    """The business as a template sees it.
+
+    Details the business has chosen not to show on documents arrive empty, so
+    every template, including ones written before the choice was made, leaves
+    them out without needing a condition of its own.
+    """
+    from .logo import data_uri
+
     address = [
         business.address_line1,
         business.address_line2,
@@ -140,13 +147,18 @@ def business_context(business) -> dict:
     return {
         "name": business.name,
         "legal_name": business.legal_name or business.name,
-        "phone": business.phone,
-        "email": business.email,
-        "website": business.website,
-        "address_lines": [line for line in address if line.strip()],
-        "tax_registration_numbers": [
-            line for line in business.tax_registration_numbers.splitlines() if line.strip()
-        ],
+        "logo": data_uri(business) if business.show_logo else "",
+        "phone": business.phone if business.show_phone else "",
+        "email": business.email if business.show_email else "",
+        "website": business.website if business.show_website else "",
+        "address_lines": (
+            [line for line in address if line.strip()] if business.show_address else []
+        ),
+        "tax_registration_numbers": (
+            [line for line in business.tax_registration_numbers.splitlines() if line.strip()]
+            if business.show_tax_registration_numbers
+            else []
+        ),
         "currency": business.currency,
     }
 

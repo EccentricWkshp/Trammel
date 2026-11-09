@@ -9,6 +9,7 @@ code calls `record()` without threading the request through every layer.
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import uuid
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
@@ -80,6 +81,12 @@ def _jsonable(value):
         return {str(k): _jsonable(v) for k, v in value.items()}
     if isinstance(value, models.Model):
         return str(value.pk)
+    if isinstance(value, bytes | bytearray | memoryview):
+        # Binary content (a logo) is recorded by size and fingerprint, not inline.
+        data = bytes(value)
+        if not data:
+            return ""
+        return f"{len(data):,} bytes, sha256 {hashlib.sha256(data).hexdigest()[:12]}"
     if hasattr(value, "name") and hasattr(value, "url"):  # FieldFile
         return value.name or ""
     return value

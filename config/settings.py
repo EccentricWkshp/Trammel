@@ -114,6 +114,9 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "django.contrib.postgres",
     "django.forms",  # widget templates for the form renderer
+    # The API docs page's own copy of Swagger UI. Without the app installed,
+    # Ninja loads it from a CDN, which the content security policy blocks.
+    "ninja",
     # Core modules (SPEC §4.5) — cannot be disabled.
     "trammel.core.apps.CoreConfig",
     "trammel.accounts.apps.AccountsConfig",

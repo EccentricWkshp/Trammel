@@ -197,6 +197,17 @@ address { font-style: normal; }
 .lifecycle .transition { display: flex; gap: .4rem; align-items: end; flex-wrap: wrap; }
 .lifecycle .transition label { font-size: .85rem; font-weight: 600; width: 100%; margin: 0; }
 .lifecycle .transition input[type="text"] { width: 14rem; }
+/* Business settings: titled groups in one form, the logo, and the show/hide grid. */
+h2.form-section { font-size: 1.05rem; margin: 1.75rem 0 .6rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+h2.form-section:first-of-type { margin-top: .5rem; padding-top: 0; border-top: 0; }
+.logo-preview { margin: 0 0 1rem; padding: .75rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); display: inline-block; }
+.logo-preview img { display: block; max-height: 5rem; max-width: 18rem; }
+.check-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); gap: .25rem 1rem; margin-bottom: 1rem; }
+.check-grid > .field { margin-bottom: .4rem; }
+/* A reason box and its button on one row, wrapping on a narrow panel. */
+.reason-row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin-top: .5rem; }
+.reason-row label { width: 100%; margin: 0; font-weight: 600; }
+.reason-row input[type="text"] { flex: 1 1 12rem; width: auto; margin: 0; }
 .danger-link { color: var(--danger); margin-left: auto; }
 fieldset { border: 1px solid var(--border); border-radius: var(--radius); padding: .5rem .9rem; margin: 0 0 .75rem; }
 legend { font-weight: 600; padding: 0 .3rem; }

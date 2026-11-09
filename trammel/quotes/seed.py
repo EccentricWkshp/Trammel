@@ -15,6 +15,7 @@ DEFAULT_TEMPLATE = """\
   header { display: flex; justify-content: space-between; align-items: flex-start;
            border-bottom: 2px solid #1f5f8b; padding-bottom: 10pt; margin-bottom: 14pt; }
   h1 { font-size: 20pt; margin: 0; color: #1f5f8b; }
+  .logo { display: block; max-height: 0.9in; max-width: 2.6in; margin-bottom: 8pt; }
   .business { text-align: right; font-size: 9.5pt; color: #444; }
   .meta { display: flex; justify-content: space-between; margin-bottom: 16pt; gap: 2rem; }
   .meta h2 { font-size: 9pt; text-transform: uppercase; letter-spacing: .05em; color: #666;
@@ -35,6 +36,7 @@ DEFAULT_TEMPLATE = """\
 <body>
 <header>
   <div>
+    {% if business.logo %}<img class="logo" src="{{ business.logo }}" alt="{{ business.name }}">{% endif %}
     <h1>Quote</h1>
     <div>{{ quote.number }}{% if quote.revision > 1 %} (revision {{ quote.revision }}){% endif %}</div>
   </div>
@@ -42,7 +44,8 @@ DEFAULT_TEMPLATE = """\
     <strong>{{ business.name }}</strong><br>
     {% for line in business.address_lines %}{{ line }}<br>{% endfor %}
     {% if business.phone %}{{ business.phone }}<br>{% endif %}
-    {% if business.email %}{{ business.email }}{% endif %}
+    {% if business.email %}{{ business.email }}<br>{% endif %}
+    {% if business.website %}{{ business.website }}{% endif %}
   </div>
 </header>
 

@@ -1,5 +1,6 @@
-from __future__ import annotations
-
+# No `from __future__ import annotations` here: list_jobs is wrapped by Ninja's
+# paginate decorator, which resolves string annotations against Ninja's own
+# module, where JobStatus does not exist, and the OpenAPI schema then fails.
 import datetime as dt
 from uuid import UUID
 
@@ -69,7 +70,7 @@ class JobPatch(Schema):
     delivery_actual: dt.date | None = None
 
 
-class TransitionIn(Schema):
+class JobTransitionIn(Schema):
     target: JobStatus
     reason: str = ""
 
@@ -134,7 +135,7 @@ def update_job(request, job_id: UUID, payload: JobPatch):
 
 
 @router.post("/{job_id}/transition", response=JobOut)
-def transition_job(request, job_id: UUID, payload: TransitionIn):
+def transition_job(request, job_id: UUID, payload: JobTransitionIn):
     job = _job(request, "jobs.view", job_id)
     services.transition(job, payload.target, actor=request.actor, reason=payload.reason)
     job.refresh_from_db()

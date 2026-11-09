@@ -6,6 +6,7 @@ from uuid import UUID
 from ninja import ModelSchema, Router, Schema, Status
 from ninja.pagination import LimitOffsetPagination, paginate
 
+from trammel.api.types import choices
 from trammel.core import access, audit
 
 from . import services
@@ -72,7 +73,7 @@ class CustomerDetailOut(CustomerOut):
 
 
 class CustomerIn(Schema):
-    kind: Customer.Kind = Customer.Kind.INDIVIDUAL
+    kind: choices(Customer.Kind) = Customer.Kind.INDIVIDUAL
     name: str
     company: str = ""
     email: str = ""
@@ -85,7 +86,7 @@ class CustomerIn(Schema):
 
 
 class CustomerPatch(Schema):
-    kind: Customer.Kind | None = None
+    kind: choices(Customer.Kind) | None = None
     name: str | None = None
     company: str | None = None
     email: str | None = None

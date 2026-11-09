@@ -19,7 +19,7 @@ from .models import QuoteLine, QuoteRevision
 router = Router(tags=["quotes"])
 
 
-class LineOut(ModelSchema):
+class QuoteLineOut(ModelSchema):
     class Meta:
         model = QuoteLine
         fields = [
@@ -42,7 +42,7 @@ class LineOut(ModelSchema):
 class RevisionOut(ModelSchema):
     quote_number: str
     job: UUID
-    lines: list[LineOut]
+    lines: list[QuoteLineOut]
 
     class Meta:
         model = QuoteRevision
@@ -87,12 +87,12 @@ class RevisionOut(ModelSchema):
         return list(obj.lines.all())
 
 
-class CreateIn(Schema):
+class QuoteCreateIn(Schema):
     job: UUID
     title: str = ""
 
 
-class LineIn(Schema):
+class QuoteLineIn(Schema):
     kind: str
     data: dict
 
@@ -114,7 +114,7 @@ class DeclineIn(Schema):
     reason: str = ""
 
 
-class DraftIn(Schema):
+class QuoteDraftIn(Schema):
     shipping: Decimal | None = None
     fulfillment: QuoteRevision.Fulfillment | None = None
 
@@ -145,14 +145,14 @@ def get_revision(request, revision_id: UUID):
 
 
 @router.post("/", response={201: RevisionOut})
-def create(request, payload: CreateIn):
+def create(request, payload: QuoteCreateIn):
     access.require(request.actor, "quotes.create")
     job = access.get_or_404(request.actor, "jobs.view", Job.objects.all(), pk=payload.job)
     return Status(201, services.create_quote(job, title=payload.title))
 
 
 @router.post("/{revision_id}/lines", response={201: RevisionOut})
-def add_line(request, revision_id: UUID, payload: LineIn):
+def add_line(request, revision_id: UUID, payload: QuoteLineIn):
     revision = _rev(request, "quotes.edit", revision_id)
     form_class = LINE_FORMS.get(payload.kind)
     if form_class is None:
@@ -191,7 +191,7 @@ def delete_line(request, revision_id: UUID, line_id: UUID):
 
 
 @router.patch("/{revision_id}", response=RevisionOut)
-def update_draft(request, revision_id: UUID, payload: DraftIn):
+def update_draft(request, revision_id: UUID, payload: QuoteDraftIn):
     """Change a draft revision's fulfillment or shipping charge."""
     from trammel.core import audit
 

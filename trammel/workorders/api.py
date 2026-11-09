@@ -46,13 +46,13 @@ class WorkOrderOut(ModelSchema):
         return list(obj.operations.all())
 
 
-class CreateIn(Schema):
+class WorkOrderCreateIn(Schema):
     job: UUID
     title: str = ""
     revision: UUID | None = None
 
 
-class TransitionIn(Schema):
+class WorkOrderTransitionIn(Schema):
     target: str
     reason: str = ""
     waiting_on: str = ""
@@ -66,7 +66,7 @@ class NoteIn(Schema):
     text: str
 
 
-class MaterialIn(Schema):
+class MaterialUseIn(Schema):
     material: UUID | None = None
     description: str = ""
     quantity: Decimal
@@ -95,7 +95,7 @@ def get_work_order(request, wo_id: UUID):
 
 
 @router.post("/", response={201: WorkOrderOut})
-def create(request, payload: CreateIn):
+def create(request, payload: WorkOrderCreateIn):
     access.require(request.actor, "workorders.create")
     job = access.get_or_404(request.actor, "jobs.view", Job.objects.all(), pk=payload.job)
     revision = (
@@ -107,7 +107,7 @@ def create(request, payload: CreateIn):
 
 
 @router.post("/{wo_id}/transition", response=WorkOrderOut)
-def transition(request, wo_id: UUID, payload: TransitionIn):
+def transition(request, wo_id: UUID, payload: WorkOrderTransitionIn):
     wo = _wo(request, "workorders.view", wo_id)
     services.transition(
         wo,
@@ -140,7 +140,7 @@ def add_note(request, wo_id: UUID, payload: NoteIn):
 
 
 @router.post("/{wo_id}/materials", response={201: dict})
-def record_material(request, wo_id: UUID, payload: MaterialIn):
+def record_material(request, wo_id: UUID, payload: MaterialUseIn):
     wo = _wo(request, "workorders.edit", wo_id)
     material = Material.objects.filter(pk=payload.material).first() if payload.material else None
     usage = services.record_material(

@@ -50,6 +50,16 @@ def test_admin_pages_render(admin_client, path):
 
 
 @pytest.mark.django_db
+def test_api_docs_load_nothing_from_outside(admin_client):
+    # The content security policy allows scripts and styles from this site only;
+    # docs that pull Swagger UI from a CDN render as a blank page.
+    page = admin_client.get("/api/v1/docs").content.decode()
+    assert "/static/ninja/swagger-ui-bundle.js" in page
+    assert "/static/ninja/swagger-ui.css" in page
+    assert "cdn." not in page and "<script>" not in page
+
+
+@pytest.mark.django_db
 def test_settings_save_is_audited(admin_client):
     from trammel.core.models import AuditEvent, ShopRates
 

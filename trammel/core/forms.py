@@ -81,6 +81,32 @@ class SetupForm(forms.Form):
 
 class BusinessProfileForm(forms.ModelForm):
     timezone = forms.ChoiceField(choices=timezone_choices)
+    logo_file = forms.FileField(
+        label="Upload a logo",
+        required=False,
+        help_text="PNG, JPEG, WebP, GIF or SVG. Large images are scaled down.",
+        widget=forms.FileInput(
+            attrs={"accept": "image/png,image/jpeg,image/webp,image/gif,image/svg+xml"}
+        ),
+    )
+    remove_logo = forms.BooleanField(label="Remove the logo", required=False)
+
+    DETAILS = (
+        "name",
+        "legal_name",
+        "phone",
+        "email",
+        "website",
+        "address_line1",
+        "address_line2",
+        "city",
+        "region",
+        "postal_code",
+        "country",
+        "tax_registration_numbers",
+        "default_payment_terms_days",
+    )
+    REGIONAL = ("timezone", "unit_system", "week_start", "date_format", "currency")
 
     class Meta:
         model = BusinessProfile
@@ -98,6 +124,7 @@ class BusinessProfileForm(forms.ModelForm):
             "country",
             "tax_registration_numbers",
             "default_payment_terms_days",
+            *BusinessProfile.DOCUMENT_DETAILS,
             "timezone",
             "unit_system",
             "week_start",
@@ -108,12 +135,43 @@ class BusinessProfileForm(forms.ModelForm):
 
     def __init__(self, *args, currency_locked: bool = False, **kwargs):
         super().__init__(*args, **kwargs)
+        self._logo = None
         self.fields["currency"].widget = forms.Select(choices=currency_choices())
         if currency_locked:
             self.fields["currency"].disabled = True
             self.fields[
                 "currency"
             ].help_text = "Locked: quotes or invoices already exist in this currency."
+        if not self.instance.logo:
+            del self.fields["remove_logo"]
+
+    def sections(self):
+        """The fields in titled groups, for the business settings page."""
+        groups = [
+            ("Details", self.DETAILS),
+            ("Logo", ("logo_file", "remove_logo")),
+            ("Shown on quotes, invoices, agreements and emails", BusinessProfile.DOCUMENT_DETAILS),
+            ("Region and format", self.REGIONAL),
+        ]
+        return [(title, [self[n] for n in names if n in self.fields]) for title, names in groups]
+
+    def clean_logo_file(self):
+        from .logo import prepare
+
+        upload = self.cleaned_data.get("logo_file")
+        if upload:
+            self._logo = prepare(upload)
+        return upload
+
+    def save(self, commit=True):
+        profile = super().save(commit=False)
+        if self._logo:
+            profile.logo, profile.logo_type = self._logo
+        elif self.cleaned_data.get("remove_logo"):
+            profile.logo, profile.logo_type = b"", ""
+        if commit:
+            profile.save()
+        return profile
 
 
 class ShopRatesForm(forms.ModelForm):

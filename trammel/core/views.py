@@ -138,7 +138,7 @@ def settings_index(request):
 
 def _settings_form_view(request, *, form_class, instance, template, title, success, **form_kwargs):
     before = audit.snapshot(instance)
-    form = form_class(request.POST or None, instance=instance, **form_kwargs)
+    form = form_class(request.POST or None, request.FILES or None, instance=instance, **form_kwargs)
     if request.method == "POST" and form.is_valid():
         with transaction.atomic():
             form.save()
@@ -154,7 +154,7 @@ def business(request):
         request,
         form_class=BusinessProfileForm,
         instance=BusinessProfile.load(),
-        template="core/settings_form.html",
+        template="core/business_form.html",
         title="Business",
         success="Business details saved.",
         currency_locked=modules.currency_locked(),

@@ -6,6 +6,7 @@ from uuid import UUID
 from ninja import ModelSchema, Router, Schema, Status
 from ninja.pagination import LimitOffsetPagination, paginate
 
+from trammel.api.types import choices
 from trammel.core import access, audit
 from trammel.core.services import save_audited
 
@@ -34,7 +35,7 @@ class ProductOut(ModelSchema):
 class ProductIn(Schema):
     name: str
     sku: str = ""
-    kind: Product.Kind = Product.Kind.MADE
+    kind: choices(Product.Kind) = Product.Kind.MADE
     description: str = ""
     price: Decimal = Decimal("0")
     cost: Decimal = Decimal("0")
