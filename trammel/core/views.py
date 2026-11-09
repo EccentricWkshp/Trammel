@@ -14,7 +14,7 @@ from django.views.decorators.http import require_GET, require_POST
 
 from trammel.accounts.models import User
 
-from . import audit, modules, numbering
+from . import audit, modules, numbering, panels
 from .forms import (
     BusinessProfileForm,
     DocumentSequenceForm,
@@ -136,7 +136,9 @@ def settings_index(request):
     return redirect(items[0].url)
 
 
-def _settings_form_view(request, *, form_class, instance, template, title, success, **form_kwargs):
+def _settings_form_view(
+    request, *, form_class, instance, template, title, success, context=None, **form_kwargs
+):
     before = audit.snapshot(instance)
     form = form_class(request.POST or None, request.FILES or None, instance=instance, **form_kwargs)
     if request.method == "POST" and form.is_valid():
@@ -145,7 +147,7 @@ def _settings_form_view(request, *, form_class, instance, template, title, succe
             audit.record_update(instance, before, summary=f"Edited {title.lower()}")
         messages.success(request, success)
         return redirect(request.path)
-    return render(request, template, {"form": form, "title": title})
+    return render(request, template, {"form": form, "title": title, **(context or {})})
 
 
 @permission_required("core.manage_business")
@@ -175,13 +177,16 @@ def rates(request):
 
 @admin_required
 def system(request):
+    instance = SystemSettings.load()
     return _settings_form_view(
         request,
         form_class=SystemSettingsForm,
-        instance=SystemSettings.load(),
+        instance=instance,
         template="core/system.html",
         title="System",
         success="System settings saved.",
+        # Modules add sections here, such as the update status.
+        context={"panels": panels.for_object(request, instance)},
     )
 
 

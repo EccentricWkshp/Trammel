@@ -11,4 +11,5 @@
     {% if back %}<a href="{% url back %}">Cancel</a>{% endif %}
   </div>
 </form>
+{% block after_form %}{% endblock %}
 {% endblock %}

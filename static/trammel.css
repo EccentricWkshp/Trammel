@@ -123,6 +123,10 @@ input[type="checkbox"] { width: 1.1rem; height: 1.1rem; vertical-align: -0.15em;
 .field > .helptext, .stack > div > .helptext { margin: 0 0 .4rem; }
 .field > fieldset { margin: 0; }
 .field > fieldset > .helptext { margin: 0 0 .4rem; }
+/* Job tags: the known tags and the box for new ones, in one group. */
+.tag-field .tag-new { margin: .75rem 0 .25rem; }
+.tag-field .tag-new label { font-weight: 600; }
+.tag-field .tag-new .helptext { margin: 0 0 .3rem; }
 label.check { display: inline-flex; align-items: center; gap: .5rem; margin: 0; cursor: pointer; }
 label.check input[type="checkbox"] { margin: 0; flex: none; }
 .field-check > .helptext, .field-check > div[id$="_helptext"] { margin: .2rem 0 0 1.6rem; }
@@ -198,8 +202,13 @@ address { font-style: normal; }
 .lifecycle .transition label { font-size: .85rem; font-weight: 600; width: 100%; margin: 0; }
 .lifecycle .transition input[type="text"] { width: 14rem; }
 /* Business settings: titled groups in one form, the logo, and the show/hide grid. */
-h2.form-section { font-size: 1.05rem; margin: 1.75rem 0 .6rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+h2.form-section, h3.form-section { font-size: 1.05rem; margin: 1.75rem 0 .6rem; padding-top: 1rem; border-top: 1px solid var(--border); }
 h2.form-section:first-of-type { margin-top: .5rem; padding-top: 0; border-top: 0; }
+/* Backup settings: each off-box copy, its fields indented under its switch. */
+.offbox-target + .offbox-target { border-top: 1px solid var(--border); padding-top: .6rem; }
+.offbox-target > .field { margin-bottom: .5rem; }
+.offbox-fields { margin: 0 0 1rem 1.6rem; }
+.offbox-fields > p.small { margin: 0 0 .5rem; }
 .logo-preview { margin: 0 0 1rem; padding: .75rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); display: inline-block; }
 .logo-preview img { display: block; max-height: 5rem; max-width: 18rem; }
 .check-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); gap: .25rem 1rem; margin-bottom: 1rem; }
@@ -246,6 +255,7 @@ table.calendar { table-layout: fixed; }
 .num { text-align: right; white-space: nowrap; }
 th.num { text-align: right; }
 .add-lines { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: .75rem 0; }
+.manual-price { margin-top: .25rem; font-size: .88rem; }
 .totals-table { margin: 1rem 0 0 auto; min-width: 20rem; border-collapse: collapse; }
 .totals-table th { text-transform: none; letter-spacing: 0; font-size: .95rem; color: var(--text); font-weight: normal; text-align: left; }
 .totals-table th, .totals-table td { border: 0; padding: .25rem .75rem; }

@@ -203,16 +203,43 @@ def estimate_line(revision: QuoteRevision, estimator_key: str, data: dict) -> Qu
     )
 
 
+def apply_manual_price(line: QuoteLine, price: Decimal | None, note: str = "") -> QuoteLine:
+    """Put a hand-entered unit price on a freshly priced line, or clear one.
+
+    The line arrives priced from its source; that price is kept in
+    calculated_unit_price so the two can be compared.
+    """
+    if price is None:
+        line.calculated_unit_price, line.price_note = None, ""
+    else:
+        line.calculated_unit_price = line.unit_price
+        line.unit_price = Decimal(str(price))
+        line.price_note = note.strip()
+    return line
+
+
 def save_estimate(line: QuoteLine) -> QuoteLine:
-    """Store an estimate line with its exact total (not unit price × quantity)."""
+    """Store an estimate line with its exact total (not unit price × quantity).
+
+    With a manual price the total is that price × quantity instead, and the
+    split by category (job costing) is scaled to add up to it.
+    """
     exact_total = sum((Decimal(r["price"]) for r in line.breakdown), ZERO)
     exact_cost = sum((Decimal(r["cost"]) for r in line.breakdown), ZERO)
     with transaction.atomic():
         save_line(line)
         factor = 1 - line.discount_pct / 100
-        line.line_total = round_money(exact_total * factor)
+        if line.price_is_manual:
+            split_total = sum((Decimal(v) for v in line.split.values()), ZERO)
+            if split_total:
+                scale = line.line_total / split_total
+                line.split = {
+                    k: str(round_money(Decimal(v) * scale)) for k, v in line.split.items()
+                }
+        else:
+            line.line_total = round_money(exact_total * factor)
         line.cost_total = exact_cost
-        line.save(update_fields=["line_total", "cost_total"])
+        line.save(update_fields=["line_total", "cost_total", "split"])
         recalculate(line.revision)
     return line
 

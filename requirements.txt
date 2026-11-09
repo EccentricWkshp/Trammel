@@ -13,6 +13,7 @@ Pillow>=12.0                 # thumbnails, EXIF GPS stripping (FR-DOC-4, FR-DOC-
 pypdfium2>=4.30              # PDF thumbnails; bundles PDFium, no system packages
 qrcode>=8.0                  # traveler and label QR codes, as SVG (FR-WO-4)
 cryptography>=43.0           # Fernet encryption of stored credentials (SPEC §9)
+smbprotocol>=1.16            # backup copies on a network share (FR-BAK-1); pure Python, MIT
 # HTML/CSS -> PDF (SPEC §4.1). Needs Pango, which the Docker image installs.
 # Without it, PDF output reports itself unavailable and nothing else breaks.
 weasyprint>=66

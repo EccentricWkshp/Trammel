@@ -6,7 +6,29 @@
 <h1>{{ title }}</h1>
 <form method="post" class="stack" novalidate>
   {% csrf_token %}
-  {% include "partials/form_body.html" %}
+  {% if form.non_field_errors %}
+  <div class="form-errors" role="alert">{% for e in form.non_field_errors %}<p>{{ e }}</p>{% endfor %}</div>
+  {% endif %}
+  {% for field in form.visible_fields %}
+    {% if field.name == "tags" %}
+    {# Known tags and new ones in one group. #}
+    <div class="field">
+      <fieldset class="tag-field">
+        <legend>Tags</legend>
+        <div class="helptext">{{ field.help_text }}</div>
+        {{ field.errors }}{{ field }}
+        <div class="tag-new">
+          <label for="{{ form.new_tags.id_for_label }}">Add new tags</label>
+          <div class="helptext">Comma-separated, for tags not in the list.</div>
+          {{ form.new_tags.errors }}{{ form.new_tags }}
+        </div>
+      </fieldset>
+    </div>
+    {% elif field.name == "new_tags" and "tags" in form.fields %}
+    {% else %}
+    <div class="field{% if field.widget_type == 'checkbox' %} field-check{% endif %}">{{ field.as_field_group }}</div>
+    {% endif %}
+  {% endfor %}
   <div class="actions">
     <button type="submit" class="primary">Save</button>
     <a href="{% if job %}{{ job.get_absolute_url }}{% else %}{% url 'jobs:list' %}{% endif %}">Cancel</a>

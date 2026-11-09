@@ -1,7 +1,7 @@
 {% extends "core/settings_form.html" %}
 {% block intro %}
 <dl class="facts">
-  <dt>Version</dt><dd>{{ app_version }}</dd>
+  <dt>Version</dt><dd>Trammel {{ app_version }}</dd>
 </dl>
-<p class="muted">Backups, restore, SMTP and the update check arrive in later releases of Phase 1.</p>
 {% endblock %}
+{% block after_form %}{% include "partials/panels.html" %}{% endblock %}

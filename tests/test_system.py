@@ -33,7 +33,7 @@ def test_backup_archive_contents(setup_done, admin, fake_pg_dump, tmp_path):
 
     upload(SimpleUploadedFile("d.pdf", b"%PDF-1.4 drawing"), name="d.pdf", user=admin)
     settings = BackupSettings.load()
-    settings.offbox_path = str(tmp_path / "nas")
+    settings.offbox_enabled, settings.offbox_path = True, str(tmp_path / "nas")
     settings.save()
     record = backup.create("manual")
     assert record.status == "ok" and record.offbox
@@ -123,6 +123,25 @@ def test_update_check(admin, django_capture_on_commit_callbacks):
     assert status.latest_version == "v99.0.0" and updates.available() == "v99.0.0"
     assert EmailLog.objects.filter(event="update_available").count() == 1
     assert updates.is_newer("1.2.10", "1.2.9") and not updates.is_newer("0.1.0", "0.1.0.dev0")
+
+
+@pytest.mark.django_db
+def test_updates_live_on_the_system_page(admin_client, monkeypatch):
+    status = UpdateStatus.load()
+    status.latest_version, status.release_url = "v99.0.0", "https://example.com/r"
+    status.save()
+
+    system_page = admin_client.get("/settings/system/").content.decode()
+    assert "Check now" in system_page and "Trammel v99.0.0</strong> is available" in system_page
+    assert "once a day" in system_page
+    assert "Check now" not in admin_client.get("/settings/maintenance/").content.decode()
+    # The banner sends the admin to the same place.
+    assert 'href="/settings/system/"' in admin_client.get("/").content.decode()
+
+    monkeypatch.setattr(updates, "fetch_latest", lambda: ("v99.0.0", "https://example.com/r"))
+    monkeypatch.setattr(updates.check, "__defaults__", (updates.fetch_latest,))
+    response = admin_client.post("/settings/maintenance/updates/")
+    assert response.status_code == 302 and response.url == "/settings/system/"
 
 
 @pytest.mark.django_db

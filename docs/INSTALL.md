@@ -102,9 +102,15 @@ Switching an existing install over: `docker compose rm -sf proxy`, then
 ## 5. Day to day
 
 - **Backups** run daily into the `backup-data` volume. Keep copies off this
-  machine: in Settings → Backups and export, set an off-box folder (a mounted
-  network share), S3-compatible storage (AWS S3, Backblaze B2, Cloudflare R2,
-  Wasabi, MinIO — use **Test S3 connection** to check it), or both. The same
+  machine: in Settings → Backups and export → Backup settings, switch on any of
+  - a **network share** (a Windows share or NAS, over SMB; Trammel connects to
+    it itself, so nothing needs mounting),
+  - **S3-compatible storage** (AWS S3, Backblaze B2, Cloudflare R2, Wasabi,
+    MinIO), or
+  - a **folder** the app container can write to, such as a share you mount on
+    the host and into the container yourself.
+
+  Each has a test button that writes, lists and deletes a small file. The same
   retention count applies everywhere a copy is kept. Take one now
   with `docker compose exec app python manage.py backup`; restore with
   `docker compose exec app python manage.py restore /data/backups/<file>`.

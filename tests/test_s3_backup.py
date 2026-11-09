@@ -171,7 +171,7 @@ def test_connection_test_and_settings_screen(admin_client, s3_settings):
     response = admin_client.post("/settings/maintenance/backup/test-s3/", follow=True)
     assert "Trammel can write" in response.content.decode()
     page = admin_client.get("/settings/maintenance/").content.decode()
-    assert "Test S3 connection" in page and 'value="secret"' not in page
+    assert "Test the saved S3 settings" in page and 'value="secret"' not in page
 
 
 @pytest.mark.django_db
@@ -195,7 +195,7 @@ def test_settings_keep_the_secret_unless_replaced(admin_client, s3_settings):
     response = admin_client.post(
         "/settings/maintenance/", {**data, "s3_clear_secret": "on", "s3_access_key": ""}
     )
-    assert response.status_code == 200 and "Needed to copy backups" in response.content.decode()
+    assert response.status_code == 200 and "Needed while this copy" in response.content.decode()
     assert Backup.objects.count() == 0
 
 
@@ -210,7 +210,7 @@ def test_offbox_folder_is_pruned_but_other_files_are_left(
     folder.mkdir()
     (folder / "family-photos.zip").write_bytes(b"keep me")
     cfg = BackupSettings.load()
-    cfg.offbox_path, cfg.keep = str(folder), 1
+    cfg.offbox_enabled, cfg.offbox_path, cfg.keep = True, str(folder), 1
     cfg.save()
     for day in (1, 2):
         when = dt.datetime(2026, 11, day, tzinfo=dt.UTC)

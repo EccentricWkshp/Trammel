@@ -6,6 +6,17 @@ from trammel.core.models import BusinessProfile, SystemSettings
 from trammel.customers.models import Customer
 
 
+@pytest.fixture(autouse=True)
+def _own_backup_dir(settings, tmp_path):
+    """Each test gets its own backup folder.
+
+    Archive names carry the time to the second, so tests sharing one folder saw
+    each other's files, and a test that looked for leftovers failed or passed
+    depending on whether the clock ticked over between them.
+    """
+    settings.BACKUP_DIR = tmp_path / "backups"
+
+
 @pytest.fixture
 def setup_done(db):
     system = SystemSettings.load()

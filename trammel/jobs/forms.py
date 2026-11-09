@@ -23,8 +23,9 @@ def split_tags(value: str) -> list[str]:
 
 
 class JobForm(forms.ModelForm):
+    # The walk-in placeholder is the empty choice, not a second entry in the list.
     customer = forms.ModelChoiceField(
-        queryset=Customer.objects.order_by("-is_placeholder", "name"),
+        queryset=Customer.objects.filter(is_placeholder=False).order_by("name"),
         required=False,
         empty_label="Walk-in / not known yet",
         help_text="A walk-in placeholder can be replaced with the real customer later.",
@@ -88,6 +89,12 @@ class JobForm(forms.ModelForm):
             self.fields["new_tags"].help_text = "Comma-separated, e.g. “laser, signage”."
         else:
             self.initial["tags"] = current
+        # A new job already has an id (UUIDv7 default), so test for a customer.
+        if self.instance.customer_id and self.instance.customer.is_placeholder:
+            self.initial["customer"] = None
+
+    def clean_customer(self):
+        return self.cleaned_data.get("customer") or Customer.placeholder()
 
     def clean(self):
         data = super().clean()

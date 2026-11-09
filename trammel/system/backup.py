@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
+from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
 
@@ -32,7 +33,7 @@ from django.utils import timezone
 from trammel.core import audit, secrets
 from trammel.core.formats import show
 
-from . import s3
+from . import s3, smb
 from .models import Backup, BackupSettings
 
 #: Backup files this module wrote; pruning never touches anything else.
@@ -158,15 +159,13 @@ def pre_migration_archive() -> Path | None:
 
 def record_archive(path: Path, kind: str) -> Backup:
     """Register an archive written by `write_archive`, copy it off-site and prune."""
-    offbox, in_s3, copy_errors = _copy_offsite(path)
+    copies = _copy_offsite(path)
     record = Backup.objects.create(
         kind=kind,
         status=Backup.Status.OK,
         filename=path.name,
         size=path.stat().st_size,
-        offbox=offbox,
-        s3=in_s3,
-        copy_error="\n".join(copy_errors),
+        **copies.fields(),
     )
     audit.record(
         "backup.create",
@@ -193,14 +192,12 @@ def create(kind: str = Backup.Kind.MANUAL) -> Backup:
         record.refresh_from_db()
         _failed(record)
         return record
-    offbox, in_s3, copy_errors = _copy_offsite(target)
+    copies = _copy_offsite(target)
     Backup.objects.filter(pk=record.pk).update(
         status=Backup.Status.OK,
         filename=name,
         size=target.stat().st_size,
-        offbox=offbox,
-        s3=in_s3,
-        copy_error="\n".join(copy_errors),
+        **copies.fields(),
     )
     record.refresh_from_db()
     audit.record(
@@ -229,46 +226,112 @@ def s3_target() -> s3.Target | None:
     )
 
 
+def smb_target() -> smb.Target | None:
+    """The configured network share, or None when it is off or incomplete."""
+    cfg = BackupSettings.load()
+    if not (cfg.smb_enabled and cfg.smb_server.strip() and cfg.smb_share.strip()):
+        return None
+    return smb.Target(
+        server=cfg.smb_server.strip(),
+        share=cfg.smb_share.strip().strip("\\/"),
+        folder=cfg.smb_folder.strip(),
+        username=cfg.smb_username.strip(),
+        password=secrets.get(BackupSettings.SMB_SECRET) or "",
+    )
+
+
+def offbox_folder() -> Path | None:
+    cfg = BackupSettings.load()
+    if cfg.offbox_enabled and (folder := cfg.offbox_path.strip()):
+        return Path(folder)
+    return None
+
+
 def _outbound_allowed() -> bool:
     from trammel.core.models import SystemSettings
 
     return not SystemSettings.load().is_offline
 
 
-def _copy_offsite(path: Path) -> tuple[bool, bool, list[str]]:
-    """Copy to the off-box folder and to S3. Returns (folder ok, S3 ok, problems)."""
+@dataclass
+class Copies:
+    """Where a backup was copied, and what went wrong."""
+
+    offbox: bool = False
+    smb: bool = False
+    s3: bool = False
+    errors: list[str] = field(default_factory=list)
+
+    def fields(self) -> dict:
+        return {
+            "offbox": self.offbox,
+            "smb": self.smb,
+            "s3": self.s3,
+            "copy_error": "\n".join(self.errors),
+        }
+
+
+def _copy_offsite(path: Path) -> Copies:
+    """Copy to each off-box target that is switched on. One failing does not stop the rest."""
     cfg = BackupSettings.load()
-    errors: list[str] = []
-    offbox = False
-    if folder := cfg.offbox_path.strip():
-        try:
-            Path(folder).mkdir(parents=True, exist_ok=True)
-            shutil.copy2(path, Path(folder) / path.name)
-            offbox = True
-        except OSError as exc:
-            errors.append(f"Off-box folder: {exc}")
-    in_s3 = False
+    done = Copies()
+    if cfg.offbox_enabled:
+        folder = offbox_folder()
+        if folder is None:
+            done.errors.append("Folder: no folder is set.")
+        else:
+            try:
+                folder.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(path, folder / path.name)
+                done.offbox = True
+            except OSError as exc:
+                done.errors.append(f"Folder: {exc}")
+    if cfg.smb_enabled:
+        share = smb_target()
+        if share is None:
+            done.errors.append("Network share: the server or share name is missing.")
+        else:
+            try:
+                smb.put_file(share, path)
+                done.smb = True
+            except smb.SMBError as exc:
+                done.errors.append(f"Network share: {exc}")
     if cfg.s3_enabled:
         target = s3_target()
         if target is None:
-            errors.append("S3: the endpoint, access key or secret key is missing.")
+            done.errors.append("S3: the endpoint, access key or secret key is missing.")
         elif not _outbound_allowed():
-            errors.append("S3: skipped because outbound traffic is turned off.")
+            done.errors.append("S3: skipped because outbound traffic is turned off.")
         else:
             try:
                 s3.put_file(target, path)
-                in_s3 = True
+                done.s3 = True
             except s3.S3Error as exc:
-                errors.append(f"S3: {exc}")
-    if errors:
+                done.errors.append(f"S3: {exc}")
+    if done.errors:
         audit.record(
             "backup.copy_failed",
             entity_type="system.backup",
             entity_id=path.name,
             summary="An off-site backup copy failed",
-            after={"errors": errors},
+            after={"errors": done.errors},
         )
-    return offbox, in_s3, errors
+    return done
+
+
+def test_smb() -> str:
+    """Write, list and delete a small file on the share; return what happened."""
+    share = smb_target()
+    if share is None:
+        return "Fill in the server and share, and turn the network share copy on."
+    name = f"trammel-connection-test-{timezone.now():%Y%m%d%H%M%S}.txt"
+    try:
+        smb.put_bytes(share, name, b"Trammel can write here.\n")
+        smb.list_names(share, "trammel-connection-test-")
+        smb.delete(share, name)
+    except smb.SMBError as exc:
+        return f"Failed: {exc}"
+    return f"OK — Trammel can write, list and delete in {share.path()}."
 
 
 def test_s3() -> str:
@@ -314,7 +377,7 @@ def _ours(name: str) -> bool:
 
 
 def prune() -> int:
-    """Keep the newest `keep` backups here, in the off-box folder and in S3."""
+    """Keep the newest `keep` backups here and in every off-box copy."""
     cfg = BackupSettings.load()
     keep = cfg.keep or 1
     old = list(Backup.objects.filter(status=Backup.Status.OK).order_by("-created_at")[keep:])
@@ -322,13 +385,20 @@ def prune() -> int:
         (backup_dir() / record.filename).unlink(missing_ok=True)
         record.delete()
     # Names sort by time (trammel-YYYYmmdd-HHMMSS-kind), so the oldest come first.
-    if folder := cfg.offbox_path.strip():
+    if (folder := offbox_folder()) is not None:
         try:
-            names = sorted(p.name for p in Path(folder).iterdir() if _ours(p.name))
+            names = sorted(p.name for p in folder.iterdir() if _ours(p.name))
             for name in names[:-keep]:
-                (Path(folder) / name).unlink(missing_ok=True)
+                (folder / name).unlink(missing_ok=True)
         except OSError:
             pass
+    if (share := smb_target()) is not None:
+        try:
+            names = [n for n in smb.list_names(share, NAME_PREFIX) if _ours(n)]
+            for name in names[:-keep]:
+                smb.delete(share, name)
+        except smb.SMBError:
+            pass  # the next backup tries again
     target = s3_target()
     if target is not None and _outbound_allowed():
         try:

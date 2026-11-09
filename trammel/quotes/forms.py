@@ -65,11 +65,72 @@ class RevisionForm(forms.ModelForm):
         return data
 
 
-class _LineForm(forms.Form):
+class ManualPriceFields(forms.Form):
+    """A price entered by hand in place of the calculated one, with the reason.
+
+    It replaces the line's unit price without touching the catalog product, the
+    rates or a discount, and without making a one-off item.
+    """
+
+    manual_price = MoneyInput(
+        label="Manual unit price",
+        max_digits=14,
+        decimal_places=4,
+        min_value=0,
+        required=False,
+        help_text="Leave blank to use the calculated price.",
+    )
+    price_note = forms.CharField(
+        label="Reason for the manual price",
+        max_length=300,
+        required=False,
+        help_text="Needed with a manual price. Internal: customers never see it.",
+    )
+
+    def clean(self):
+        data = super().clean()
+        if data.get("manual_price") is not None and not (data.get("price_note") or "").strip():
+            self.add_error("price_note", "Say why the price was set by hand.")
+        return data
+
+    def apply_manual_price(self, line: QuoteLine) -> QuoteLine:
+        from .services import apply_manual_price
+
+        return apply_manual_price(
+            line, self.cleaned_data.get("manual_price"), self.cleaned_data.get("price_note", "")
+        )
+
+    @staticmethod
+    def manual_initial(line: QuoteLine | None) -> dict:
+        if line is None or not line.price_is_manual:
+            return {}
+        return {"manual_price": line.unit_price, "price_note": line.price_note}
+
+
+class _LineForm(ManualPriceFields):
     discount_pct = _pct()
 
-    def build(self, revision: QuoteRevision, line: QuoteLine | None = None) -> QuoteLine:
+    #: An Item's price is typed in anyway, so it offers no separate manual price.
+    manual_price_allowed = True
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        tail = ["discount_pct", "manual_price", "price_note"]
+        if not self.manual_price_allowed:
+            del self.fields["manual_price"], self.fields["price_note"]
+            tail = ["discount_pct"]
+        self.order_fields([f for f in self.fields if f not in tail] + tail)
+
+    def make(self, revision: QuoteRevision, line: QuoteLine | None = None) -> QuoteLine:
+        """The line priced from its source (product, rates, material)."""
         raise NotImplementedError
+
+    def build(self, revision: QuoteRevision, line: QuoteLine | None = None) -> QuoteLine:
+        line = self.make(revision, line)
+        if not self.manual_price_allowed:
+            line.calculated_unit_price, line.price_note = None, ""
+            return line
+        return self.apply_manual_price(line)
 
     @staticmethod
     def initial_from(line: QuoteLine) -> dict:
@@ -77,6 +138,7 @@ class _LineForm(forms.Form):
             "description": line.description,
             "quantity": line.quantity,
             "discount_pct": line.discount_pct,
+            **ManualPriceFields.manual_initial(line),
         }
 
 
@@ -85,7 +147,7 @@ class ProductLineForm(_LineForm):
     quantity = _qty()
     description = forms.CharField(required=False, help_text="Leave blank for the product name.")
 
-    def build(self, revision, line=None):
+    def make(self, revision, line=None):
         d = self.cleaned_data
         p = d["product"]
         line = line or QuoteLine(revision=revision, kind=QuoteLine.Kind.PRODUCT)
@@ -99,6 +161,8 @@ class ProductLineForm(_LineForm):
 
 
 class AdhocLineForm(_LineForm):
+    manual_price_allowed = False
+
     description = forms.CharField(widget=forms.Textarea(attrs={"rows": 2}))
     quantity = _qty()
     unit = forms.ChoiceField(choices=units.UNIT_CHOICES, initial="each")
@@ -116,7 +180,7 @@ class AdhocLineForm(_LineForm):
         required=False, help_text="Also add this item to the product catalog."
     )
 
-    def build(self, revision, line=None):
+    def make(self, revision, line=None):
         d = self.cleaned_data
         line = line or QuoteLine(revision=revision, kind=QuoteLine.Kind.ADHOC)
         line.description, line.quantity, line.unit = d["description"], d["quantity"], d["unit"]
@@ -140,7 +204,7 @@ class LaborLineForm(_LineForm):
     description = forms.CharField(initial="Labor")
     quantity = _qty("Hours")
 
-    def build(self, revision, line=None):
+    def make(self, revision, line=None):
         d = self.cleaned_data
         line = line or QuoteLine(revision=revision, kind=QuoteLine.Kind.LABOR)
         line.description, line.quantity, line.unit = d["description"], d["quantity"], "hr"
@@ -154,7 +218,7 @@ class MachineLineForm(_LineForm):
     quantity = _qty("Hours")
     description = forms.CharField(required=False)
 
-    def build(self, revision, line=None):
+    def make(self, revision, line=None):
         d = self.cleaned_data
         m = d["machine"]
         line = line or QuoteLine(revision=revision, kind=QuoteLine.Kind.MACHINE)
@@ -189,7 +253,7 @@ class MaterialLineForm(_LineForm):
                 self.add_error("unit", str(exc))
         return data
 
-    def build(self, revision, line=None):
+    def make(self, revision, line=None):
         d = self.cleaned_data
         m = d["material"]
         unit = d["unit"] or m.unit

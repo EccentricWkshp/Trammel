@@ -11,15 +11,48 @@ from trammel.core.models import SingletonModel, uuid7
 class BackupSettings(SingletonModel):
     scheduled = models.BooleanField("take backups automatically", default=True)
     interval_hours = models.PositiveSmallIntegerField(default=24)
-    keep = models.PositiveSmallIntegerField("backups to keep", default=14)
+    keep = models.PositiveSmallIntegerField(
+        "backups to keep",
+        default=14,
+        help_text="Here and in every copy below; older ones are deleted.",
+    )
+    warn_after_days = models.PositiveSmallIntegerField(
+        "warn when the last backup is older than (days)", default=7
+    )
+
+    # Off-box copies (FR-BAK-1). Each is optional and has its own switch; the
+    # settings page shows a target's fields only while it is switched on.
+
+    # A folder the app can already write to: a network share mounted on the host
+    # and into the container, or a second disk.
+    offbox_enabled = models.BooleanField("copy backups to a folder", default=False)
     offbox_path = models.CharField(
-        "off-box copy folder",
+        "folder",
         max_length=500,
         blank=True,
-        help_text="A mounted network share or a folder outside this machine's disk. A copy of "
-        "each backup is written there.",
+        help_text="A path inside the app container, such as a network share mounted on the "
+        "host and into the container in docker-compose.yml.",
     )
-    warn_after_days = models.PositiveSmallIntegerField(default=7)
+
+    # A network share reached directly over SMB. The password is a Credential.
+    smb_enabled = models.BooleanField("copy backups to a network share", default=False)
+    smb_server = models.CharField(
+        "server", max_length=200, blank=True, help_text="Host name or IP address, e.g. nas.local."
+    )
+    smb_share = models.CharField("share", max_length=200, blank=True, help_text="e.g. backups")
+    smb_folder = models.CharField(
+        "folder on the share",
+        max_length=300,
+        blank=True,
+        default="trammel",
+        help_text="Created if it does not exist. Leave blank for the top of the share.",
+    )
+    smb_username = models.CharField(
+        "user name",
+        max_length=150,
+        blank=True,
+        help_text="For a domain account, DOMAIN\\name.",
+    )
 
     # S3-compatible off-site copy (FR-BAK-1). The secret key is a Credential.
     s3_enabled = models.BooleanField("copy backups to S3-compatible storage", default=False)
@@ -42,6 +75,7 @@ class BackupSettings(SingletonModel):
     s3_access_key = models.CharField("access key ID", max_length=128, blank=True)
 
     S3_SECRET = "backup.s3_secret_key"
+    SMB_SECRET = "backup.smb_password"
 
     class Meta:
         verbose_name = "backup settings"
@@ -70,6 +104,7 @@ class Backup(models.Model):
     size = models.BigIntegerField(default=0)
     error = models.TextField(blank=True)
     offbox = models.BooleanField(default=False)
+    smb = models.BooleanField(default=False)
     s3 = models.BooleanField(default=False)
     #: Why an off-site copy failed; the backup itself still succeeded.
     copy_error = models.TextField(blank=True)

@@ -1,0 +1,11 @@
+<div class="heading-row">
+  <h2 id="panel-{{ heading_id }}">Updates</h2>
+  <form method="post" action="{% url 'system:check_updates' %}">{% csrf_token %}<button type="submit">Check now</button></form>
+</div>
+<p>
+{% if ctx.available %}<strong>Trammel {{ ctx.available }}</strong> is available — <a href="{{ ctx.status.release_url }}" rel="noopener">release notes</a>. With Docker, pull the new image (<code>docker compose pull &amp;&amp; docker compose up -d</code>); when the update brings database changes, the app backs the database up before applying them.
+{% elif ctx.status.checked_at %}Up to date as of {{ ctx.status.checked_at|dt }}.
+{% else %}Not checked yet.{% endif %}
+{% if ctx.status.error %}<span class="muted">{{ ctx.status.error }}</span>{% endif %}
+</p>
+<p class="muted">{% if ctx.checking %}Trammel looks for a new release once a day. When there is one, system admins see a notice at the top of every page, and the staff email recipients are told if email is set up.{% else %}The daily check is off: turn on the update check above, and outbound traffic, to be told about new releases.{% endif %}</p>

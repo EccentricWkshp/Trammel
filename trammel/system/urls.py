@@ -8,6 +8,7 @@ urlpatterns = [
     path("", views.maintenance, name="maintenance"),
     path("backup/", views.backup_now, name="backup_now"),
     path("backup/test-s3/", views.test_s3, name="test_s3"),
+    path("backup/test-smb/", views.test_smb, name="test_smb"),
     path("backup/<uuid:pk>/download/", views.download_backup, name="download_backup"),
     path("backup/<uuid:pk>/restore/", views.restore_confirm, name="restore"),
     path("export/", views.export_now, name="export_now"),

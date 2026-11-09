@@ -54,6 +54,13 @@
 <div class="tab-body">
 {% if tab == "lines" %}
 <section aria-label="Lines">
+  {% if can_edit %}
+  <div class="add-lines">
+    <span>Add:</span>
+    {% for kind, label in line_kinds %}<a class="button" href="{% url 'quotes:line_create' revision.pk kind %}">{{ label }}</a>{% endfor %}
+    {% for e in estimators %}<a class="button" href="{% url 'quotes:estimate' revision.pk e.key %}">Estimate: {{ e.name }}</a>{% endfor %}
+  </div>
+  {% endif %}
   <div class="table-wrap">
   <table class="lines">
     <thead><tr><th scope="col">Description</th><th scope="col" class="num">Qty</th><th scope="col" class="num">Unit price</th><th scope="col" class="num">Amount</th>{% if can_costs %}<th scope="col" class="num">Cost</th>{% endif %}{% if can_edit %}<th scope="col"><span class="visually-hidden">Actions</span></th>{% endif %}</tr></thead>
@@ -62,6 +69,7 @@
       <tr>
         <td>{{ line.description|linebreaksbr }} <span class="badge">{{ line.get_kind_display }}</span>
           {% if line.discount_pct %}<span class="muted">({{ line.discount_pct|floatformat:"-3" }}% off)</span>{% endif %}
+          {% if line.price_is_manual %}<div class="manual-price"><span class="badge">Manual price</span> <span class="muted">calculated {{ line.calculated_unit_price|money }} · {{ line.price_note }}</span></div>{% endif %}
           {% if line.breakdown %}
           <details><summary>Breakdown</summary>
             <table class="breakdown">
@@ -87,13 +95,6 @@
     </tbody>
   </table>
   </div>
-  {% if can_edit %}
-  <div class="add-lines">
-    <span>Add:</span>
-    {% for kind, label in line_kinds %}<a class="button" href="{% url 'quotes:line_create' revision.pk kind %}">{{ label }}</a>{% endfor %}
-    {% for e in estimators %}<a class="button" href="{% url 'quotes:estimate' revision.pk e.key %}">Estimate: {{ e.name }}</a>{% endfor %}
-  </div>
-  {% endif %}
 
   <table class="totals-table">
     {% if revision.discount_amount %}

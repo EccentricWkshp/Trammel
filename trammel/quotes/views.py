@@ -22,6 +22,7 @@ from .estimators import ESTIMATORS
 from .forms import (
     LINE_FORMS,
     ApprovalForm,
+    ManualPriceFields,
     QuoteSettingsForm,
     QuoteTemplateForm,
     RevisionForm,
@@ -259,9 +260,14 @@ def estimate(request, pk, key, line_pk=None):
     form_class = estimator.form_class()
     initial = line.inputs if line else None
     form = form_class(request.POST or None, initial=initial)
+    price_form = ManualPriceFields(
+        request.POST or None, initial=ManualPriceFields.manual_initial(line)
+    )
     preview = None
-    if request.method == "POST" and form.is_valid():
-        built = services.estimate_line(revision, key, form.cleaned_data)
+    if request.method == "POST" and form.is_valid() and price_form.is_valid():
+        built = price_form.apply_manual_price(
+            services.estimate_line(revision, key, form.cleaned_data)
+        )
         if "add" in request.POST:
             if line is not None:
                 built.pk, built.position = line.pk, line.position
@@ -275,6 +281,7 @@ def estimate(request, pk, key, line_pk=None):
         "quotes/estimate.html",
         {
             "form": form,
+            "price_form": price_form,
             "estimator": estimator,
             "revision": revision,
             "preview": preview,

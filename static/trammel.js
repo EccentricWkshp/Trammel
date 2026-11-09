@@ -19,6 +19,16 @@
       if (!box.contains(event.target)) box.open = false;
     });
   });
+  // Settings that only matter while a switch is on ([data-shown-by="<checkbox id>"]).
+  // The server already hides them when the saved switch is off; this follows the
+  // box as it is ticked, before saving.
+  document.querySelectorAll("[data-shown-by]").forEach(function (group) {
+    var box = document.getElementById(group.dataset.shownBy);
+    if (!box) return;
+    function follow() { group.hidden = !box.checked; }
+    box.addEventListener("change", follow);
+    follow();
+  });
   // Script-driven tabs ([data-tabs]): without script every panel shows, one after another.
   document.querySelectorAll("[data-tabs]").forEach(function (bar) {
     var tabs = Array.prototype.slice.call(bar.querySelectorAll("[role=tab]"));

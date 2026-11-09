@@ -9,6 +9,10 @@
 <form method="post" class="stack" novalidate>
   {% csrf_token %}
   {% include "partials/form_body.html" %}
+  <fieldset>
+    <legend>Price</legend>
+    {% include "partials/form_body.html" with form=price_form %}
+  </fieldset>
   {% if preview %}
   <section class="callout" aria-labelledby="preview-heading">
     <h2 id="preview-heading">{{ preview.description }} — {{ preview.line_total|money }}</h2>
@@ -16,7 +20,7 @@
       <thead><tr><th scope="col">Component</th><th scope="col">Detail</th>{% if can_costs %}<th scope="col" class="num">Cost</th>{% endif %}<th scope="col" class="num">Price</th></tr></thead>
       <tbody>{% for row in preview.breakdown %}<tr><td>{{ row.label }}</td><td class="muted">{{ row.detail }}</td>{% if can_costs %}<td class="num">{{ row.cost|money }}</td>{% endif %}<td class="num">{{ row.price|money }}</td></tr>{% endfor %}</tbody>
     </table>
-    <p>{{ preview.quantity|floatformat:"-4" }} piece(s) at {{ preview.unit_price|money }} each.</p>
+    <p>{{ preview.quantity|floatformat:"-4" }} piece(s) at {{ preview.unit_price|money }} each{% if preview.price_is_manual %}, set by hand (calculated {{ preview.calculated_unit_price|money }}){% endif %}.</p>
   </section>
   {% endif %}
   <div class="actions">

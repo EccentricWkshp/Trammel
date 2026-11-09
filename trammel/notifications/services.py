@@ -42,7 +42,11 @@ def connection():
     from django.core.mail.backends.smtp import EmailBackend
 
     smtp = SmtpSettings.load()
+    # Named (alias), so Django takes every option from here. Without a name it
+    # falls back to the old EMAIL_* settings for anything not given, and those
+    # raise once MAILERS is defined (Django 6.1).
     return EmailBackend(
+        alias="trammel-smtp",
         host=smtp.host,
         port=smtp.port,
         username=smtp.username or None,

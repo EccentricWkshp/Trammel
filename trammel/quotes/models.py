@@ -256,6 +256,12 @@ class QuoteLine(models.Model):
     quantity = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal("1"))
     unit = models.CharField(max_length=12, choices=units.UNIT_CHOICES, default="each")
     unit_price = RateField(default=ZERO)
+    #: Set when the price was entered by hand instead of coming from the line's
+    #: source (catalog product, rates, material, estimate): the price that
+    #: source gave, kept for comparison. unit_price holds the manual price.
+    calculated_unit_price = RateField(null=True, blank=True)
+    #: Why the price was set by hand. Internal: never on customer documents.
+    price_note = models.CharField("reason for the manual price", max_length=300, blank=True)
     unit_cost = RateField(default=ZERO)
     discount_pct = PercentField("line discount (%)", default=ZERO)
     line_total = MoneyField(default=ZERO)
@@ -287,6 +293,10 @@ class QuoteLine(models.Model):
 
     def __str__(self) -> str:
         return self.description[:60]
+
+    @property
+    def price_is_manual(self) -> bool:
+        return self.calculated_unit_price is not None
 
     def _guard(self):
         status = (
