@@ -1,13 +1,16 @@
-from __future__ import annotations
-
+# No `from __future__ import annotations`: the paginated view below must see its
+# annotations as real types (see trammel/jobs/api.py).
 import datetime as dt
 
+from django.db.models import Q
 from django.utils import timezone
-from ninja import Router, Schema
+from ninja import ModelSchema, Router, Schema
+from ninja.pagination import LimitOffsetPagination, paginate
 
 from trammel.core import access
 
 from . import services
+from .models import Jurisdiction
 
 router = Router(tags=["tax"])
 
@@ -25,6 +28,28 @@ class LookupOut(Schema):
     total_rate: str
     components: list[ComponentOut]
     note: str
+
+
+class JurisdictionOut(ModelSchema):
+    class Meta:
+        model = Jurisdiction
+        fields = ["id", "code", "name", "level", "region"]
+
+
+@router.get("/jurisdictions", response=list[JurisdictionOut])
+@paginate(LimitOffsetPagination)
+def jurisdictions(request, q: str = "", region: str = ""):
+    """Tax jurisdictions, for choosing one by hand on a draft invoice.
+
+    `q` matches the code or name; `region` is a two-letter state.
+    """
+    access.require(request.actor, "tax.view")
+    rows = Jurisdiction.objects.all()
+    if q:
+        rows = rows.filter(Q(code__icontains=q) | Q(name__icontains=q))
+    if region:
+        rows = rows.filter(region__iexact=region)
+    return rows
 
 
 @router.get("/lookup", response=LookupOut)

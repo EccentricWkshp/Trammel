@@ -9,7 +9,7 @@ from django.http import Http404
 from ninja import ModelSchema, Router, Schema, Status
 
 from trammel.api.types import choices
-from trammel.core import access
+from trammel.core import access, audit
 from trammel.customers.models import Customer
 from trammel.jobs.models import Job
 
@@ -62,6 +62,7 @@ class InvoiceOut(ModelSchema):
             "terms_days",
             "fulfillment",
             "tax_method",
+            "manual_jurisdiction",
             "tax_location_code",
             "tax_rate_total",
             "tax_flagged",
@@ -120,6 +121,10 @@ class VoidIn(Schema):
 class InvoiceDraftIn(Schema):
     shipping: Decimal | None = None
     fulfillment: Invoice.Fulfillment | None = None
+    #: A jurisdiction id (GET /tax/jurisdictions) to tax at by hand, for when
+    #: the address cannot be resolved; null clears it. Issued invoices taxed
+    #: this way are flagged for review.
+    manual_jurisdiction: UUID | None = None
 
 
 def _inv(request, perm, pk) -> Invoice:
@@ -171,12 +176,32 @@ def add_line(request, invoice_id: UUID, payload: InvoiceLineIn):
     return Status(201, invoice)
 
 
+def _set_jurisdiction(invoice: Invoice, jurisdiction_id: UUID | None) -> None:
+    from trammel.tax.models import Jurisdiction
+
+    jurisdiction = None
+    if jurisdiction_id is not None:
+        jurisdiction = Jurisdiction.objects.filter(pk=jurisdiction_id).first()
+        if jurisdiction is None:
+            raise ValidationError({"manual_jurisdiction": ["No such tax jurisdiction."]})
+    before = audit.snapshot(invoice, fields=["manual_jurisdiction"])
+    invoice.manual_jurisdiction = jurisdiction
+    Invoice.all_objects.filter(pk=invoice.pk).update(manual_jurisdiction=jurisdiction)
+    audit.record_update(invoice, before, summary=f"Set the tax jurisdiction on {invoice}")
+
+
 @router.patch("/{invoice_id}", response=InvoiceOut)
 def update_draft(request, invoice_id: UUID, payload: InvoiceDraftIn):
-    """Change a draft's fulfillment or shipping charge; totals are recalculated."""
+    """Change a draft's fulfillment, shipping charge or hand-chosen tax jurisdiction.
+
+    Totals are recalculated. Fields left out are unchanged; `manual_jurisdiction`
+    sent as null returns the invoice to looking its rate up by address.
+    """
     invoice = _inv(request, "billing.create", invoice_id)
     if not invoice.is_draft:
         raise ValidationError("Only a draft invoice can be changed.")
+    if "manual_jurisdiction" in payload.model_fields_set:
+        _set_jurisdiction(invoice, payload.manual_jurisdiction)
     if payload.fulfillment is not None:
         invoice.fulfillment = payload.fulfillment
         Invoice.all_objects.filter(pk=invoice.pk).update(fulfillment=invoice.fulfillment)

@@ -1,7 +1,8 @@
-# Lint, tests against PostgreSQL, migration check, dependency audit and image
-# build on every push and pull request; publish multi-arch images on a release
-# tag (SPEC §4.1). Branch builds are amd64 only, to check the Dockerfiles
-# quickly; arm64 is built (under emulation) for release tags.
+# Lint, tests against PostgreSQL, migration checks (an empty database, and an
+# upgrade from the previous release with demo data), dependency audit and image
+# build on every push and pull request. On a release tag: publish multi-arch
+# images, then the GitHub Release that instances' update check reads (SPEC §4.1,
+# §4.3, §11). Branch builds are amd64 only, to check the Dockerfiles quickly.
 name: CI
 
 on:
@@ -37,6 +38,8 @@ jobs:
       DEBUG: "true"
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # tags, for the upgrade from the previous release
       - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
@@ -55,6 +58,8 @@ jobs:
         run: pytest -q
       - name: Migrations apply cleanly to an empty database
         run: python manage.py migrate --noinput
+      - name: Upgrade from the previous release
+        run: bash .github/scripts/upgrade_from_previous.sh
       - name: Dependency vulnerabilities
         run: pip-audit -r requirements.txt
 
@@ -134,3 +139,20 @@ jobs:
           repository: eccentricwkshp/trammel-caddy
           short-description: "HTTPS front end for Trammel, workshop management for small shops."
           readme-filepath: ./docs/DOCKERHUB.md
+
+  # Running instances learn of a new version from the latest GitHub Release
+  # (SPEC §4.3), so the images being published is not the end of a release.
+  release:
+    needs: image
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/publish_release.sh "$GITHUB_REF_NAME"

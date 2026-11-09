@@ -59,6 +59,26 @@ module enable/disable before real modules depend on them.
 On Windows, set `PYTHONUTF8=1` in the shell. Python otherwise reads and writes
 files as cp1252, which corrupts non-ASCII characters in source files.
 
+CI also upgrades a database from the previous release: it migrates one with the
+last release tag's code, loads demo data, then migrates it with this checkout.
+Run the same locally with
+`DATABASE_URL=… PYTHON=venv/Scripts/python bash .github/scripts/upgrade_from_previous.sh`
+(it creates and drops a scratch database called `trammel_upgrade`).
+
+`tests/test_api_flow.py` drives the API with a real key from first quote to a
+paid invoice, then calls every GET endpoint in the OpenAPI document, so an
+endpoint that only fails at request time is caught.
+
+## Releasing
+
+1. Set `VERSION` (semantic versioning) and commit.
+2. Tag `v<VERSION>` on that commit and push the tag. CI refuses a tag that does
+   not match `VERSION`.
+3. CI tests, then publishes both images for amd64 and arm64 with the Docker Hub
+   descriptions from `docs/DOCKERHUB.md`, then the GitHub Release
+   (`.github/scripts/publish_release.sh`). Running instances learn of the
+   version from that Release, not from the tag or the images.
+
 ## How the core fits together
 
 Every module is a Django app whose `AppConfig` subclasses
