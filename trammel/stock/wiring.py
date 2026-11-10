@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import re
+
 from django.core.exceptions import ValidationError
 from django.urls import reverse
+from django.utils.http import urlencode
 
-from trammel.core import access, dashboard, modules, panels, search
+from trammel.core import access, dashboard, modules, panels, scan, search
 from trammel.shop import hooks as shop_hooks
+from trammel.shop.models import Material, MaterialBarcode
 from trammel.workorders import hooks as wo_hooks
 
 from . import services
@@ -16,6 +20,49 @@ from .models import Location, StockLot, StockMove
 # material is added with its stock details.
 shop_hooks.materials_home_is("stock:list", "stock")
 shop_hooks.material_form_is("stock:add", "stock")
+
+
+@scan.record
+def open_scanned(request, pk):
+    """A label's link opens the lot, location or material on the shop floor."""
+    actor = request.actor
+    if access.has_perm(actor, "stock.view"):
+        if StockLot.objects.filter(pk=pk).exists():
+            return reverse("stock:floor_lot", args=[pk])
+        if Location.objects.filter(pk=pk).exists():
+            return reverse("stock:floor_location", args=[pk])
+    if access.has_perm(actor, "shop.view") and Material.objects.filter(pk=pk).exists():
+        return reverse("stock:floor_material", args=[pk])
+    return None
+
+
+@scan.text
+def find_scanned(request, code):
+    """A lot number, or a barcode on the material's packaging."""
+    actor = request.actor
+    if access.has_perm(actor, "stock.view"):
+        lot = StockLot.objects.filter(number__iexact=code).first()
+        if lot:
+            return reverse("stock:floor_lot", args=[lot.pk])
+    if access.has_perm(actor, "shop.view"):
+        found = MaterialBarcode.objects.filter(code=code).first()
+        if found:
+            return reverse("stock:floor_material", args=[found.material_id])
+    return None
+
+
+BARCODE = re.compile(r"[0-9A-Za-z.\-]{4,64}")
+
+
+@scan.unknown
+def offer_new_material(request, code):
+    """A barcode nobody knows yet: offer to add the material it belongs to."""
+    if BARCODE.fullmatch(code) and access.has_perm(request.actor, "shop.edit"):
+        return (
+            f"{reverse('stock:add')}?{urlencode({'barcode': code})}",
+            f"No material has the barcode {code} yet. Add it here.",
+        )
+    return None
 
 
 @wo_hooks.material_handler

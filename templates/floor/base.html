@@ -1,4 +1,4 @@
-{% load static %}<!doctype html>
+{% load static trammel %}<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -15,7 +15,11 @@
 <body class="floor">
 <header class="floor-bar">
   <a href="{% url 'floor:home' %}" class="brand">Shop floor</a>
-  <a href="{% url 'floor:scan' %}" class="button">Scan</a>
+  <nav class="floor-nav" aria-label="Shop floor">
+    <a href="{% url 'floor:home' %}"{% if request.path == '/floor/' %} aria-current="page"{% endif %}>Work</a>
+    {% for item in floor_menu %}<a href="{{ item.url }}"{% if request.path|startswith:item.url %} aria-current="page"{% endif %}>{{ item.label }}</a>{% endfor %}
+    <a href="{% url 'floor:scan' %}" class="button">Scan</a>
+  </nav>
 </header>
 <main id="main" class="floor-main">
   {% if messages %}<div class="messages" role="status">{% for m in messages %}<p class="message {{ m.tags }}">{{ m }}</p>{% endfor %}</div>{% endif %}

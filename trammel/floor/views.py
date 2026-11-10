@@ -40,23 +40,26 @@ def home(request):
 
 @login_required
 def find(request):
-    """Open a work order by number or by a scanned URL (FR-STK-7: scanning opens the record)."""
-    q = request.GET.get("q", "").strip()
-    if "/floor/wo/" in q:
-        return redirect(q[q.index("/floor/wo/") :])
-    wo = (
-        access.scoped(
-            request.actor, "workorders.view", WorkOrder.objects.filter(number__iexact=q)
-        ).first()
-        if q
-        else None
-    )
-    if wo is None:
-        from django.contrib import messages
+    """Open whatever a scanned or typed code is (FR-STK-7): a label's link, a work
+    order or lot number, or a product barcode."""
+    from django.contrib import messages
 
-        messages.error(request, f"No work order “{q}”." if q else "Enter a work order number.")
-        return redirect("floor:home")
-    return redirect("floor:work_order", pk=wo.pk)
+    from trammel.core import scan as scanning
+
+    q = request.GET.get("q", "").strip()
+    if not q:
+        messages.error(request, "Scan a code, or type a number.")
+        return redirect("floor:scan")
+    url = scanning.find(request, q)
+    if url:
+        return redirect(url)
+    offer = scanning.offer(request, q)
+    if offer:
+        url, text = offer
+        messages.info(request, text)
+        return redirect(url)
+    messages.error(request, f"Nothing matches “{q}”.")
+    return redirect("floor:scan")
 
 
 @login_required
@@ -73,6 +76,8 @@ def work_order(request, pk):
     from trammel.timetracking.models import TimeEntry
 
     here = request.get_full_path()
+    # Stock pages offer this work order first for “Use on work order”.
+    request.session["floor_work_order"] = str(wo.pk)
     return render(
         request,
         "floor/work_order.html",

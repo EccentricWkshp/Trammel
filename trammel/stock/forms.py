@@ -4,7 +4,7 @@ from django import forms
 from django.db.models import Q
 from django.utils import timezone
 
-from trammel.shop.models import Vendor
+from trammel.shop.models import MaterialBarcode, Vendor
 
 from .models import Location, StockItem, StockSettings
 
@@ -100,6 +100,23 @@ class StockSectionForm(forms.Form):
         return data
 
 
+class BarcodeForm(forms.Form):
+    """A barcode for a material being added, often from an unknown scan."""
+
+    barcode = forms.CharField(
+        max_length=64,
+        required=False,
+        help_text="Scan or type the barcode on the packaging, so a scan finds it.",
+    )
+
+    def clean_barcode(self):
+        code = self.cleaned_data["barcode"].strip()
+        clash = MaterialBarcode.objects.filter(code=code).select_related("material").first()
+        if code and clash:
+            raise forms.ValidationError(f"{code} is already the barcode of {clash.material}.")
+        return code
+
+
 class TrackingForm(forms.ModelForm):
     class Meta:
         model = StockItem
@@ -190,5 +207,5 @@ class LotActionForm(_UnitMixin, forms.Form):
 class SettingsForm(forms.ModelForm):
     class Meta:
         model = StockSettings
-        fields = ["shortfall"]
+        fields = ["shortfall", "label_width", "label_height"]
         widgets = {"shortfall": forms.RadioSelect}

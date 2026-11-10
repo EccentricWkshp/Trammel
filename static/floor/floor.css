@@ -3,6 +3,9 @@ body.floor { font-size: 17px; }
 .floor-bar { position: sticky; top: 0; z-index: 3; display: flex; justify-content: space-between; align-items: center; padding: .6rem 1rem; background: var(--accent); color: var(--accent-text); }
 .floor-bar .brand { color: var(--accent-text); font-size: 1.1rem; }
 .floor-bar .button { background: var(--accent-text); color: var(--accent); border: 0; font-weight: 700; }
+.floor-nav { display: flex; align-items: center; gap: 1rem; }
+.floor-nav a:not(.button) { color: var(--accent-text); text-decoration: none; padding: .3rem 0; }
+.floor-nav a[aria-current="page"]:not(.button) { text-decoration: underline; text-underline-offset: .3em; font-weight: 700; }
 .floor-main { max-width: 40rem; margin: 0 auto; padding: 1rem; flex: 1; width: 100%; }
 .floor-main h1 { font-size: 1.5rem; }
 .floor-sub { font-size: 1.05rem; }
@@ -28,3 +31,16 @@ ol.ops { list-style: none; padding: 0; }
 ol.ops li { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; padding: .45rem 0; border-bottom: 1px solid var(--border); }
 .note-photo { max-width: 12rem; border-radius: var(--radius); margin-top: .3rem; }
 .timer-running { font-weight: 600; color: var(--warn-text); }
+
+/* Stock on the floor */
+.floor-big-number { font-size: 2rem; font-weight: 700; margin: .25rem 0 1rem; }
+.floor-big-number span { font-size: 1rem; font-weight: normal; color: var(--muted); }
+details.floor-action { margin: 1rem 0; padding: .6rem .9rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+details.floor-action > summary { cursor: pointer; }
+details.floor-action[open] > summary { margin-bottom: .6rem; }
+.floor-main .row { display: flex; gap: .5rem; align-items: end; }
+.floor-main .row > div { flex: 1; }
+.floor-main .row input, .floor-main .row select { width: 100%; }
+.floor-stock { margin-bottom: .75rem; }
+.floor-stock h2 { font-size: 1.1rem; margin: 0 0 .3rem; }
+.floor-count { margin-top: .5rem; }

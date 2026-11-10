@@ -15,20 +15,28 @@
   function say(text) { if (status) status.textContent = text; }
 
   if (!("BarcodeDetector" in window)) {
-    say("This browser cannot scan codes with the camera. Type the work order number instead.");
+    say("This browser cannot scan with the camera. Use a barcode scanner or type the code below.");
     return;
   }
   if (!window.isSecureContext) {
-    say("The camera needs HTTPS. Type the work order number instead.");
+    say("The camera needs HTTPS. Use a barcode scanner or type the code below.");
     return;
   }
 
-  const detector = new window.BarcodeDetector({ formats: ["qr_code", "code_128", "ean_13", "upc_a"] });
-  navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false })
-    .then((stream) => {
+  // Every format this browser can read: QR labels, and the UPC, EAN and Code 128
+  // barcodes on packaging.
+  const formats = (typeof window.BarcodeDetector.getSupportedFormats === "function")
+    ? window.BarcodeDetector.getSupportedFormats()
+    : Promise.resolve(["qr_code", "code_128", "ean_13", "upc_a"]);
+  formats
+    .then((list) => Promise.all([
+      new window.BarcodeDetector({ formats: list.length ? list : ["qr_code"] }),
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false }),
+    ]))
+    .then(([detector, stream]) => {
       video.srcObject = stream;
       video.play();
-      say("Point the camera at a traveler or label.");
+      say("Point the camera at a label, traveler or barcode.");
       const tick = async () => {
         try {
           const codes = await detector.detect(video);
@@ -44,5 +52,5 @@
       };
       requestAnimationFrame(tick);
     })
-    .catch(() => say("The camera could not be opened. Type the work order number instead."));
+    .catch(() => say("The camera could not be opened. Use a barcode scanner or type the code below."));
 })();

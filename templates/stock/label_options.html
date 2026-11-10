@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Print labels{% endblock %}
+{% block main_class %}page narrow{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{% url 'stock:list' %}">Materials and stock</a></p>
+<h1>Print labels</h1>
+<p class="lede">{{ labels|length }} label{{ labels|length|pluralize }}: {% for l in labels|slice:":6" %}{{ l.code|default:l.title }}{% if not forloop.last %}, {% endif %}{% endfor %}{% if labels|length > 6 %} and {{ labels|length|add:"-6" }} more{% endif %}. Each has a QR code that opens it on the shop floor.</p>
+<form method="get" action="{% url 'stock:label_print' %}" target="_blank" class="stack">
+  {% for name, value in selection %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
+  <fieldset>
+    <legend>Layout</legend>
+    <label class="check"><input type="radio" name="layout" value="sheet" checked><span>Sheet of 30 (Avery 5160 or compatible, US letter)</span></label>
+    <label class="check"><input type="radio" name="layout" value="single"><span>One label at a time, {{ settings.label_width|floatformat:"-2" }} × {{ settings.label_height|floatformat:"-2" }} in, for a label printer{% if perms.stock.manage %} (<a href="{% url 'stock:settings' %}">change the size</a>){% endif %}</span></label>
+  </fieldset>
+  <div class="field-grid">
+    <div class="field"><label for="start">Start at label</label>
+      <select id="start" name="start">{% for n in positions %}<option value="{{ n }}">{{ n }}</option>{% endfor %}</select>
+      <div class="helptext">On a part-used sheet, the first unused label (1 is top left, counting across).</div></div>
+    <div class="field"><label for="copies">Copies of each</label><input id="copies" type="number" name="copies" value="1" min="1" max="50"></div>
+  </div>
+  <div class="actions">
+    <button type="submit" name="print" value="1" class="primary">Print</button>
+    {% if pdf %}<button type="submit" name="format" value="pdf">Download PDF</button>{% endif %}
+  </div>
+  <p class="muted small">When printing, set the scale to 100% (not “fit to page”) and margins to none.</p>
+</form>
+{% endblock %}

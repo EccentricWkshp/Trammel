@@ -13,6 +13,8 @@ Rules every function keeps:
 
 from __future__ import annotations
 
+import re
+import uuid
 from decimal import ROUND_HALF_UP, Decimal
 
 from django.core.exceptions import ValidationError
@@ -31,6 +33,7 @@ from .models import Location, Reason, StockItem, StockLot, StockMove, StockSetti
 ZERO = Decimal("0")
 Q4 = Decimal("0.0001")
 USAGE = "workorders.materialusage"
+LABEL_LINK = re.compile(r"/s/([0-9a-fA-F-]{36})/?")
 
 
 def _q(value: Decimal) -> Decimal:
@@ -503,7 +506,7 @@ def consume(
     qty = _stock_quantity(material, quantity, unit)
     lots = StockLot.objects.select_for_update().filter(item=item, qty_on_hand__gt=0)
     if lot is not None:
-        lots = lots.filter(pk=getattr(lot, "pk", lot))
+        lots = lots.filter(pk=find_lot(item, lot).pk)
         if not lots.exists():
             raise ValidationError(f"That lot has no {material} left.")
     lots = list(lots.order_by("received_on", "created_at", "id"))
@@ -578,6 +581,22 @@ def consume(
         )
         usages.append(usage)
     return usages
+
+
+def find_lot(item: StockItem, value) -> StockLot:
+    """A lot of `item`, given as a lot, its id, its number, or its label's link."""
+    if isinstance(value, StockLot):
+        value = value.pk
+    text = str(value).strip()
+    if match := LABEL_LINK.search(text):
+        text = match.group(1)
+    try:
+        found = item.lots.filter(pk=uuid.UUID(text)).first()
+    except ValueError:
+        found = item.lots.filter(number__iexact=text).first()
+    if found is None:
+        raise ValidationError(f"{item.material} has no lot “{text}”.")
+    return found
 
 
 def returnable(wo, item: StockItem) -> list[tuple[StockMove, Decimal, Decimal]]:

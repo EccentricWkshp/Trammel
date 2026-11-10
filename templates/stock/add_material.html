@@ -10,6 +10,7 @@
   <fieldset>
     <legend>The material</legend>
     {% include "partials/form_body.html" %}
+    {% if barcode_form %}<div class="field">{{ barcode_form.barcode.as_field_group }}</div>{% endif %}
   </fieldset>
   {% endif %}
 

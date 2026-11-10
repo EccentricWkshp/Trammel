@@ -1,0 +1,36 @@
+{% extends "floor/base.html" %}
+{% load trammel %}
+{% block title %}Stock{% endblock %}
+{% block content %}
+<form method="get" action="{% url 'stock:floor_index' %}" class="floor-find" role="search">
+  <label for="q">Find a material, lot or barcode</label>
+  <div class="row"><input id="q" name="q" type="search" value="{{ q }}" autocomplete="off"><button type="submit" class="primary">Find</button></div>
+</form>
+
+{% if low %}
+<h1>Low stock</h1>
+<ul class="floor-list">
+  {% for i in low %}
+  <li><a class="floor-card" href="{% url 'stock:floor_material' i.material_id %}"><strong>{{ i.material }}</strong> <span class="badge priority-high">low</span><br><span class="muted">{{ i.on_hand|qty }} {{ i.material.get_unit_display }} · restock at {{ i.min_quantity|qty }}</span></a></li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+<h1>{% if q %}Materials matching “{{ q }}”{% else %}Materials in stock{% endif %}</h1>
+<ul class="floor-list">
+  {% for i in items %}
+  <li><a class="floor-card" href="{% url 'stock:floor_material' i.material_id %}"><strong>{{ i.material }}</strong><br><span class="muted">{{ i.on_hand|qty }} {{ i.material.get_unit_display }}{% if i.default_location %} · {{ i.default_location }}{% endif %}</span></a></li>
+  {% empty %}
+  <li class="muted">{% if q %}Nothing matches.{% else %}No materials are kept in stock yet.{% endif %}</li>
+  {% endfor %}
+</ul>
+
+{% if locations %}
+<h1>Locations</h1>
+<ul class="floor-list">
+  {% for loc in locations %}
+  <li><a class="floor-card" href="{% url 'stock:floor_location' loc.pk %}">{{ loc.path }}</a></li>
+  {% endfor %}
+</ul>
+{% endif %}
+{% endblock %}

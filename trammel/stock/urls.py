@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views
+from . import floor, views
 
 app_name = "stock"
 
@@ -9,6 +9,13 @@ urlpatterns = [
     path("new/", views.add_material, name="add"),
     path("track/<uuid:pk>/", views.track, name="track"),
     path("valuation.csv", views.valuation_csv, name="valuation_csv"),
+    path("labels/", views.label_options, name="labels"),
+    path("labels/print/", views.label_print, name="label_print"),
+    path("f/", floor.index, name="floor_index"),
+    path("f/lot/<uuid:pk>/", floor.lot, name="floor_lot"),
+    path("f/location/<uuid:pk>/", floor.location, name="floor_location"),
+    path("f/material/<uuid:pk>/", floor.material, name="floor_material"),
+    path("f/use/", floor.use, name="floor_use"),
     path("restock/", views.restock, name="restock"),
     path("moves/", views.moves, name="moves"),
     path("settings/", views.settings_view, name="settings"),

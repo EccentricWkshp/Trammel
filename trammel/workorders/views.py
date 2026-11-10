@@ -53,7 +53,18 @@ class MaterialUseForm(forms.Form):
         required=False,
         help_text="Only for items not on the list. Stocked materials cost what their lots cost.",
     )
+    lot = forms.CharField(
+        required=False,
+        max_length=200,
+        help_text="For a material kept in stock: a lot number, or scan its label. "
+        "Otherwise the oldest is used.",
+    )
     billable = forms.BooleanField(required=False, initial=True)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if not hooks.lots_offered():
+            del self.fields["lot"]
 
 
 class ChangeOrderLineForm(forms.ModelForm):
@@ -360,6 +371,7 @@ def material_add(request, pk):
                 description=d["description"],
                 unit_cost=d["unit_cost"],
                 billable=d["billable"],
+                lot=d.get("lot") or None,
                 user=request.user,
             )
         except (ValidationError, units.IncompatibleUnits) as exc:

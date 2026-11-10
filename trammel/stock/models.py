@@ -12,6 +12,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 from django.conf import settings
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.db.models.functions import Lower
 from django.urls import reverse
@@ -205,6 +206,23 @@ class StockSettings(SingletonModel):
         max_length=8,
         choices=Shortfall.choices,
         default=Shortfall.REFUSE,
+    )
+
+    #: Single labels (a label printer's roll), in inches. Sheets are Avery 5160.
+    label_width = models.DecimalField(
+        "single label width (in)",
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("2.25"),
+        validators=[MinValueValidator(Decimal("1")), MaxValueValidator(Decimal("8"))],
+    )
+    label_height = models.DecimalField(
+        "single label height (in)",
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("1.25"),
+        validators=[MinValueValidator(Decimal("0.5")), MaxValueValidator(Decimal("6"))],
+        help_text="The size of one label on your label printer's roll.",
     )
 
     def __str__(self) -> str:

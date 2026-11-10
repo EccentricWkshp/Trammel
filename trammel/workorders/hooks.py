@@ -47,6 +47,11 @@ def _enabled(fns: list[Callable]) -> list[Callable]:
     return [f for f in fns if (key := modules.module_of(f.__module__)) is None or key in on]
 
 
+def lots_offered() -> bool:
+    """Whether a stock module is drawing materials from lots, so a lot can be chosen."""
+    return bool(_enabled(_material_handlers))
+
+
 def handle_material(work_order, **kwargs):
     for fn in _enabled(_material_handlers):
         result = fn(work_order, **kwargs)

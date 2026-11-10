@@ -12,7 +12,7 @@
     {% if item.default_location %}<div><dt>Kept in</dt><dd>{{ item.default_location }}</dd></div>{% endif %}
   </dl>
 
-  <h3>Lots</h3>
+  <div class="card-heading"><h3>Lots</h3><span class="actions small">{% if ctx.lots %}<a href="{% url 'stock:labels' %}?lots_of={{ m.pk }}">Labels for these lots</a>{% endif %}<a href="{% url 'stock:labels' %}?material={{ m.pk }}">Bin label</a><a href="{% url 'stock:floor_material' m.pk %}">Shop-floor page</a></span></div>
   <p class="muted small">Used oldest first. Each lot keeps the cost it came in at.</p>
   <div class="table-wrap"><table>
     <thead><tr><th scope="col">Lot</th><th scope="col">Location</th><th scope="col">Received</th><th scope="col" class="num">On hand</th>{% if ctx.can_costs %}<th scope="col" class="num">Value</th>{% endif %}{% if ctx.can_edit %}<th scope="col"><span class="visually-hidden">Actions</span></th>{% endif %}</tr></thead>

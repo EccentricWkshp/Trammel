@@ -1,0 +1,6 @@
+<div class="qr">{{ label.qr|safe }}</div>
+<div class="text">
+  <p class="title">{{ label.title }}</p>
+  {% if label.code %}<p class="code">{{ label.code }}</p>{% endif %}
+  {% for line in label.lines %}<p class="line">{{ line }}</p>{% endfor %}
+</div>

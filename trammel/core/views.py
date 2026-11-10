@@ -161,6 +161,17 @@ def search(request):
 
 
 @login_required
+def scan_open(request, pk):
+    """A label's short link: open whatever record it was printed for (FR-STK-7)."""
+    from . import scan
+
+    url = scan.open_record(request, pk)
+    if url is None:
+        raise Http404
+    return redirect(url)
+
+
+@login_required
 def settings_index(request):
     items = menu_for(request.actor, "admin")
     if not items:

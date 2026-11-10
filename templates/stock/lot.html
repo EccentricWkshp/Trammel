@@ -18,6 +18,7 @@
   </div>
 </header>
 {% if lot.note %}<p>{{ lot.note }}</p>{% endif %}
+<p class="actions"><a class="button" href="{% url 'stock:labels' %}?lot={{ lot.pk }}">Print label</a> <a href="{% url 'stock:floor_lot' lot.pk %}">Shop-floor page</a></p>
 {% if can_edit and lot.qty_on_hand %}
 {% include "stock/_lot_actions.html" with next=request.get_full_path locations=locations %}
 {% endif %}

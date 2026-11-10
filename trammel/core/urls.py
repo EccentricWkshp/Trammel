@@ -9,6 +9,7 @@ urlpatterns = [
     path("home/customize/", views.home_customize, name="home_customize"),
     path("setup/", views.setup, name="setup"),
     path("search/", views.search, name="search"),
+    path("s/<uuid:pk>/", views.scan_open, name="scan_open"),
     path("settings/", views.settings_index, name="settings"),
     path("settings/business/", views.business, name="business"),
     path("settings/rates/", views.rates, name="rates"),

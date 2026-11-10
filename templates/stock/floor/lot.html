@@ -1,0 +1,33 @@
+{% extends "floor/base.html" %}
+{% load trammel %}
+{% block title %}{{ lot.number }}{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{% url 'stock:floor_index' %}">Stock</a></p>
+<h1>{{ material }}</h1>
+<p class="floor-sub"><strong>{{ lot.number }}</strong>{% if not lot.qty_on_hand %} <span class="badge">used up</span>{% endif %}<br>
+  <span class="muted"><a href="{% url 'stock:floor_location' lot.location.pk %}">{{ lot.location }}</a> · received {{ lot.received_on|d }}{% if lot.vendor %} · {{ lot.vendor }}{% endif %}</span></p>
+<p class="floor-big-number">{{ lot.qty_on_hand|qty }} <span>{{ material.get_unit_display }}</span></p>
+
+{% if lot.qty_on_hand %}
+{% include "stock/floor/_use.html" %}
+
+{% if can_edit %}
+<details class="floor-action">
+  <summary><h2 class="inline-heading">Move or scrap</h2></summary>
+  <form method="post" action="{% url 'stock:lot_action' lot.pk 'transfer' %}" class="stack">
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{{ here }}">
+    <div class="row">
+      <div><label for="mv-qty">Quantity</label><input id="mv-qty" type="text" inputmode="decimal" name="quantity" value="{{ lot.qty_on_hand|floatformat:"-4" }}" required></div>
+      <div><label for="mv-unit">Unit</label><select id="mv-unit" name="unit">{% for code, label in unit_choices %}<option value="{{ code }}"{% if code == material.unit %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+    </div>
+    <div><label for="mv-to">Move to</label><select id="mv-to" name="to"><option value="">—</option>{% for loc in locations %}<option value="{{ loc.pk }}">{{ loc }}</option>{% endfor %}</select></div>
+    <div><label for="mv-note">Note</label><input id="mv-note" type="text" name="note" maxlength="300"></div>
+    <button type="submit" class="big">Move</button>
+    <button type="submit" class="big danger" formaction="{% url 'stock:lot_action' lot.pk 'scrap' %}">Scrap <small>needs a note saying why</small></button>
+  </form>
+</details>
+{% endif %}
+{% endif %}
+<p><a href="{% url 'stock:floor_material' material.pk %}">All of {{ material }}</a> · <a href="{{ lot.get_absolute_url }}">History</a></p>
+{% endblock %}

@@ -1,0 +1,31 @@
+{% extends "floor/base.html" %}
+{% load trammel %}
+{% block title %}{{ location.name }}{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{% url 'stock:floor_index' %}">Stock</a></p>
+<h1>{{ location.name }}</h1>
+<p class="floor-sub muted">{{ location.path }}</p>
+{% if children %}<p>Inside: {% for c in children %}<a href="{% url 'stock:floor_location' c.pk %}">{{ c.name }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+
+{% for material, here, lots in materials %}
+<section class="floor-card floor-stock">
+  <h2><a href="{% url 'stock:floor_material' material.pk %}">{{ material }}</a></h2>
+  <p>{{ here|qty }} {{ material.get_unit_display }} here ·
+    {% for x in lots %}<a href="{% url 'stock:floor_lot' x.pk %}">{{ x.number }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}</p>
+  {% if can_edit %}
+  <form method="post" action="{% url 'stock:count' material.pk %}" class="floor-count">
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+    <input type="hidden" name="location" value="{{ location.pk }}">
+    <input type="hidden" name="expected" value="{{ here }}">
+    <input type="hidden" name="unit" value="{{ material.unit }}">
+    <label for="count-{{ material.pk }}">Count</label>
+    <div class="row"><input id="count-{{ material.pk }}" type="text" inputmode="decimal" name="counted" placeholder="{{ here|qty }}" required><button type="submit">Save count</button></div>
+  </form>
+  {% endif %}
+</section>
+{% empty %}
+<p class="muted">Nothing is kept here.</p>
+{% endfor %}
+<p><a href="{{ location.get_absolute_url }}">Open the full page</a></p>
+{% endblock %}

@@ -1,11 +1,12 @@
 {% extends "floor/base.html" %}
 {% block title %}Scan{% endblock %}
 {% block content %}
-<h1>Scan a traveler or label</h1>
+<h1>Scan</h1>
+<p class="floor-sub muted">A stock label, a traveler, or the barcode on a product's packaging.</p>
 <video id="scan-video" class="scan-video" playsinline muted data-find="{% url 'floor:find' %}"></video>
 <p id="scan-status" role="status">Starting the camera…</p>
 <form method="get" action="{% url 'floor:find' %}" class="floor-find">
-  <label for="q">Or type the number</label>
-  <div class="row"><input id="q" name="q" type="text" autocapitalize="characters" required><button type="submit" class="primary">Open</button></div>
+  <label for="q">Or use a barcode scanner, or type a work order, lot or barcode number</label>
+  <div class="row"><input id="q" name="q" type="text" autocomplete="off" autocapitalize="characters" autofocus required><button type="submit" class="primary">Open</button></div>
 </form>
 {% endblock %}

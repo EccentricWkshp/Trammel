@@ -30,6 +30,7 @@ class StockConfig(ModuleConfig):
         menu=(
             # The materials home: anyone who may see materials sees the list.
             MenuEntry("Stock", "stock:list", "shop.view", "main", 55),
+            MenuEntry("Stock", "stock:floor_index", "stock.view", "floor", 20),
             MenuEntry("Stock locations", "stock:locations", "stock.view", "admin", 27),
             MenuEntry("Stock settings", "stock:settings", "stock.manage", "admin", 27),
         ),

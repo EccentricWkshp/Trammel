@@ -1,7 +1,7 @@
 {% extends "settings_base.html" %}
 {% block title %}Stock locations{% endblock %}
 {% block settings_content %}
-<div class="heading-row"><h1>Stock locations</h1>{% if can_manage %}<a class="button" href="{% url 'stock:location_create' %}">Add location</a>{% endif %}</div>
+<div class="heading-row"><h1>Stock locations</h1><div class="actions">{% if locations %}<a href="{% url 'stock:labels' %}?all_locations=1">Print location labels</a>{% endif %}{% if can_manage %}<a class="button" href="{% url 'stock:location_create' %}">Add location</a>{% endif %}</div></div>
 <p class="lede">Where stock is kept. A location can sit inside another: a shelf on a rack in a room.</p>
 <div class="table-wrap">
 <table>

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import uuid
 from decimal import Decimal
 
 from django.contrib import messages
@@ -8,18 +9,26 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Count, F, Q, Sum, Value
 from django.db.models.functions import Coalesce
-from django.http import Http404
+from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.template.loader import render_to_string
 from django.utils.http import url_has_allowed_host_and_scheme, urlencode
 from django.views.decorators.http import require_POST
 
-from trammel.core import access, audit
+from trammel.core import access, audit, templating
 from trammel.core.services import save_audited
-from trammel.core.web import csv_response, paginate, permission_required
-from trammel.shop.models import Material
+from trammel.core.web import (
+    csv_response,
+    document_response,
+    document_view,
+    paginate,
+    permission_required,
+)
+from trammel.shop.models import Material, MaterialBarcode
 
-from . import services
+from . import labels, services
 from .forms import (
+    BarcodeForm,
     CountForm,
     LocationForm,
     LotActionForm,
@@ -365,16 +374,20 @@ def add_material(request):
     initial = {"vendor": request.GET.get("vendor")} if request.GET.get("vendor") else None
     data = request.POST or None
     form = MaterialForm(data, instance=Material(), initial=initial)
+    barcode_form = BarcodeForm(data, initial={"barcode": request.GET.get("barcode", "")})
     stock_form = (
         StockSectionForm(data, can_receive=can_receive, optional=True) if can_stock else None
     )
     if request.method == "POST":
         valid = form.is_valid()
+        valid = barcode_form.is_valid() and valid
         valid = (stock_form is None or stock_form.is_valid()) and valid
         if valid:
             try:
                 with transaction.atomic():
                     material = save_audited(form.save(commit=False))
+                    if code := barcode_form.cleaned_data["barcode"]:
+                        MaterialBarcode.objects.create(material=material, code=code)
                     keep = stock_form is not None and stock_form.wanted
                     if keep:
                         _start_tracking(request, material, stock_form.cleaned_data, can_receive)
@@ -391,6 +404,7 @@ def add_material(request):
         "stock/add_material.html",
         {
             "form": form,
+            "barcode_form": barcode_form,
             "stock_form": stock_form,
             "has_locations": Location.objects.exists(),
             "title": "Add material",
@@ -543,7 +557,14 @@ def count(request, pk):
                 messages.success(request, "Counted. It matches the records.")
     else:
         _errors(request, form.errors)
-    return redirect(_stock_tab(material))
+    return redirect(_next(request, _stock_tab(material)))
+
+
+def _next(request, default: str) -> str:
+    target = request.POST.get("next", "")
+    if url_has_allowed_host_and_scheme(target, allowed_hosts={request.get_host()}):
+        return target
+    return default
 
 
 @permission_required("stock.edit")
@@ -552,9 +573,7 @@ def lot_action(request, pk, action):
     lot = get_object_or_404(StockLot.objects.select_related("item__material"), pk=pk)
     material = lot.item.material
     form = LotActionForm(request.POST, material=material)
-    back = request.POST.get("next", "")
-    if not url_has_allowed_host_and_scheme(back, allowed_hosts={request.get_host()}):
-        back = _stock_tab(material)
+    back = _next(request, _stock_tab(material))
     if not form.is_valid():
         _errors(request, form.errors)
         return redirect(back)
@@ -595,3 +614,101 @@ def settings_view(request):
         messages.success(request, "Stock settings saved.")
         return redirect("stock:settings")
     return render(request, "stock/settings.html", {"form": form})
+
+
+# ---------------------------------------------------------------------------
+# Labels (FR-STK-7)
+# ---------------------------------------------------------------------------
+
+SELECTION = ("lot", "location", "material", "lots_of", "lots_in", "all_locations")
+
+
+def _uuids(request, name: str) -> list[uuid.UUID]:
+    out = []
+    for value in request.GET.getlist(name):
+        try:
+            out.append(uuid.UUID(value))
+        except ValueError:
+            continue
+    return out
+
+
+def _labels_for(request) -> list:
+    lots = StockLot.objects.filter(
+        Q(pk__in=_uuids(request, "lot"))
+        | Q(item__material_id__in=_uuids(request, "lots_of"), qty_on_hand__gt=0)
+        | Q(location_id__in=_uuids(request, "lots_in"), qty_on_hand__gt=0)
+    ).select_related("item__material", "location")
+    locations = Location.objects.filter(pk__in=_uuids(request, "location"))
+    if request.GET.get("all_locations") == "1":
+        locations = Location.objects.filter(is_active=True)
+    materials = Material.objects.filter(pk__in=_uuids(request, "material"))
+    return [
+        *labels.for_locations(locations.select_related("parent").order_by("path")),
+        *labels.for_materials(materials.order_by("name")),
+        *labels.for_lots(lots.order_by("item__material__name", "received_on", "number")),
+    ]
+
+
+@permission_required("stock.view")
+def label_options(request):
+    """Choose the layout, where on the sheet to start, and how many of each."""
+    found = _labels_for(request)
+    if not found:
+        messages.error(request, "Nothing to print labels for.")
+        return redirect("stock:list")
+    selection = [(k, v) for k in SELECTION for v in request.GET.getlist(k)]
+    settings = StockSettings.load()
+    return render(
+        request,
+        "stock/label_options.html",
+        {
+            "labels": found,
+            "selection": selection,
+            "positions": range(1, labels.PER_SHEET + 1),
+            "settings": settings,
+            "pdf": templating.pdf_available(),
+        },
+    )
+
+
+@permission_required("stock.view")
+@document_view
+def label_print(request):
+    found = _labels_for(request)
+    if not found:
+        raise Http404
+    layout = "single" if request.GET.get("layout") == "single" else "sheet"
+    copies = _int(request.GET.get("copies"), 1)
+    settings = StockSettings.load()
+    context = {"layout": layout}
+    if layout == "sheet":
+        context["pages"] = labels.sheets(
+            found, start=_int(request.GET.get("start"), 1), copies=copies
+        )
+        context["qr_size"] = Decimal("0.86")
+    else:
+        context["singles"] = labels.singles(found, copies=copies)
+        context["width"], context["height"] = settings.label_width, settings.label_height
+        # Square, as tall as the label allows, but leaving most of the width for text.
+        context["qr_size"] = max(
+            Decimal("0.4"),
+            min(settings.label_height - Decimal("0.14"), settings.label_width * Decimal("0.4")),
+        )
+    html = render_to_string("stock/labels.html", context, request=request)
+    if request.GET.get("format") == "pdf":
+        try:
+            data = templating.render_pdf(html)
+        except templating.PdfUnavailable as exc:
+            return HttpResponse(str(exc), status=503, content_type="text/plain")
+        response = HttpResponse(data, content_type="application/pdf")
+        response["Content-Disposition"] = 'attachment; filename="labels.pdf"'
+        return response
+    return document_response(request, html)
+
+
+def _int(value, default: int) -> int:
+    try:
+        return int(value)
+    except TypeError, ValueError:
+        return default

@@ -6,7 +6,7 @@
 </a>
 {% endif %}
 <form method="get" action="{% url 'floor:find' %}" class="floor-find">
-  <label for="q">Work order number</label>
+  <label for="q">Work order, lot or barcode</label>
   <div class="row"><input id="q" name="q" type="text" inputmode="text" autocapitalize="characters" placeholder="WO-2026-0001" required><button type="submit" class="primary">Open</button></div>
 </form>
 <h1>Active work</h1>

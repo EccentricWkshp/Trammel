@@ -24,5 +24,7 @@ def instance(request):
         ctx["admin_menu"] = admin
         ctx["active_main_url"] = _active(main, request.path)
         ctx["active_admin_url"] = _active(admin, request.path)
+        # Buttons in the shop-floor app's top bar that other modules add (stock).
+        ctx["floor_menu"] = menu_for(actor, "floor")
         ctx["notices"] = for_request(request)
     return ctx

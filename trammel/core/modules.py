@@ -70,7 +70,8 @@ class MenuEntry:
     label: str
     url_name: str
     permission: str | None = None
-    #: "main" for the primary navigation, "admin" for the Settings area.
+    #: "main" for the primary navigation, "admin" for the Settings area,
+    #: "floor" for the shop-floor app's top bar.
     section: str = "main"
     order: int = 100
     #: Shown only to the system admin (users, roles, modules, system).

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Labels</title>
+<style>
+  {% if layout == "sheet" %}
+  @page { size: 8.5in 11in; margin: 0; }
+  .page { position: relative; width: 8.5in; height: 11in; overflow: hidden; page-break-after: always; break-after: page; }
+  .page:last-child { page-break-after: auto; break-after: auto; }
+  .label { position: absolute; width: 2.625in; height: 1in; }
+  {% else %}
+  @page { size: {{ width }}in {{ height }}in; margin: 0; }
+  .label { position: relative; width: {{ width }}in; height: {{ height }}in; page-break-after: always; break-after: page; }
+  .label:last-child { page-break-after: auto; break-after: auto; }
+  {% endif %}
+  html, body { margin: 0; padding: 0; }
+  body { font-family: "Helvetica Neue", Arial, sans-serif; color: #000; }
+  .label { box-sizing: border-box; padding: 0.06in 0.1in; overflow: hidden; display: flex; align-items: center; }
+  .qr { flex: none; width: {{ qr_size }}in; height: {{ qr_size }}in; margin-right: 0.08in; }
+  .qr svg { width: {{ qr_size }}in; height: {{ qr_size }}in; display: block; }
+  .text { flex: 1 1 auto; min-width: 0; overflow: hidden; }
+  .title { font-weight: 700; font-size: 9pt; line-height: 1.15; margin: 0.02in 0 0.03in; max-height: 2.3em; overflow: hidden; }
+  .code { font-family: "Courier New", monospace; font-size: 9pt; font-weight: 700; margin: 0 0 0.02in; }
+  .line { font-size: 7pt; line-height: 1.2; margin: 0; }
+  @media screen {
+    body { background: #ddd; padding: 0.25in; }
+    .page, .single-wrap .label { background: #fff; margin: 0 auto 0.25in; box-shadow: 0 1px 4px rgba(0,0,0,.3); }
+    .page .label { outline: 1px dashed #ccc; }
+  }
+</style>
+</head>
+<body>
+{% if layout == "sheet" %}
+  {% for page in pages %}
+  <div class="page">
+    {% for label in page %}
+    <div class="label" style="top: {{ label.top }}in; left: {{ label.left }}in;">{% include "stock/_label.html" %}</div>
+    {% endfor %}
+  </div>
+  {% endfor %}
+{% else %}
+  <div class="single-wrap">
+  {% for label in singles %}
+    <div class="label">{% include "stock/_label.html" %}</div>
+  {% endfor %}
+  </div>
+{% endif %}
+</body>
+</html>

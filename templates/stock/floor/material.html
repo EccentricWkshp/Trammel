@@ -1,0 +1,22 @@
+{% extends "floor/base.html" %}
+{% load trammel %}
+{% block title %}{{ material }}{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{% url 'stock:floor_index' %}">Stock</a></p>
+<h1>{{ material }}</h1>
+{% if tracked %}
+<p class="floor-big-number">{{ on_hand|qty }} <span>{{ material.get_unit_display }} in stock</span></p>
+{% if lots %}
+<ul class="floor-list">
+  {% for x in lots %}
+  <li><a class="floor-card" href="{% url 'stock:floor_lot' x.pk %}"><strong>{{ x.number }}</strong> · {{ x.qty_on_hand|qty }} {{ material.get_unit_display }}<br><span class="muted">{{ x.location }} · received {{ x.received_on|d }}</span></a></li>
+  {% endfor %}
+</ul>
+<p class="muted">Used oldest first unless you open a lot and use it from there.</p>
+{% endif %}
+{% else %}
+<p class="muted">Not tracked in stock. Using it records the cost from the price list.</p>
+{% endif %}
+{% include "stock/floor/_use.html" %}
+<p><a href="{{ material.get_absolute_url }}">Open the full page</a></p>
+{% endblock %}

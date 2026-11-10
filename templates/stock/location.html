@@ -8,10 +8,14 @@
     <h1>{{ location.name }}{% if not location.is_active %} <span class="badge">not in use</span>{% endif %}</h1>
     <p class="muted">{{ location.path }}</p>
   </div>
-  {% if can_manage %}<div class="actions">
+  <div class="actions">
+    <a class="button" href="{% url 'stock:labels' %}?location={{ location.pk }}">Print label</a>
+    {% if lots %}<a href="{% url 'stock:labels' %}?lots_in={{ location.pk }}">Labels for the lots here</a>{% endif %}
+  {% if can_manage %}
     <a class="button" href="{% url 'stock:location_edit' location.pk %}">Edit</a>
     <a href="{% url 'stock:location_create' %}?parent={{ location.pk }}">Add a location inside</a>
-  </div>{% endif %}
+  {% endif %}
+  </div>
 </header>
 {% if location.notes %}<p class="prewrap">{{ location.notes }}</p>{% endif %}
 {% if children %}
