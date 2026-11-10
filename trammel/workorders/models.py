@@ -242,6 +242,13 @@ class PlannedMaterial(models.Model):
     description = models.CharField(max_length=200)
     quantity = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
     unit = models.CharField(max_length=12, choices=units.UNIT_CHOICES, blank=True)
+    #: The operation it is for (the quote line it came from), so it can be recorded
+    #: as used when that operation is done.
+    operation = models.ForeignKey(
+        "Operation", null=True, blank=True, on_delete=models.SET_NULL, related_name="planned"
+    )
+    #: When it was recorded as used, from the plan.
+    used_at = models.DateTimeField(null=True, blank=True, editable=False)
 
     def __str__(self) -> str:
         return self.description

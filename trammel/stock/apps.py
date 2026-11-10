@@ -17,7 +17,7 @@ class StockConfig(ModuleConfig):
         name="Stock",
         version="0.3.0",
         description="Stock on hand by location and lot, drawn first in, first out at lot cost.",
-        depends_on=("shop", "workorders"),
+        depends_on=("shop", "workorders", "catalog"),
         urls="trammel.stock.urls",
         url_prefix="stock",
         api_router="trammel.stock.api.router",

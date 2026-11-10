@@ -68,12 +68,15 @@ def _carry_over(wo: WorkOrder, revision) -> None:
         machine = line.machine
         if machine is None and line.inputs.get("machine"):
             machine = Machine.objects.filter(pk=line.inputs["machine"]).first()
-        Operation.objects.create(
+        op = Operation.objects.create(
             work_order=wo, position=position, name=line.description[:200], machine=machine
         )
+        # Other modules plan for the line too: stock expands a product's bill of materials.
+        hooks.run_carry_over(wo, line, op)
         if line.kind == "material" and line.material is not None:
             PlannedMaterial.objects.create(
                 work_order=wo,
+                operation=op,
                 material=line.material,
                 description=str(line.material),
                 quantity=line.quantity,
@@ -89,6 +92,7 @@ def _carry_over(wo: WorkOrder, revision) -> None:
                 continue
             PlannedMaterial.objects.create(
                 work_order=wo,
+                operation=op,
                 material=material,
                 description=row.get("detail") or str(material),
                 quantity=Decimal(row["quantity"]) if row.get("quantity") else None,
@@ -103,6 +107,7 @@ def _carry_over(wo: WorkOrder, revision) -> None:
             row = rows[0] if rows else None
             PlannedMaterial.objects.create(
                 work_order=wo,
+                operation=op,
                 material=material,
                 description=row["detail"] if row else str(material),
             )
@@ -205,6 +210,8 @@ def _roll_up(op: Operation | None, user) -> None:
         op.completed_at = timezone.now() if state != P.PENDING else None
         op.completed_by = user if state != P.PENDING else None
         op.save(update_fields=["status", "completed_at", "completed_by"])
+        if state == P.DONE:
+            hooks.run_operation_done(op, user)
         op = op.parent
 
 
@@ -237,6 +244,8 @@ def set_operation(op: Operation, state: str, *, user) -> Operation:
     op.completed_by = user if state != P.PENDING else None
     op.save()
     _roll_up(op.parent, user)
+    if state == P.DONE:
+        hooks.run_operation_done(op, user)
     audit.record(
         "operation.reopen" if state == P.PENDING else f"operation.{state}",
         op.work_order,
@@ -501,6 +510,42 @@ def write_usage(
         "work_order.material", wo, summary=f"{wo.number}: {quantity} {unit} of {description}"
     )
     return usage
+
+
+def ready_to_record(wo: WorkOrder):
+    """Planned materials of done operations, with a quantity, not yet recorded."""
+    return (
+        wo.planned_materials.filter(
+            used_at__isnull=True,
+            operation__status=P.DONE,
+            material__isnull=False,
+            quantity__isnull=False,
+        )
+        .select_related("material", "operation")
+        .order_by("operation__position", "description")
+    )
+
+
+@transaction.atomic
+def use_planned(wo: WorkOrder, planned, *, user=None) -> list[MaterialUsage]:
+    """Record planned materials as used, as planned (FR-STK-6). Each is recorded
+    once; stock draws tracked materials from their lots."""
+    _require_editable(wo)
+    usages = []
+    for p in planned:
+        p = PlannedMaterial.objects.select_for_update().get(pk=p.pk, work_order=wo)
+        if p.used_at is not None or p.material is None or not p.quantity:
+            continue
+        usages += record_material(
+            wo,
+            material=p.material,
+            quantity=p.quantity,
+            unit=p.unit or p.material.unit,
+            note=f"As planned{f' for {p.operation.name}' if p.operation else ''}",
+            user=user,
+        )
+        PlannedMaterial.objects.filter(pk=p.pk).update(used_at=timezone.now())
+    return usages
 
 
 @transaction.atomic

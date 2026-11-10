@@ -207,5 +207,5 @@ class LotActionForm(_UnitMixin, forms.Form):
 class SettingsForm(forms.ModelForm):
     class Meta:
         model = StockSettings
-        fields = ["shortfall", "label_width", "label_height"]
-        widgets = {"shortfall": forms.RadioSelect}
+        fields = ["shortfall", "planned_use", "label_width", "label_height"]
+        widgets = {"shortfall": forms.RadioSelect, "planned_use": forms.RadioSelect}

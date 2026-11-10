@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% load trammel %}
+{% block title %}Returns and cost variances{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{% url 'reports:index' %}">Reports</a></p>
+<h1>Returns and cost variances</h1>
+<p class="lede">Cost that could not go into stock between {{ start|d }} and {{ end|d }}: {{ total|money }}. A refund for less than the goods were worth, or a landed cost change for goods already used. Negative amounts came back to the shop.</p>
+{% include "reports/_period.html" %}
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">When</th><th scope="col">Order</th><th scope="col">Vendor</th><th scope="col">Item</th><th scope="col">What</th><th scope="col" class="num">Amount</th><th scope="col">Note</th></tr></thead>
+  <tbody>
+  {% for v in rows %}
+    <tr><td>{{ v.created_at|d }}</td><td><a href="{{ v.order.get_absolute_url }}">{{ v.order.number }}</a></td><td>{{ v.order.vendor }}</td><td>{{ v.line.description }}</td><td>{{ v.get_kind_display }}</td><td class="num">{{ v.amount|money }}</td><td>{{ v.note }}</td></tr>
+  {% empty %}
+    <tr><td colspan="7" class="muted">No cost variances in this period.</td></tr>
+  {% endfor %}
+  </tbody>
+  {% if rows %}<tfoot><tr><th scope="row" colspan="5">Total</th><td class="num">{{ total|money }}</td><td></td></tr></tfoot>{% endif %}
+</table></div>
+{% endblock %}

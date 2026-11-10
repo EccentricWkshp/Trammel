@@ -1,14 +1,47 @@
 {% extends "base.html" %}
 {% load files %}
 {% block title %}{% if product %}{{ product }}{% else %}New product{% endif %}{% endblock %}
-{% block main_class %}page narrow{% endblock %}
+{% block main_class %}{% if product %}page{% else %}page narrow{% endif %}{% endblock %}
 {% block content %}
+{% if not product %}
 <p class="breadcrumb"><a href="{% url 'catalog:list' %}">Products</a></p>
-<h1>{% if product %}{{ product }}{% else %}New product{% endif %}</h1>
+<h1>New product</h1>
 <form method="post" class="stack" novalidate>
   {% csrf_token %}
   {% include "partials/form_body.html" %}
   <div class="actions"><button type="submit" class="primary">Save</button> <a href="{% url 'catalog:list' %}">Cancel</a></div>
 </form>
-{% if product %}{% attachments product "Images and files" %}{% endif %}
+{% else %}
+<header class="record-header">
+  <div class="record-title">
+    <p class="breadcrumb"><a href="{% url 'catalog:list' %}">Products</a></p>
+    <h1>{{ product }}</h1>
+    <p class="status-line">{{ product.get_kind_display }}{% if not product.is_active %} <span class="badge">Archived</span>{% endif %}</p>
+  </div>
+  <div class="actions">
+    <form method="post" action="{% url 'catalog:archive' product.pk %}" class="inline">{% csrf_token %}
+      {% if product.is_active %}<input type="hidden" name="archived" value="1"><button type="submit">Archive</button>
+      {% else %}<input type="hidden" name="archived" value="0"><button type="submit">Restore to the catalog</button>{% endif %}
+    </form>
+    {% if can_delete %}<a href="{% url 'catalog:delete' product.pk %}">Delete</a>{% endif %}
+  </div>
+</header>
+
+{% include "partials/tabs.html" %}
+
+<div class="tab-body">
+{% if tab == "details" %}
+  {% if not product.is_active %}<aside class="callout">Archived: it stays on the quotes and invoices it is already on, but can't be picked for new ones.</aside>{% endif %}
+  <form method="post" action="{{ product.get_absolute_url }}" class="stack form-narrow" novalidate>
+    {% csrf_token %}
+    {% include "partials/form_body.html" %}
+    <div class="actions"><button type="submit" class="primary">Save</button> <a href="{% url 'catalog:list' %}">Cancel</a></div>
+  </form>
+{% elif tab == "files" %}
+  {% attachments product "Images and files" %}
+{% else %}
+  {% include "partials/panels.html" with panels=tab_panels %}
+{% endif %}
+</div>
+{% endif %}
 {% endblock %}

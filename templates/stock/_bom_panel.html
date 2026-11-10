@@ -1,0 +1,44 @@
+{% load trammel %}
+<h2 id="bom">Bill of materials</h2>
+<p class="muted small">What goes into one {{ ctx.product.get_unit_display }} of {{ ctx.product.name }}. A work order made from a quote with this product plans these materials, times the quantity.</p>
+{% if ctx.lines %}
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Material</th><th scope="col" class="num">Per one</th>{% if ctx.can_costs %}<th scope="col" class="num">Cost</th>{% endif %}<th scope="col">Note</th>{% if ctx.can_edit %}<th scope="col"><span class="visually-hidden">Actions</span></th>{% endif %}</tr></thead>
+  <tbody>
+  {% for line in ctx.lines %}
+    {% if line == ctx.editing %}
+    <tr class="row-edit">
+      <td><label class="visually-hidden" for="bom-material">Material</label><select id="bom-material" name="material" form="bom-edit" required>{% for m in ctx.materials %}<option value="{{ m.pk }}"{% if m.pk == line.material_id %} selected{% endif %}>{{ m }}</option>{% endfor %}{% if not line.material.is_active %}<option value="{{ line.material_id }}" selected>{{ line.material }}</option>{% endif %}</select></td>
+      <td><div class="qty-unit"><label class="visually-hidden" for="bom-quantity">Per one</label><input id="bom-quantity" type="text" inputmode="decimal" name="quantity" form="bom-edit" size="6" value="{{ line.quantity|qty }}" required>
+        <label class="visually-hidden" for="bom-unit">Unit</label><select id="bom-unit" name="unit" form="bom-edit">{% for u in ctx.units %}<option value="{{ u }}"{% if u == line.unit %} selected{% endif %}>{{ u }}</option>{% endfor %}</select></div></td>
+      {% if ctx.can_costs %}<td class="num">{% if line.cost is not None %}{{ line.cost|money }}{% endif %}</td>{% endif %}
+      <td><label class="visually-hidden" for="bom-note">Note</label><input id="bom-note" type="text" name="note" form="bom-edit" maxlength="200" value="{{ line.note }}"></td>
+      <td><div class="row-actions nowrap"><button type="submit" form="bom-edit" class="primary">Save</button> <a href="?tab=bom">Cancel</a></div></td>
+    </tr>
+    {% else %}
+    <tr>
+      <td><a href="{{ line.material.get_absolute_url }}">{{ line.material }}</a></td>
+      <td class="num">{{ line.quantity|qty }} {{ line.unit }}</td>
+      {% if ctx.can_costs %}<td class="num">{% if line.cost is not None %}{{ line.cost|money }}{% endif %}</td>{% endif %}
+      <td>{{ line.note }}</td>
+      {% if ctx.can_edit %}<td><div class="row-actions nowrap"><a href="?tab=bom&amp;edit={{ line.pk }}" aria-label="Edit {{ line.material }}">Edit</a> <form method="post" action="{% url 'stock:bom_delete' line.pk %}" class="inline">{% csrf_token %}<button type="submit" class="linklike danger-text" aria-label="Remove {{ line.material }}">Remove</button></form></div></td>{% endif %}
+    </tr>
+    {% endif %}
+  {% endfor %}
+  </tbody>
+  {% if ctx.can_costs %}<tfoot><tr><th scope="row" colspan="2">Materials per one, at current cost</th><td class="num">{{ ctx.cost|money }}</td><td colspan="{% if ctx.can_edit %}2{% else %}1{% endif %}"></td></tr></tfoot>{% endif %}
+</table></div>
+{% if ctx.editing %}<form method="post" action="{% url 'stock:bom_edit' ctx.editing.pk %}" id="bom-edit">{% csrf_token %}</form>{% endif %}
+{% else %}
+<p class="muted">No materials listed yet.</p>
+{% endif %}
+{% if ctx.can_edit and not ctx.editing %}
+<form method="post" action="{% url 'stock:bom_add' ctx.product.pk %}" class="filters" aria-label="Add a material to the bill of materials">
+  {% csrf_token %}
+  <label>Material <select name="material" required><option value="">—</option>{% for m in ctx.materials %}<option value="{{ m.pk }}">{{ m }}</option>{% endfor %}</select></label>
+  <label>Per one <input type="text" inputmode="decimal" name="quantity" size="6" required></label>
+  <label>Unit <select name="unit"><option value="">material's own</option>{% for u in ctx.units %}<option value="{{ u }}">{{ u }}</option>{% endfor %}</select></label>
+  <label>Note <input type="text" name="note" maxlength="200"></label>
+  <button type="submit">Add</button>
+</form>
+{% endif %}

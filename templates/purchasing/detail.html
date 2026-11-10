@@ -110,6 +110,59 @@
 </table></div>
 {% endif %}
 
+{% if returns %}
+<h2>Sent back</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">When</th><th scope="col">Item</th><th scope="col" class="num">Quantity</th><th scope="col" class="num">Worth</th><th scope="col" class="num">Refund</th><th scope="col" class="num">Lost</th><th scope="col">Why</th></tr></thead>
+  <tbody>
+  {% for r in returns %}
+    <tr><td>{{ r.returned_on|d }}</td><td>{{ r.line.description }}{% if r.lot %} <span class="muted small">from {{ r.lot.number }}</span>{% endif %}</td><td class="num">{{ r.quantity|qty }} {{ r.line.get_unit_display }}</td><td class="num">{{ r.value|money }}</td><td class="num">{{ r.refund|money }}</td><td class="num">{{ r.loss|money }}</td><td>{{ r.reason }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% endif %}
+
+{% if adjustments %}
+<h2>Landed cost changes</h2>
+<ul class="plain">{% for a in adjustments %}<li>{{ a.created_at|d }}: {% if a.amount > 0 %}+{% endif %}{{ a.amount|money }} — {{ a.reason }}{% if a.user %} <span class="muted small">· {{ a.user.get_short_name }}</span>{% endif %}</li>{% endfor %}</ul>
+{% endif %}
+
+{% if any_returnable or can_adjust %}
+<div class="overview-grid">
+  {% if any_returnable %}
+  <section class="card" aria-labelledby="return-heading">
+    <h2 id="return-heading">Send something back</h2>
+    {% for line in lines %}{% if line.can_send_back %}
+    <details class="lot-actions">
+      <summary>{{ line.description }}</summary>
+      <form method="post" action="{% url 'purchasing:send_back' po.pk line.pk %}" class="stack">
+        {% csrf_token %}
+        <label>Quantity <input type="text" inputmode="decimal" name="quantity" required> {{ line.get_unit_display }}</label>
+        {% if line.lots|length > 1 %}<label>From <select name="lot">{% for lot in line.lots %}<option value="{{ lot.pk }}">{{ lot.number }} · {{ lot.location }}</option>{% endfor %}</select></label>{% endif %}
+        <label>Refund <input type="text" inputmode="decimal" name="refund" placeholder="0.00"></label>
+        <label>Why <input type="text" name="reason" maxlength="300" required></label>
+        <div class="actions"><button type="submit">Record the return</button></div>
+        <p class="muted small">It leaves stock at what it is worth. A refund for less is recorded as a cost variance.</p>
+      </form>
+    </details>
+    {% endif %}{% endfor %}
+  </section>
+  {% endif %}
+  {% if can_adjust %}
+  <section class="card" aria-labelledby="adjust-heading">
+    <h2 id="adjust-heading">Adjust the landed cost</h2>
+    <p class="muted small">For a late freight bill or a corrected invoice. It is spread over the lines; stock still on hand changes value, and the share of what was already used is recorded as a cost variance.</p>
+    <form method="post" action="{% url 'purchasing:adjust' po.pk %}" class="stack">
+      {% csrf_token %}
+      <label>Change <input type="text" inputmode="decimal" name="amount" placeholder="18.50 or -5.00" required></label>
+      <label>What for <input type="text" name="reason" maxlength="300" required></label>
+      <div class="actions"><button type="submit">Adjust</button></div>
+    </form>
+  </section>
+  {% endif %}
+</div>
+{% endif %}
+
 {% if po.notes %}<h2>Notes</h2><p class="prewrap">{{ po.notes }}</p>{% endif %}
 
 {% if actions %}

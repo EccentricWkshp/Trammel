@@ -205,7 +205,12 @@ def wo_detail(request, pk):
             "operations": operations,
             "can_nest": [op for op in operations if op.depth < Operation.MAX_DEPTH],
             "done_count": wo.operations.exclude(status="pending").count(),
-            "planned": hooks.annotate_planned(wo.planned_materials.select_related("material")),
+            "planned": hooks.annotate_planned(
+                wo.planned_materials.select_related("material", "operation")
+            ),
+            "ready_to_record": list(services.ready_to_record(wo))
+            if can_edit and hooks.planned_use_mode() != "off"
+            else [],
             "usage": wo.material_use.select_related("material", "recorded_by"),
             "notes": wo.notes.select_related("author", "document__current__blob"),
             "actions": [t for t in WorkOrder.lifecycle.available(wo, actor)],
@@ -411,6 +416,26 @@ def material_add(request, pk):
     else:
         messages.error(request, "Enter a quantity, and a material or a description and cost.")
     return redirect(request.POST.get("next") or wo.get_absolute_url())
+
+
+@permission_required("workorders.edit")
+@require_POST
+def planned_use(request, pk):
+    """Record the planned materials of done operations as used, as planned."""
+    wo = _wo(request, "workorders.edit", pk)
+    ready = services.ready_to_record(wo)
+    chosen = set(request.POST.getlist("planned"))
+    if chosen:
+        ready = [p for p in ready if str(p.pk) in chosen]
+    try:
+        usages = services.use_planned(wo, ready, user=request.user)
+    except (ValidationError, units.IncompatibleUnits) as exc:
+        messages.error(request, " ".join(getattr(exc, "messages", [str(exc)])))
+    else:
+        messages.success(
+            request, f"Recorded {len(usages)} material use{'s' if len(usages) != 1 else ''}."
+        )
+    return redirect(f"{wo.get_absolute_url()}?tab=materials")
 
 
 @permission_required("workorders.edit")

@@ -79,11 +79,39 @@
   {% endif %}
 
 {% elif tab == "materials" %}
+  {% if ready_to_record %}
+  <form method="post" action="{% url 'workorders:planned_use' wo.pk %}" class="card stack" aria-labelledby="planned-heading">
+    {% csrf_token %}
+    <h2 id="planned-heading">Record the planned materials?</h2>
+    <p class="muted">These operations are done. Record what was planned for them as used, or untick what was not.</p>
+    {% for p in ready_to_record %}
+    <label class="check"><input type="checkbox" name="planned" value="{{ p.pk }}" checked><span>{{ p.quantity|floatformat:"-4" }} {{ p.unit }} {{ p.description }} <span class="muted small">· {{ p.operation.name }}</span></span></label>
+    {% endfor %}
+    <div class="actions"><button type="submit" class="primary">Record as used</button></div>
+  </form>
+  {% endif %}
   <div class="overview-grid">
+    <div class="column">
     <section class="card">
       <h2>Planned</h2>
-      {% if planned %}<ul class="plain">{% for p in planned %}<li>{{ p.description }}{% if p.quantity %} — {{ p.quantity|floatformat:"-4" }} {{ p.unit }}{% endif %}{% if p.stock_note %}<br><span class="muted small">{{ p.stock_note }}</span>{% endif %}</li>{% endfor %}</ul>{% else %}<p class="muted">Nothing planned.</p>{% endif %}
+      {% if planned %}<ul class="plain">{% for p in planned %}<li>{{ p.description }}{% if p.quantity %} — {{ p.quantity|floatformat:"-4" }} {{ p.unit }}{% endif %}{% if p.used_at %} <span class="badge">recorded</span>{% endif %}{% if p.stock_note %}<br><span class="muted small">{{ p.stock_note }}</span>{% endif %}</li>{% endfor %}</ul>{% else %}<p class="muted">Nothing planned.</p>{% endif %}
     </section>
+    <section class="card">
+      <h2>Used</h2>
+      {% if usage %}
+      <div class="table-wrap"><table>
+        <thead><tr><th scope="col">Material</th><th scope="col">Quantity</th>{% if can_costs %}<th scope="col" class="num">Cost</th>{% endif %}<th scope="col">By</th></tr></thead>
+        <tbody>{% for u in usage %}<tr><td>{{ u.description }}{% if not u.billable %} <span class="badge">not billable</span>{% endif %}{% if u.source == "stock" %} <span class="muted small">from stock</span>{% endif %}</td><td>{{ u.quantity|floatformat:"-4" }} {{ u.unit }}</td>{% if can_costs %}<td class="num">{{ u.total_cost|money }}</td>{% endif %}<td>{{ u.recorded_by.get_short_name }} {{ u.created_at|md }}</td></tr>{% endfor %}</tbody>
+      </table></div>
+      {% else %}<p class="muted">No material use recorded.</p>{% endif %}
+      {% if can_edit %}
+      <form method="post" action="{% url 'workorders:materials_confirm' wo.pk %}">{% csrf_token %}
+        <input type="hidden" name="confirmed" value="{{ wo.materials_confirmed|yesno:'0,1' }}">
+        {% if wo.materials_confirmed %}<span class="status status-completed">Material use confirmed</span> <button type="submit" class="linklike">Undo</button>{% else %}<button type="submit">Confirm all material use is recorded</button> <span class="muted">Needed before close-out.</span>{% endif %}
+      </form>
+      {% endif %}
+    </section>
+    </div>
     {% if can_edit %}
     <section class="card">
       <h2>Record material use</h2>
@@ -95,19 +123,6 @@
     </section>
     {% endif %}
   </div>
-  <h2>Used</h2>
-  {% if usage %}
-  <div class="table-wrap"><table>
-    <thead><tr><th scope="col">Material</th><th scope="col">Quantity</th>{% if can_costs %}<th scope="col" class="num">Cost</th>{% endif %}<th scope="col">By</th></tr></thead>
-    <tbody>{% for u in usage %}<tr><td>{{ u.description }}{% if not u.billable %} <span class="badge">not billable</span>{% endif %}{% if u.source == "stock" %} <span class="muted small">from stock</span>{% endif %}</td><td>{{ u.quantity|floatformat:"-4" }} {{ u.unit }}</td>{% if can_costs %}<td class="num">{{ u.total_cost|money }}</td>{% endif %}<td>{{ u.recorded_by.get_short_name }} {{ u.created_at|md }}</td></tr>{% endfor %}</tbody>
-  </table></div>
-  {% else %}<p class="muted">No material use recorded.</p>{% endif %}
-  {% if can_edit %}
-  <form method="post" action="{% url 'workorders:materials_confirm' wo.pk %}" class="panel">{% csrf_token %}
-    <input type="hidden" name="confirmed" value="{{ wo.materials_confirmed|yesno:'0,1' }}">
-    {% if wo.materials_confirmed %}<span class="status status-completed">Material use confirmed</span> <button type="submit" class="linklike">Undo</button>{% else %}<button type="submit">Confirm all material use is recorded</button> <span class="muted">Needed before close-out.</span>{% endif %}
-  </form>
-  {% endif %}
 
 {% elif tab == "notes" %}
   {% if can_edit %}

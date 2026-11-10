@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from django import forms
 from django.contrib import messages
+from django.core.exceptions import ValidationError
 from django.shortcuts import redirect, render
+from django.views.decorators.http import require_POST
 
-from trammel.core import access, audit
+from trammel.core import access, audit, panels
 from trammel.core.services import save_audited
 from trammel.core.web import csv_response, paginate, permission_required
 
+from . import services
 from .models import Product
 
 
@@ -23,7 +26,6 @@ class ProductForm(forms.ModelForm):
             "cost",
             "unit",
             "tax_category",
-            "is_active",
         ]
         widgets = {"description": forms.Textarea(attrs={"rows": 3})}
 
@@ -94,5 +96,50 @@ def product_edit(request, pk=None):
     if request.method == "POST" and form.is_valid():
         save_audited(form.save(commit=False), before=before)
         messages.success(request, f"{obj} saved.")
+        return redirect(obj)
+    if not pk:
+        return render(request, "catalog/form.html", {"form": form, "product": None})
+    return render(
+        request,
+        "catalog/form.html",
+        {
+            "form": form,
+            "product": obj,
+            "can_delete": access.has_perm(request.actor, "catalog.delete", obj),
+            # Other modules' tabs: stock adds the bill of materials.
+            **panels.tabbed(
+                request,
+                panels.for_object(request, obj),
+                first=(("details", "Details"),),
+                last=(("files", "Files"),),
+            ),
+        },
+    )
+
+
+@permission_required("catalog.edit")
+@require_POST
+def product_archive(request, pk):
+    product = access.get_or_404(request.actor, "catalog.edit", Product.objects.all(), pk=pk)
+    archived = request.POST.get("archived") == "1"
+    services.set_archived(product, archived)
+    if archived:
+        messages.success(request, f"{product} archived. It can't be picked for new quotes.")
+    else:
+        messages.success(request, f"{product} is back in the catalog.")
+    return redirect(product)
+
+
+@permission_required("catalog.delete")
+def product_delete(request, pk):
+    product = access.get_or_404(request.actor, "catalog.delete", Product.objects.all(), pk=pk)
+    used = services.in_use(product)
+    if request.method == "POST" and not used:
+        try:
+            services.delete_product(product, reason=request.POST.get("reason", ""))
+        except ValidationError as exc:
+            messages.error(request, " ".join(exc.messages))
+            return redirect(product)
+        messages.success(request, f"{product} moved to the trash. It can be restored for 30 days.")
         return redirect("catalog:list")
-    return render(request, "catalog/form.html", {"form": form, "product": obj if pk else None})
+    return render(request, "catalog/confirm_delete.html", {"product": product, "used": used})

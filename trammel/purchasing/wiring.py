@@ -144,5 +144,11 @@ for title, description, url_name, order in (
         "purchasing:prices",
         22,
     ),
+    (
+        "Returns and cost variances",
+        "Refunds for less than goods were worth, and landed cost changes for goods used.",
+        "purchasing:variances",
+        23,
+    ),
 ):
     report_cards.register(title, description, url_name, permission="purchasing.view", order=order)

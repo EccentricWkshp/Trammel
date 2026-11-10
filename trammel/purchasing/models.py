@@ -244,3 +244,64 @@ class VendorItem(models.Model):
 
     def __str__(self) -> str:
         return f"{self.material} from {self.vendor}"
+
+
+class VendorReturn(AppendOnlyModel):
+    """Part of a delivery sent back to the vendor (FR-PUR-5). The stock leaves at its
+    value; the refund may be more or less, and the difference is a cost variance."""
+
+    order = models.ForeignKey(PurchaseOrder, on_delete=models.PROTECT, related_name="returns")
+    line = models.ForeignKey(POLine, on_delete=models.PROTECT, related_name="returns")
+    lot = models.ForeignKey(
+        "stock.StockLot", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    #: In the line's unit.
+    quantity = models.DecimalField(**QTY)
+    #: What the returned goods were worth in stock (their landed cost).
+    value = MoneyField()
+    refund = MoneyField(validators=[MinValueValidator(0)])
+    reason = models.CharField(max_length=300)
+    returned_on = models.DateField()
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+
+    class Meta:
+        ordering = ["created_at"]
+
+    @property
+    def loss(self) -> Decimal:
+        return self.value - self.refund
+
+
+class LandedAdjustment(AppendOnlyModel):
+    """A change to an order's landed cost after it arrived: a late freight bill, a
+    corrected invoice. Spread over the lines; stock still on hand is revalued."""
+
+    order = models.ForeignKey(PurchaseOrder, on_delete=models.PROTECT, related_name="adjustments")
+    amount = MoneyField()
+    reason = models.CharField(max_length=300)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+
+    class Meta:
+        ordering = ["created_at"]
+
+
+class CostVariance(AppendOnlyModel):
+    """Cost that could not go into stock: a refund for less than the goods were worth,
+    or a landed cost change for goods already used. Positive is a cost to the shop."""
+
+    class Kind(models.TextChoices):
+        RETURN = "return", "Vendor return"
+        LANDED = "landed", "Landed cost adjustment"
+
+    order = models.ForeignKey(PurchaseOrder, on_delete=models.PROTECT, related_name="variances")
+    line = models.ForeignKey(POLine, on_delete=models.PROTECT, related_name="variances")
+    kind = models.CharField(max_length=8, choices=Kind.choices)
+    amount = MoneyField()
+    note = models.CharField(max_length=300, blank=True)
+
+    class Meta:
+        ordering = ["created_at"]

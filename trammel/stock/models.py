@@ -227,11 +227,46 @@ class StockMove(AppendOnlyModel):
         return f"{self.get_reason_display()} {self.quantity} of {self.item}"
 
 
+class BOMLine(models.Model):
+    """One component of a product made in the shop (FR-STK-6): how much of a
+    material goes into one unit of the product. Single level."""
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    product = models.ForeignKey(
+        "catalog.Product", on_delete=models.CASCADE, related_name="bom_lines"
+    )
+    material = models.ForeignKey("shop.Material", on_delete=models.PROTECT, related_name="+")
+    quantity = models.DecimalField(**QTY)
+    unit = models.CharField(max_length=12)
+    note = models.CharField(max_length=200, blank=True)
+    position = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["position", "id"]
+        constraints = [
+            models.CheckConstraint(condition=models.Q(quantity__gt=0), name="bom_quantity_positive")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.quantity} {self.unit} {self.material}"
+
+
 class StockSettings(SingletonModel):
     class Shortfall(models.TextChoices):
         REFUSE = "refuse", "Refuse, and ask for a count first"
         FOUND = "found", "Record the difference as found stock, at the current cost"
 
+    class PlannedUse(models.TextChoices):
+        ASK = "ask", "Ask on the work order once the operation is done"
+        AUTO = "auto", "Record them when the operation is marked done"
+        OFF = "off", "Do nothing; materials are recorded by hand"
+
+    planned_use = models.CharField(
+        "planned materials, such as a product's bill of materials",
+        max_length=4,
+        choices=PlannedUse.choices,
+        default=PlannedUse.ASK,
+    )
     shortfall = models.CharField(
         "when a work order uses more than is on hand",
         max_length=8,

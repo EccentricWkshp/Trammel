@@ -5,10 +5,11 @@ from __future__ import annotations
 import re
 
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.urls import reverse
 from django.utils.http import urlencode
 
-from trammel.core import access, dashboard, modules, panels, report_cards, scan, search
+from trammel.core import access, dashboard, modules, panels, report_cards, scan, search, units
 from trammel.shop import hooks as shop_hooks
 from trammel.shop.models import Material, MaterialBarcode
 from trammel.workorders import hooks as wo_hooks
@@ -64,6 +65,39 @@ def offer_new_material(request, code):
             f"No material has the barcode {code} yet. Add it here.",
         )
     return None
+
+
+@wo_hooks.carry_over
+def plan_bill_of_materials(wo, line, operation):
+    services.plan_bom(wo, line, operation)
+
+
+@wo_hooks.planned_use
+def planned_use_mode():
+    from .models import StockSettings
+
+    return StockSettings.load().planned_use
+
+
+@wo_hooks.operation_done
+def record_planned_when_done(operation, user):
+    """In automatic mode, an operation marked done records what was planned for it."""
+    from trammel.workorders import services as wos
+
+    from .models import StockSettings
+
+    if StockSettings.load().planned_use != StockSettings.PlannedUse.AUTO:
+        return
+    ready = [p for p in wos.ready_to_record(operation.work_order) if p.operation_id == operation.pk]
+    if not ready:
+        return
+    # If stock is short, the operation is still done: the materials wait on the work
+    # order's prompt instead.
+    try:
+        with transaction.atomic():
+            wos.use_planned(operation.work_order, ready, user=user)
+    except ValidationError, units.IncompatibleUnits:
+        pass
 
 
 @wo_hooks.material_handler
@@ -262,3 +296,39 @@ for title, description, url_name, order in (
     ("Remnants", "Offcuts kept in stock, their size, age and value.", "stock:remnants", 14),
 ):
     report_cards.register(title, description, url_name, permission="stock.view", order=order)
+
+
+@panels.register("catalog.product")
+def bill_of_materials(request, product):
+    """What goes into one of the product (FR-STK-6)."""
+    if not access.has_perm(request.actor, "catalog.view"):
+        return None
+    from trammel.shop.models import Material as M
+
+    lines = list(product.bom_lines.select_related("material"))
+    cost = services.ZERO
+    for line in lines:
+        try:
+            line.cost = line.material.cost_per(line.unit) * line.quantity
+        except units.IncompatibleUnits:
+            line.cost = None
+        cost += line.cost or services.ZERO
+    can_edit = access.has_perm(request.actor, "catalog.edit")
+    editing = request.GET.get("edit", "") if can_edit else ""
+    return panels.Panel(
+        "Bill of materials",
+        "stock/_bom_panel.html",
+        {
+            "product": product,
+            "lines": lines,
+            "cost": cost,
+            "editing": next((line for line in lines if str(line.pk) == editing), None),
+            "can_edit": can_edit,
+            "can_costs": access.has_perm(request.actor, "core.see_costs"),
+            "materials": M.objects.filter(is_active=True).order_by("name"),
+            "units": [c for c, _ in units.UNITS.items() if units.get(c).dimension != "time"],
+        },
+        order=10,
+        tab="bom",
+        count=len(lines) or None,
+    )

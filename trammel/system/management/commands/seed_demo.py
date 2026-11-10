@@ -399,6 +399,24 @@ class Builder:
         self.oil = product("FIN-OIL", "Board butter, 4 oz", "resold", "12", "5.50")
         product("DES-HR", "Design time", "service", "75", "0", unit="hr")
         self.say("5 products")
+        from trammel.core import modules
+
+        if modules.is_enabled("stock") and not self.board.bom_lines.exists():
+            from trammel.shop.models import Material
+            from trammel.stock import services as stock
+            from trammel.stock.models import BOMLine
+
+            oil = Material.objects.filter(name="Danish oil").first()
+            stock.save_bom_line(
+                BOMLine(
+                    product=self.board, material=self.walnut, quantity=D("1.5"), unit="board_ft"
+                )
+            )
+            if oil:
+                stock.save_bom_line(
+                    BOMLine(product=self.board, material=oil, quantity=D("30"), unit="ml")
+                )
+            self.say("a bill of materials for the cutting board")
 
     def customers(self):
         from trammel.customers.models import Address, Contact, Customer

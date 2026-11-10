@@ -19,7 +19,7 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import F, Q, Sum
+from django.db.models import F, Max, Q, Sum
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
@@ -361,6 +361,40 @@ def unreceive_lot(lot: StockLot, *, note: str = "", user=None) -> StockMove:
     if lot.qty_on_hand <= 0:
         raise ValidationError(f"{lot.number} is already empty.")
     return _move(lot, Reason.UNRECEIVE, -lot.qty_on_hand, -lot.value_on_hand, user=user, note=note)
+
+
+@transaction.atomic
+def take_out(
+    lot: StockLot, *, quantity: Decimal, reason: str, note: str = "", user=None
+) -> StockMove:
+    """Remove part of a lot for a reason of the caller's (sent back to the vendor),
+    at its share of the lot's value."""
+    _lock(lot.item)
+    lot = StockLot.objects.select_for_update().get(pk=lot.pk)
+    quantity = _q(quantity)
+    if quantity <= 0:
+        raise ValidationError("Enter a quantity more than zero.")
+    if quantity > lot.qty_on_hand:
+        raise ValidationError(
+            f"{lot.number} has only {fmt(lot.qty_on_hand, lot.item.material.unit)} left."
+        )
+    _whole_remnant(lot, quantity, "send back")
+    return _move(lot, reason, -quantity, -_draw_value(lot, quantity), user=user, note=note)
+
+
+@transaction.atomic
+def revalue(lot: StockLot, amount: Decimal, *, note: str = "", user=None) -> Decimal:
+    """Change what a lot is worth without changing how much there is (a late freight
+    bill). Returns the part of `amount` the lot could take: none once it is empty,
+    and never below zero value."""
+    _lock(lot.item)
+    lot = StockLot.objects.select_for_update().get(pk=lot.pk)
+    if lot.qty_on_hand <= 0 or not amount:
+        return ZERO
+    applied = max(amount, -lot.value_on_hand)
+    if applied:
+        _move(lot, Reason.REVALUE, ZERO, applied, user=user, note=note)
+    return applied
 
 
 @transaction.atomic
@@ -1019,3 +1053,59 @@ def adjustments(start, end, group: str = "reason") -> tuple[list[dict], list, di
         found=Coalesce(Sum("value", filter=Q(value__gt=0)), ZERO),
     )
     return summary, detail, {**sums, "net": sums["lost"] + sums["found"]}
+
+
+# ---------------------------------------------------------------------------
+# Bills of materials (FR-STK-6)
+# ---------------------------------------------------------------------------
+
+
+@transaction.atomic
+def save_bom_line(line) -> object:
+    """Add or change one component of a product's bill of materials."""
+    from .models import BOMLine
+
+    try:
+        line.material.per_stock_unit(line.unit)
+    except units.IncompatibleUnits as exc:
+        raise ValidationError({"unit": str(exc)}) from None
+    if line.quantity is None or line.quantity <= 0:
+        raise ValidationError({"quantity": "Enter how much goes into one."})
+    adding = line._state.adding
+    if adding and not line.position:
+        last = BOMLine.objects.filter(product=line.product).aggregate(m=Max("position"))["m"]
+        line.position = (last or 0) + 10
+    line.save()
+    audit.record(
+        "product.bom",
+        line.product,
+        summary=f"{line.product}: {'added' if adding else 'changed to'} "
+        f"{line.quantity} {line.unit} {line.material}",
+    )
+    return line
+
+
+@transaction.atomic
+def delete_bom_line(line) -> None:
+    product, label = line.product, str(line)
+    line.delete()
+    audit.record("product.bom_delete", product, summary=f"{product}: removed {label}")
+
+
+def plan_bom(wo, line, operation) -> None:
+    """A product line carried over to a work order: plan each component of its
+    bill of materials, times the quantity, for the line's operation."""
+    from trammel.workorders.models import PlannedMaterial
+
+    product = getattr(line, "product", None)
+    if product is None:
+        return
+    for part in product.bom_lines.select_related("material"):
+        PlannedMaterial.objects.create(
+            work_order=wo,
+            operation=operation,
+            material=part.material,
+            description=f"{part.material} (for {product.name})",
+            quantity=(part.quantity * line.quantity).quantize(Q4),
+            unit=part.unit,
+        )

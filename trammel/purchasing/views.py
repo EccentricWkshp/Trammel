@@ -159,6 +159,13 @@ def detail(request, pk):
         if line.tracked:
             item = StockItem.objects.filter(material_id=line.material_id).first()
             line.default_location = item.default_location_id if item else None
+    state = services.receipt_state(po)
+    can_return = po.status in (Status.ORDERED, Status.CLOSED) and access.has_perm(
+        actor, "purchasing.receive"
+    )
+    for line in lines:
+        line.can_send_back = can_return and line.got - services.returned(line) > 0
+        line.lots = services.returnable_lots(line) if line.can_send_back else []
     editable = po.editable and access.has_perm(actor, "purchasing.create")
     fixed_note = ""
     if po.status == Status.ORDERED and not po.editable:
@@ -178,11 +185,17 @@ def detail(request, pk):
             "po": po,
             "lines": lines,
             "totals": services.totals(po),
-            "state": services.receipt_state(po),
+            "state": state,
             "receipts": receipts,
             "undone": undone,
             "editable": editable,
             "fixed_note": fixed_note,
+            "any_returnable": any(line.can_send_back for line in lines),
+            "returns": po.returns.select_related("line", "lot", "user"),
+            "adjustments": po.adjustments.select_related("user"),
+            "can_adjust": state == "all"
+            and po.status in (Status.ORDERED, Status.CLOSED)
+            and access.has_perm(actor, "purchasing.receive"),
             # Empty cells after the amount column in the totals rows.
             "trailing": 1 + (po.status != Status.DRAFT) + editable,
             "can_receive": can_receive,
@@ -327,6 +340,87 @@ def unreceive(request, pk, receipt_pk):
     else:
         messages.success(request, "Receipt undone.")
     return redirect(po)
+
+
+def _decimal(value: str, what: str) -> Decimal:
+    try:
+        return Decimal((value or "").strip())
+    except InvalidOperation:
+        raise ValidationError(f"Enter the {what} as a number.") from None
+
+
+@permission_required("purchasing.receive")
+@require_POST
+def send_back(request, pk, line_pk):
+    """Return part of a delivery to the vendor (FR-PUR-5)."""
+    po = _po(request, "purchasing.receive", pk)
+    line = get_object_or_404(POLine, pk=line_pk, order=po)
+    from trammel.stock.models import StockLot
+
+    lot = StockLot.objects.filter(pk=request.POST.get("lot") or None).first()
+    try:
+        services.return_to_vendor(
+            line,
+            quantity=_decimal(request.POST.get("quantity"), "quantity"),
+            refund=_decimal(request.POST.get("refund") or "0", "refund"),
+            reason=request.POST.get("reason", ""),
+            lot=lot,
+            user=request.user,
+        )
+    except ValidationError as exc:
+        _errors(request, exc)
+    else:
+        messages.success(request, f"Recorded the return of {line.description}.")
+    return redirect(po)
+
+
+@permission_required("purchasing.receive")
+@require_POST
+def adjust(request, pk):
+    """Change the landed cost after delivery: a late freight bill, a corrected invoice."""
+    po = _po(request, "purchasing.receive", pk)
+    try:
+        services.adjust_landed_cost(
+            po,
+            amount=_decimal(request.POST.get("amount"), "amount"),
+            reason=request.POST.get("reason", ""),
+            user=request.user,
+        )
+    except ValidationError as exc:
+        _errors(request, exc)
+    else:
+        messages.success(request, "Landed cost adjusted.")
+    return redirect(po)
+
+
+@permission_required("purchasing.view")
+def variances_report(request):
+    start, end = _period(request)
+    rows = list(services.variances(start, end))
+    total = sum((v.amount for v in rows), Decimal("0"))
+    if request.GET.get("format") == "csv":
+        return _csv(
+            request,
+            "purchasing-cost-variances",
+            ["date", "order", "vendor", "item", "kind", "amount", "note"],
+            (
+                (
+                    v.created_at.date(),
+                    v.order.number,
+                    v.order.vendor.name,
+                    v.line.description,
+                    v.get_kind_display(),
+                    v.amount,
+                    v.note,
+                )
+                for v in rows
+            ),
+        )
+    return render(
+        request,
+        "purchasing/report_variances.html",
+        {"rows": rows, "total": total, "start": start, "end": end},
+    )
 
 
 @permission_required("purchasing.view")

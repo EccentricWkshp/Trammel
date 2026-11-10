@@ -30,6 +30,9 @@ urlpatterns = [
     path("lots/<uuid:pk>/remnant/", views.cut_remnant, name="cut_remnant"),
     path("lots/<uuid:pk>/<str:action>/", views.lot_action, name="lot_action"),
     path("materials/<uuid:pk>/tracking/", views.tracking, name="tracking"),
+    path("products/<uuid:product_pk>/bom/", views.bom_add, name="bom_add"),
+    path("bom/<uuid:pk>/", views.bom_edit, name="bom_edit"),
+    path("bom/<uuid:pk>/delete/", views.bom_delete, name="bom_delete"),
     path("materials/<uuid:pk>/receive/", views.receive, name="receive"),
     path("materials/<uuid:pk>/count/", views.count, name="count"),
 ]

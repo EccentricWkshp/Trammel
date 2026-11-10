@@ -363,4 +363,6 @@ def test_lines_are_edited_and_removed_until_a_delivery_arrives(
     )  # nothing arrived yet
     purchasing.receive(po.lines.get(), quantity=D("1"), user=admin)
     page = admin_client.get(po.get_absolute_url()).content.decode()
-    assert "Lines and charges are fixed" in page and "/lines/" not in page
+    line = po.lines.get()
+    assert "Lines and charges are fixed" in page
+    assert f'/purchasing/{po.pk}/lines/{line.pk}/"' not in page and ">Remove<" not in page

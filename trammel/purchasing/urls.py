@@ -11,6 +11,7 @@ urlpatterns = [
     path("reports/spend/", views.spend_report, name="spend"),
     path("reports/open/", views.open_report, name="open_orders"),
     path("reports/prices/", views.prices_report, name="prices"),
+    path("reports/variances/", views.variances_report, name="variances"),
     path("<uuid:pk>/", views.detail, name="detail"),
     path("<uuid:pk>/edit/", views.order_edit, name="edit"),
     path("<uuid:pk>/delete/", views.delete, name="delete"),
@@ -21,4 +22,6 @@ urlpatterns = [
     path("<uuid:pk>/transition/", views.transition, name="transition"),
     path("<uuid:pk>/receive/", views.receive, name="receive"),
     path("<uuid:pk>/receipts/<uuid:receipt_pk>/undo/", views.unreceive, name="unreceive"),
+    path("<uuid:pk>/lines/<uuid:line_pk>/return/", views.send_back, name="send_back"),
+    path("<uuid:pk>/adjust/", views.adjust, name="adjust"),
 ]

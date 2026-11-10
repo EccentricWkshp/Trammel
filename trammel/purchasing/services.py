@@ -377,6 +377,183 @@ def unreceive(receipt: PurchaseReceipt, *, user=None, reason: str = "") -> Purch
 
 
 # ---------------------------------------------------------------------------
+# Returns and cost changes after delivery (FR-PUR-5)
+# ---------------------------------------------------------------------------
+
+
+def returned(line: POLine) -> Decimal:
+    return line.returns.aggregate(q=models.Sum("quantity"))["q"] or ZERO
+
+
+def returnable_lots(line: POLine) -> list:
+    """Lots this line brought in that still hold some of it."""
+    ids = [
+        r.lot_id
+        for r in line.receipts.filter(quantity__gt=0, lot__isnull=False, reversed_by__isnull=True)
+    ]
+    return list(StockLot.objects.filter(pk__in=ids, qty_on_hand__gt=0).select_related("location"))
+
+
+@transaction.atomic
+def return_to_vendor(
+    line: POLine,
+    *,
+    quantity: Decimal,
+    refund: Decimal,
+    reason: str,
+    lot: StockLot | None = None,
+    returned_on: dt.date | None = None,
+    user=None,
+):
+    """Send part of a delivery back (FR-PUR-5). Stock leaves its lot at its value;
+    a refund for less (or more) than that is recorded as a cost variance."""
+    from trammel.stock.models import Reason
+
+    from .models import CostVariance, VendorReturn
+
+    po = PurchaseOrder.objects.select_for_update().get(pk=line.order_id)
+    line = POLine.objects.select_related("material", "work_order").get(pk=line.pk)
+    quantity, refund = Decimal(quantity), Decimal(refund)
+    if not reason.strip():
+        raise ValidationError("Say why it is going back.")
+    if quantity <= 0:
+        raise ValidationError("Enter how much is going back.")
+    if refund < 0:
+        raise ValidationError("A refund cannot be negative.")
+    got, _ = received(line)
+    left = got - returned(line)
+    if quantity > left:
+        raise ValidationError(
+            f"Only {stock.fmt(left, line.unit)} of {line} has arrived and not gone back."
+        )
+    lots = returnable_lots(line)
+    tracked = line.material is not None and stock.tracked_item(line.material) is not None
+    if tracked and not lots:
+        where = (
+            f" It went onto {line.work_order.number}; return it there first."
+            if (line.work_order is not None)
+            else ""
+        )
+        raise ValidationError(f"None of what came in on this line is still in stock.{where}")
+    if lots:
+        lot = lot or lots[0]
+        if lot.pk not in {x.pk for x in lots}:
+            raise ValidationError(f"{lot.number} did not come in on this line.")
+        move = stock.take_out(
+            lot,
+            quantity=line.material.to_stock(quantity, line.unit),
+            reason=Reason.VENDOR_RETURN,
+            note=f"{po.number}: back to {po.vendor}",
+            user=user,
+        )
+        value = -move.value
+    elif line.work_order is not None:
+        raise ValidationError(
+            f"It went onto {line.work_order.number}. Take it off there first (a negative "
+            "quantity), then send it back."
+        )
+    else:
+        lot = None
+        value = round_money(landed(po)[line.pk] * quantity / line.quantity)
+    vendor_return = VendorReturn.objects.create(
+        order=po,
+        line=line,
+        lot=lot,
+        quantity=quantity,
+        value=value,
+        refund=round_money(refund),
+        reason=reason.strip()[:300],
+        returned_on=returned_on or timezone.localdate(),
+        user=user,
+    )
+    if vendor_return.loss:
+        CostVariance.objects.create(
+            order=po,
+            line=line,
+            kind=CostVariance.Kind.RETURN,
+            amount=vendor_return.loss,
+            note=f"Refund {vendor_return.refund} for goods worth {value}",
+        )
+    audit.record(
+        "purchase_order.return",
+        po,
+        summary=f"{po}: sent back {stock.fmt(quantity, line.unit)} of {line}, refund {refund}",
+        reason=reason,
+    )
+    return vendor_return
+
+
+@transaction.atomic
+def adjust_landed_cost(po: PurchaseOrder, *, amount: Decimal, reason: str, user=None):
+    """A change to what an order cost after everything arrived: a late freight bill or a
+    corrected invoice. It is spread over the lines by value; the share of stock still
+    on hand revalues its lot, and the share of what was already used (or sent
+    back) is recorded as a cost variance."""
+    from .models import CostVariance, LandedAdjustment
+
+    po = PurchaseOrder.objects.select_for_update().get(pk=po.pk)
+    amount = round_money(Decimal(amount))
+    if not amount:
+        raise ValidationError("Enter the change in cost: more, or less with a minus sign.")
+    if not reason.strip():
+        raise ValidationError("Say what the change is for.")
+    if po.status not in (Status.ORDERED, Status.CLOSED) or receipt_state(po) != "all":
+        raise ValidationError(
+            "Adjust the landed cost once everything has arrived. Until then, change the "
+            "charges on the order."
+        )
+    adjustment = LandedAdjustment.objects.create(
+        order=po, amount=amount, reason=reason.strip()[:300], user=user
+    )
+    lines = list(po.lines.all())
+    for line, share in zip(lines, allocate(amount, [x.goods for x in lines]), strict=True):
+        if not share:
+            continue
+        receipts = list(line.receipts.filter(quantity__gt=0, reversed_by__isnull=True))
+        variance = ZERO
+        for receipt, part in zip(
+            receipts, allocate(share, [r.value for r in receipts]), strict=True
+        ):
+            applied = ZERO
+            if receipt.lot_id:
+                lot = StockLot.objects.get(pk=receipt.lot_id)
+                first = lot.moves.filter(reason="receive").first()
+                came_in = first.quantity if first else ZERO
+                if came_in > 0 and lot.qty_on_hand > 0:
+                    on_hand = round_money(part * min(Decimal(1), lot.qty_on_hand / came_in))
+                    applied = stock.revalue(
+                        lot, on_hand, note=f"{po.number}: landed cost changed", user=user
+                    )
+            variance += part - applied
+        if variance:
+            CostVariance.objects.create(
+                order=po,
+                line=line,
+                kind=CostVariance.Kind.LANDED,
+                amount=variance,
+                note=f"Landed cost change for goods already used: {reason.strip()[:200]}",
+            )
+    audit.record(
+        "purchase_order.landed_adjustment",
+        po,
+        summary=f"{po}: landed cost {'+' if amount > 0 else ''}{amount}",
+        reason=reason,
+    )
+    return adjustment
+
+
+def variances(start: dt.date, end: dt.date):
+    """Cost variances recorded in a period, newest first."""
+    from .models import CostVariance
+
+    return (
+        CostVariance.objects.filter(created_at__date__range=(start, end))
+        .select_related("order__vendor", "line")
+        .order_by("-created_at")
+    )
+
+
+# ---------------------------------------------------------------------------
 # What is on order, and ordering what is low
 # ---------------------------------------------------------------------------
 

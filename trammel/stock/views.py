@@ -901,3 +901,65 @@ def adjustments_report(request):
             "costs": costs,
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Bills of materials (FR-STK-6), edited on the product page
+# ---------------------------------------------------------------------------
+
+
+@permission_required("catalog.edit")
+@require_POST
+def bom_add(request, product_pk):
+    from trammel.catalog.models import Product
+
+    from .models import BOMLine
+
+    product = access.get_or_404(request.actor, "catalog.edit", Product.objects.all(), pk=product_pk)
+    try:
+        services.save_bom_line(_bom_fields(request, BOMLine(product=product)))
+    except ValidationError as exc:
+        _errors(request, exc)
+    return redirect(f"{product.get_absolute_url()}?tab=bom")
+
+
+def _bom_fields(request, line):
+    """Fill a bill of materials line from the posted form."""
+    material = Material.objects.filter(pk=request.POST.get("material") or None).first()
+    if material is None:
+        raise ValidationError("Choose a material.")
+    try:
+        quantity = Decimal(request.POST.get("quantity", "").strip())
+    except ArithmeticError:
+        raise ValidationError("Enter how much goes into one.") from None
+    line.material = material
+    line.quantity = quantity
+    line.unit = request.POST.get("unit") or material.unit
+    line.note = request.POST.get("note", "").strip()[:200]
+    return line
+
+
+@permission_required("catalog.edit")
+@require_POST
+def bom_edit(request, pk):
+    from .models import BOMLine
+
+    line = get_object_or_404(BOMLine.objects.select_related("product"), pk=pk)
+    url = f"{line.product.get_absolute_url()}?tab=bom"
+    try:
+        services.save_bom_line(_bom_fields(request, line))
+    except ValidationError as exc:
+        _errors(request, exc)
+        return redirect(f"{url}&edit={line.pk}")
+    return redirect(url)
+
+
+@permission_required("catalog.edit")
+@require_POST
+def bom_delete(request, pk):
+    from .models import BOMLine
+
+    line = get_object_or_404(BOMLine.objects.select_related("product"), pk=pk)
+    product = line.product
+    services.delete_bom_line(line)
+    return redirect(f"{product.get_absolute_url()}?tab=bom")
