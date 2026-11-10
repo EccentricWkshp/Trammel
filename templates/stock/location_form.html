@@ -1,0 +1,20 @@
+{% extends "settings_base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block settings_content %}
+<h1>{{ title }}</h1>
+<form method="post" class="stack" novalidate>
+  {% csrf_token %}
+  {% include "partials/form_body.html" %}
+  <div class="actions">
+    <button type="submit" class="primary">Save</button>
+    <a href="{% if editing %}{{ location.get_absolute_url }}{% else %}{% url 'stock:locations' %}{% endif %}">Cancel</a>
+  </div>
+</form>
+{% if editing %}
+<form method="post" class="danger-zone">
+  {% csrf_token %}
+  <p class="muted">A location can be deleted once it holds no stock and has nothing inside it.</p>
+  <button type="submit" name="delete" value="1" class="danger">Delete location</button>
+</form>
+{% endif %}
+{% endblock %}

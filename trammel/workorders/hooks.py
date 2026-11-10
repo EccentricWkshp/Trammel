@@ -25,3 +25,54 @@ def guard_for(target: str):
         return problems(work_order, target)
 
     return guard
+
+
+# Material use. The stock module takes over recording for the materials it
+# tracks: it draws the quantity from lots and writes the usages at lot cost.
+
+_material_handlers: list[Callable] = []
+
+
+def material_handler(fn):
+    """Register `fn(wo, *, material, quantity, unit, ...)` returning the usages it
+    wrote, or None to leave the material to the price list."""
+    _material_handlers.append(fn)
+    return fn
+
+
+def _enabled(fns: list[Callable]) -> list[Callable]:
+    from trammel.core import modules
+
+    on = modules.enabled_keys()
+    return [f for f in fns if (key := modules.module_of(f.__module__)) is None or key in on]
+
+
+def handle_material(work_order, **kwargs):
+    for fn in _enabled(_material_handlers):
+        result = fn(work_order, **kwargs)
+        if result is not None:
+            return result
+    return None
+
+
+# Notes beside planned materials: the stock module says how much is on hand and where.
+
+_planned_notes: list[Callable] = []
+
+
+def planned_note(fn):
+    """Register `fn(planned_materials) -> {planned.pk: "note"}`."""
+    _planned_notes.append(fn)
+    return fn
+
+
+def annotate_planned(planned) -> list:
+    planned = list(planned)
+    for p in planned:
+        p.stock_note = ""
+    for fn in _enabled(_planned_notes):
+        notes = fn(planned)
+        for p in planned:
+            if notes.get(p.pk):
+                p.stock_note = notes[p.pk]
+    return planned

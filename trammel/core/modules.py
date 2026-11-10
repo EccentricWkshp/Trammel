@@ -75,6 +75,9 @@ class MenuEntry:
     order: int = 100
     #: Shown only to the system admin (users, roles, modules, system).
     admin_only: bool = False
+    #: Left out while this module is enabled, because it offers the same page in
+    #: a fuller form (stock lists the materials).
+    hidden_with: str | None = None
 
 
 @dataclass(frozen=True)
@@ -120,6 +123,9 @@ class ModuleManifest:
     #: template, say) if it is missing. Runs after every migrate; must be
     #: idempotent and must never overwrite what the admin has changed.
     seed: str | None = None
+    #: Dotted path to a function returning reasons the module cannot be
+    #: disabled now (stock still tracked, say); empty when it can.
+    disable_check: str | None = None
 
 
 class ModuleConfig(AppConfig):
@@ -237,6 +243,12 @@ def set_enabled(key: str, enabled: bool, *, reason: str = "") -> None:
         if blocking:
             names = ", ".join(m.name for m in blocking)
             raise ValidationError(f"Disable {names} first; it depends on {manifest.name}.")
+        if manifest.disable_check and key in current:
+            from django.utils.module_loading import import_string
+
+            problems = list(import_string(manifest.disable_check)())
+            if problems:
+                raise ValidationError(problems)
 
     if (key in current) == enabled:
         return

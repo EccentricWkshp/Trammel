@@ -131,6 +131,7 @@ INSTALLED_APPS = [
     "trammel.agreements.apps.AgreementsConfig",
     "trammel.quotes.apps.QuotesConfig",
     "trammel.workorders.apps.WorkOrdersConfig",
+    "trammel.stock.apps.StockConfig",
     "trammel.timetracking.apps.TimeTrackingConfig",
     "trammel.floor.apps.FloorConfig",
     "trammel.billing.apps.BillingConfig",

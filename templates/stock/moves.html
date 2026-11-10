@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% load trammel %}
+{% block title %}Stock history{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{% url 'stock:list' %}">Stock</a></p>
+<div class="heading-row"><h1>Stock history</h1><a href="?{{ query }}{% if query %}&amp;{% endif %}format=csv">Export CSV</a></div>
+<p class="lede">Every change to stock, newest first. Nothing here is ever changed; a mistake is corrected by a later entry.</p>
+<form method="get" class="filters" role="search">
+  <label>Search <input type="search" name="q" value="{{ q }}" placeholder="Material, lot or note"></label>
+  <label>What
+    <select name="reason"><option value="">Anything</option>
+      {% for value, label in reasons %}<option value="{{ value }}"{% if value == reason %} selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>From <input type="date" name="from" value="{{ start|date:'Y-m-d' }}"></label>
+  <label>To <input type="date" name="to" value="{{ end|date:'Y-m-d' }}"></label>
+  <button type="submit">Filter</button>
+</form>
+<div class="table-wrap">
+<table>
+  <thead><tr><th scope="col">When</th><th scope="col">Material</th><th scope="col">What</th><th scope="col">Lot</th><th scope="col">Where</th><th scope="col" class="num">Quantity</th>{% if can_costs %}<th scope="col" class="num">Value</th>{% endif %}<th scope="col">Note</th></tr></thead>
+  <tbody>
+  {% for mv in page %}
+    <tr>
+      <td>{{ mv.created_at|mdt }}</td>
+      <td><a href="{{ mv.item.get_absolute_url }}">{{ mv.item.material }}</a></td>
+      <td>{{ mv.get_reason_display }}</td>
+      <td><a href="{{ mv.lot.get_absolute_url }}">{{ mv.lot.number }}</a></td>
+      <td>{{ mv.location }}</td>
+      <td class="num">{{ mv.quantity|qty }} {{ mv.item.material.unit }}{% if mv.entered_unit %}<br><span class="muted small">entered {{ mv.entered_quantity|qty }} {{ mv.entered_unit }}</span>{% endif %}</td>
+      {% if can_costs %}<td class="num">{{ mv.value|money }}</td>{% endif %}
+      <td>{{ mv.note }}{% if mv.user %} <span class="muted small">· {{ mv.user.get_short_name }}</span>{% endif %}</td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="8" class="muted">Nothing yet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% include "partials/pagination.html" %}
+{% endblock %}

@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% load files trammel %}
+{% block title %}{{ material }}{% endblock %}
+{% block content %}
+<header class="record-header">
+  <div class="record-title">
+    <p class="breadcrumb"><a href="{{ materials_home }}">Materials</a></p>
+    <h1>{{ material }}{% if not material.is_active %} <span class="badge">inactive</span>{% endif %}</h1>
+    <dl class="facts-inline">
+      <div><dt>Category</dt><dd>{{ material.get_category_display }}</dd></div>
+      <div><dt>Stock unit</dt><dd>{{ material.get_unit_display }}</dd></div>
+      {% if can_costs %}<div><dt>Cost</dt><dd>{{ material.unit_cost|money }} / {{ material.get_unit_display }}</dd></div>{% endif %}
+      {% if material.vendor %}<div><dt>Vendor</dt><dd>{{ material.vendor }}</dd></div>{% endif %}
+      {% if material.sku %}<div><dt>SKU</dt><dd>{{ material.sku }}</dd></div>{% endif %}
+    </dl>
+  </div>
+  <div class="actions">
+    {% if can_edit %}<a class="button" href="{% url 'shop:material_edit' material.pk %}">Edit</a>{% endif %}
+  </div>
+</header>
+
+{% include "partials/tabs.html" %}
+
+<div class="tab-body">
+{% if tab == "overview" %}
+  <div class="overview-grid">
+    <section class="card" aria-labelledby="details-heading">
+      <h2 id="details-heading">Details</h2>
+      <dl class="facts">
+        <dt>Markup</dt><dd>{% if material.markup is not None %}{{ material.markup|floatformat:"-3" }}%{% else %}<span class="muted">Default markup on materials</span>{% endif %}</dd>
+        {% if material.thickness %}<dt>Thickness</dt><dd>{{ material.thickness }}</dd>{% endif %}
+        {% if material.sheet_width %}<dt>Sheet size</dt><dd>{{ material.sheet_width|floatformat:"-3" }} × {{ material.sheet_length|floatformat:"-3" }} {{ material.sheet_dimension_unit }}</dd>{% endif %}
+      </dl>
+      {% if material.url %}<p><a href="{{ material.url }}" target="_blank" rel="noopener noreferrer">Open the product page</a></p>{% endif %}
+      {% if material.notes %}<h3>Notes</h3><p class="prewrap">{{ material.notes }}</p>{% endif %}
+    </section>
+
+    <section class="card" id="conversions" aria-labelledby="conversions-heading">
+      <h2 id="conversions-heading">Units</h2>
+      <p class="muted small">Stock is counted, and cost is given, per {{ material.get_unit_display }}. Quantities can be entered in:
+        {% for code, label in unit_options %}{{ label }}{% if not forloop.last %}, {% endif %}{% endfor %}.</p>
+      {% if material.conversions.all %}
+      <ul class="plain">
+        {% for row in material.conversions.all %}
+        <li>{{ row }}{% if can_edit %} <form method="post" action="{% url 'shop:conversion_delete' material.pk row.pk %}" class="inline">{% csrf_token %}<button type="submit" class="linklike">Remove</button></form>{% endif %}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+      {% if can_edit %}
+      <form method="post" action="{% url 'shop:conversion_add' material.pk %}" class="filters" aria-label="Add a unit">
+        {% csrf_token %}
+        <label>{{ conversion_form.quantity.label }} {{ conversion_form.quantity }}</label>
+        <label>Unit {{ conversion_form.unit }}</label>
+        <label>= {{ conversion_form.stock_quantity }} {{ material.get_unit_display }}</label>
+        <button type="submit">Add unit</button>
+      </form>
+      <p class="muted small">For example 100 each = 1 box, 1000 g = 1 spool, or 1 linear ft = 0.5 board ft.</p>
+      {% endif %}
+
+      <h3>Barcodes</h3>
+      {% for row in material.barcodes.all %}
+      <p><code>{{ row.code }}</code> <span class="muted">· {{ row.quantity|floatformat:"-4" }} {{ row.unit }} a scan</span>{% if can_edit %} <form method="post" action="{% url 'shop:barcode_delete' material.pk row.pk %}" class="inline">{% csrf_token %}<button type="submit" class="linklike">Remove</button></form>{% endif %}</p>
+      {% empty %}<p class="muted">No barcodes.</p>{% endfor %}
+      {% if can_edit %}
+      <form method="post" action="{% url 'shop:barcode_add' material.pk %}" class="filters" aria-label="Add a barcode">
+        {% csrf_token %}
+        <label>Barcode {{ barcode_form.code }}</label>
+        <label>{{ barcode_form.quantity.label }} {{ barcode_form.quantity }}</label>
+        <label>Unit {{ barcode_form.unit }}</label>
+        <button type="submit">Add barcode</button>
+      </form>
+      {% endif %}
+    </section>
+  </div>
+  {% include "partials/panels.html" with panels=overview_panels %}
+  <div class="panel">{% attachments material "Spec sheets, photos and files" %}</div>
+{% else %}
+  {% include "partials/panels.html" with panels=tab_panels %}
+{% endif %}
+</div>
+{% endblock %}

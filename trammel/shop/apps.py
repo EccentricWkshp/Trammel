@@ -25,7 +25,7 @@ class ShopConfig(ModuleConfig):
         ),
         menu=(
             MenuEntry("Machines", "shop:machines", "shop.view", "admin", 25),
-            MenuEntry("Materials", "shop:materials", "shop.view", "admin", 26),
+            MenuEntry("Materials", "shop:materials", "shop.view", "main", 55, hidden_with="stock"),
             MenuEntry("Vendors", "shop:vendors", "shop.view", "admin", 27),
         ),
     )

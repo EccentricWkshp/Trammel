@@ -26,7 +26,7 @@ from decimal import Decimal
 from django import forms
 
 from trammel.core import units
-from trammel.core.money import round_money
+from trammel.core.money import plain_decimal, round_money
 from trammel.shop.models import Machine, Material
 
 D = Decimal
@@ -77,7 +77,7 @@ class _Builder:
         self.rates = rates
         self.hours = ZERO
 
-    def _add(self, category: str, label: str, detail: str, cost: Decimal, price: Decimal):
+    def _add(self, category: str, label: str, detail: str, cost: Decimal, price: Decimal, **extra):
         cost, price = round_money(cost), round_money(price)
         r = self.result
         r.breakdown.append(
@@ -87,6 +87,7 @@ class _Builder:
                 "cost": str(cost),
                 "price": str(price),
                 "category": category,
+                **extra,
             }
         )
         r.cost_total += cost
@@ -104,7 +105,17 @@ class _Builder:
         if self.rates.consumables:
             detail += f" + {self.rates.consumables.normalize():f}% consumables"
         detail += f", {markup.normalize():f}% markup"
-        self._add("materials", label, detail, cost, price)
+        # Which material and how much, so a work order plans the real quantity.
+        self._add(
+            "materials",
+            label,
+            detail,
+            cost,
+            price,
+            material=str(material.pk),
+            quantity=str(plain_decimal(qty)),
+            unit=unit,
+        )
 
     def labor(self, hours: Decimal, label: str = "Labor"):
         if not hours:

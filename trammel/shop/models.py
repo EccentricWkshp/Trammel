@@ -8,6 +8,7 @@ material for its cost per unit, so they will not need to change.
 from __future__ import annotations
 
 from decimal import Decimal
+from fractions import Fraction
 
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
@@ -15,8 +16,8 @@ from django.db import models
 from django.urls import reverse
 
 from trammel.core import units
-from trammel.core.models import BaseModel
-from trammel.core.money import MoneyField, PercentField, RateField
+from trammel.core.models import BaseModel, uuid7
+from trammel.core.money import MoneyField, PercentField, RateField, trim_decimal
 
 NONNEG = MinValueValidator(0)
 
@@ -240,7 +241,7 @@ class Material(BaseModel):
         return f"{self.name} {self.thickness}".strip()
 
     def get_absolute_url(self) -> str:
-        return reverse("shop:material_edit", args=[self.pk])
+        return reverse("shop:material", args=[self.pk])
 
     def clean(self):
         dims = [self.sheet_width, self.sheet_length]
@@ -255,23 +256,178 @@ class Material(BaseModel):
         h = units.canonical(self.sheet_length, self.sheet_dimension_unit)
         return w * h
 
+    # -- Conversions (FR-STK-4) ----------------------------------------------
+    #
+    # `unit` is the stock unit: what the cost is per, and what stock is counted
+    # in. Other units convert to it within a dimension, through the sheet size
+    # (a sheet's area), or through the material's own conversions ("1 box =
+    # 100 each", "1000 g = 1 spool", "1 linear ft = 0.5 board ft").
+
+    def _conversions(self) -> list[MaterialUnit]:
+        cache = getattr(self, "_prefetched_objects_cache", {})
+        if "conversions" in cache:
+            return list(cache["conversions"])
+        if self.pk is None:
+            return []
+        if not hasattr(self, "_conversion_cache"):
+            self._conversion_cache = list(self.conversions.all())
+        return self._conversion_cache
+
+    def _per_stock(self, unit: str) -> Fraction:
+        """Stock units in one `unit`, exactly. Raises IncompatibleUnits."""
+        u = units.get(unit)
+        if units.compatible(unit, self.unit):
+            return u.factor / units.get(self.unit).factor
+        if u.dimension == "area" and units.get(self.unit).dimension == "count":
+            area = self.sheet_area_sq_mm
+            if area:
+                return u.factor / Fraction(area)
+        for c in self._conversions():
+            if units.compatible(unit, c.unit):
+                return (
+                    u.factor
+                    / units.get(c.unit).factor
+                    * Fraction(c.stock_quantity)
+                    / Fraction(c.quantity)
+                )
+        raise units.IncompatibleUnits(
+            f"{self} is counted in {units.get(self.unit).label}; "
+            f"there is no conversion from {u.label}."
+        )
+
+    def per_stock_unit(self, unit: str) -> Decimal:
+        """How many stock units one `unit` is. Raises IncompatibleUnits."""
+        return units.to_decimal(self._per_stock(unit))
+
+    def convert(self, value, from_unit: str, to_unit: str) -> Decimal:
+        """`value` in `from_unit` expressed in `to_unit`, through the stock unit if needed."""
+        if units.compatible(from_unit, to_unit):
+            return units.convert(value, from_unit, to_unit)
+        ratio = self._per_stock(from_unit) / self._per_stock(to_unit)
+        return units.to_decimal(Fraction(Decimal(value)) * ratio)
+
+    def to_stock(self, value, unit: str) -> Decimal:
+        return self.convert(value, unit, self.unit)
+
+    def convertible_units(self) -> list[str]:
+        """Unit codes a quantity of this material can be entered in."""
+        out = []
+        for code in units.UNITS:
+            if units.get(code).dimension == "time":
+                continue
+            try:
+                self.per_stock_unit(code)
+            except units.IncompatibleUnits:
+                continue
+            out.append(code)
+        return out
+
+    def unit_choices(self) -> list[tuple[str, str]]:
+        return [(c, units.get(c).label) for c in self.convertible_units()]
+
     def cost_per(self, unit: str) -> Decimal:
         """Cost of one `unit` of this material, unrounded.
 
-        Converts within a dimension, and from a per-sheet cost to an area cost
-        when the sheet size is known. Raises IncompatibleUnits otherwise.
+        Converts within a dimension, from a per-sheet cost to an area cost when
+        the sheet size is known, and through the material's own conversions.
+        Raises IncompatibleUnits otherwise.
         """
-        if units.compatible(self.unit, unit):
-            # unit_cost is per one self.unit; one `unit` is convert(1, unit, self.unit) of those.
-            return self.unit_cost * units.convert(1, unit, self.unit)
-        if units.get(unit).dimension == "area" and units.get(self.unit).dimension == "count":
-            area = self.sheet_area_sq_mm
-            if area:
-                return self.unit_cost / area * units.canonical(1, unit)
-        raise units.IncompatibleUnits(
-            f"{self} is priced per {units.get(self.unit).label}; "
-            f"cannot price it per {units.get(unit).label}."
-        )
+        try:
+            return self.unit_cost * self.per_stock_unit(unit)
+        except units.IncompatibleUnits:
+            raise units.IncompatibleUnits(
+                f"{self} is priced per {units.get(self.unit).label}; "
+                f"cannot price it per {units.get(unit).label}."
+            ) from None
 
     def effective_markup(self, rates) -> Decimal:
         return self.markup if self.markup is not None else rates.default_material_markup
+
+
+POSITIVE = MinValueValidator(Decimal("0.0001"))
+
+
+class MaterialUnit(models.Model):
+    """`quantity unit` of this material is `stock_quantity` of its stock unit.
+
+    "100 each = 1 box", "1000 g = 1 spool", "1 linear ft = 0.5 board ft". One
+    row covers a whole dimension: a spool given in grams also converts from kg.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    material = models.ForeignKey(Material, on_delete=models.CASCADE, related_name="conversions")
+    quantity = models.DecimalField(
+        max_digits=14, decimal_places=4, default=Decimal("1"), validators=[POSITIVE]
+    )
+    unit = models.CharField(max_length=12, choices=units.UNIT_CHOICES)
+    stock_quantity = models.DecimalField(
+        max_digits=14, decimal_places=4, default=Decimal("1"), validators=[POSITIVE]
+    )
+
+    class Meta:
+        ordering = ["unit"]
+        constraints = [
+            models.UniqueConstraint(fields=["material", "unit"], name="one_conversion_per_unit"),
+            models.CheckConstraint(
+                condition=models.Q(quantity__gt=0, stock_quantity__gt=0),
+                name="conversion_positive",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"{trim_decimal(self.quantity)} {units.get(self.unit).label} = "
+            f"{trim_decimal(self.stock_quantity)} {units.get(self.material.unit).label}"
+        )
+
+    def clean(self):
+        """Refuse a conversion the material can already make (within a dimension,
+        through its sheet size, or through another row): two routes could disagree."""
+        if not self.unit or self.material_id is None:
+            return
+        material = self.material
+        material._conversion_cache = list(material.conversions.exclude(pk=self.pk))
+        try:
+            material.per_stock_unit(self.unit)
+        except units.IncompatibleUnits:
+            return
+        finally:
+            del material._conversion_cache
+        raise ValidationError(
+            {
+                "unit": f"{material} already converts from {units.get(self.unit).label} "
+                f"to {units.get(material.unit).label}."
+            }
+        )
+
+
+class MaterialBarcode(models.Model):
+    """A manufacturer or shop barcode, and how much of the material one scan is."""
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    material = models.ForeignKey(Material, on_delete=models.CASCADE, related_name="barcodes")
+    code = models.CharField(max_length=64, unique=True)
+    quantity = models.DecimalField(
+        max_digits=14, decimal_places=4, default=Decimal("1"), validators=[POSITIVE]
+    )
+    unit = models.CharField(max_length=12, choices=units.UNIT_CHOICES, blank=True)
+
+    class Meta:
+        ordering = ["code"]
+
+    def __str__(self) -> str:
+        return self.code
+
+    def save(self, *args, **kwargs):
+        self.code = self.code.strip()
+        if not self.unit:
+            self.unit = self.material.unit
+        super().save(*args, **kwargs)
+
+    def clean(self):
+        self.code = self.code.strip()
+        if self.unit:
+            try:
+                self.material.per_stock_unit(self.unit)
+            except units.IncompatibleUnits as exc:
+                raise ValidationError({"unit": str(exc)}) from None

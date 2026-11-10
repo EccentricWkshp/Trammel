@@ -22,7 +22,7 @@ from trammel.core.web import document_response, document_view, paginate, permiss
 from trammel.jobs.models import Job
 from trammel.shop.models import Machine, Material
 
-from . import services
+from . import hooks, services
 from .models import ChangeOrder, ChangeOrderLine, COStatus, Operation, WorkOrder
 
 
@@ -40,13 +40,18 @@ class MaterialUseForm(forms.Form):
     material = forms.ModelChoiceField(Material.objects.filter(is_active=True), required=False)
     description = forms.CharField(required=False, help_text="For something not on the list.")
     quantity = forms.DecimalField(
-        max_digits=12, decimal_places=4, help_text="Negative to correct an earlier entry."
+        max_digits=12,
+        decimal_places=4,
+        help_text="Negative to correct an earlier entry, or to put stock back.",
     )
     unit = forms.ChoiceField(
         choices=[("", "— material's own unit —"), *units.UNIT_CHOICES], required=False
     )
     unit_cost = MoneyInput(
-        max_digits=14, decimal_places=4, required=False, help_text="Only for items not on the list."
+        max_digits=14,
+        decimal_places=4,
+        required=False,
+        help_text="Only for items not on the list. Stocked materials cost what their lots cost.",
     )
     billable = forms.BooleanField(required=False, initial=True)
 
@@ -158,7 +163,7 @@ def wo_detail(request, pk):
             "operations": operations,
             "can_nest": [op for op in operations if op.depth < Operation.MAX_DEPTH],
             "done_count": wo.operations.exclude(status="pending").count(),
-            "planned": wo.planned_materials.select_related("material"),
+            "planned": hooks.annotate_planned(wo.planned_materials.select_related("material")),
             "usage": wo.material_use.select_related("material", "recorded_by"),
             "notes": wo.notes.select_related("author", "document__current__blob"),
             "actions": [t for t in WorkOrder.lifecycle.available(wo, actor)],
@@ -406,7 +411,7 @@ def _traveler_context(request, wo: WorkOrder) -> dict:
         "job": wo.job,
         "operations": services.operation_tree(wo),
         "blank_rows": range(6),
-        "planned": wo.planned_materials.select_related("material"),
+        "planned": hooks.annotate_planned(wo.planned_materials.select_related("material")),
         "notes": wo.notes.filter(document__isnull=True).select_related("author")[:10],
         "printed_at": now(),
         "images": images,

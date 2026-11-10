@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% load trammel %}
+{% block title %}{{ lot.number }}{% endblock %}
+{% block content %}
+<header class="record-header">
+  <div class="record-title">
+    <p class="breadcrumb"><a href="{% url 'stock:list' %}">Stock</a> · <a href="{{ lot.item.get_absolute_url }}">{{ material }}</a></p>
+    <h1>{{ lot.number }}{% if not lot.qty_on_hand %} <span class="badge">used up</span>{% endif %}</h1>
+    <dl class="facts-inline">
+      <div><dt>On hand</dt><dd>{{ lot.qty_on_hand|qty }} {{ material.get_unit_display }}</dd></div>
+      <div><dt>Location</dt><dd><a href="{{ lot.location.get_absolute_url }}">{{ lot.location }}</a></dd></div>
+      <div><dt>Received</dt><dd>{{ lot.received_on|d }}</dd></div>
+      <div><dt>Came in as</dt><dd>{{ lot.get_origin_display }}</dd></div>
+      {% if lot.vendor %}<div><dt>Vendor</dt><dd>{{ lot.vendor }}</dd></div>{% endif %}
+      {% if can_costs %}<div><dt>Cost</dt><dd>{{ lot.unit_cost|money }} / {{ material.get_unit_display }}</dd></div><div><dt>Value</dt><dd>{{ lot.value_on_hand|money }}</dd></div>{% endif %}
+      {% if lot.parent %}<div><dt>Split from</dt><dd><a href="{{ lot.parent.get_absolute_url }}">{{ lot.parent.number }}</a></dd></div>{% endif %}
+    </dl>
+  </div>
+</header>
+{% if lot.note %}<p>{{ lot.note }}</p>{% endif %}
+{% if can_edit and lot.qty_on_hand %}
+{% include "stock/_lot_actions.html" with next=request.get_full_path locations=locations %}
+{% endif %}
+<h2>History</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th scope="col">When</th><th scope="col">What</th><th scope="col">Where</th><th scope="col" class="num">Quantity</th>{% if can_costs %}<th scope="col" class="num">Value</th>{% endif %}<th scope="col">Note</th></tr></thead>
+  <tbody>
+  {% for mv in moves %}
+    <tr>
+      <td>{{ mv.created_at|mdt }}</td>
+      <td>{{ mv.get_reason_display }}</td>
+      <td>{{ mv.location }}</td>
+      <td class="num">{{ mv.quantity|qty }}</td>
+      {% if can_costs %}<td class="num">{{ mv.value|money }}</td>{% endif %}
+      <td>{{ mv.note }}{% if mv.user %} <span class="muted small">· {{ mv.user.get_short_name }}</span>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

@@ -58,6 +58,22 @@ def money(amount):
 
 
 @register.filter
+def qty(value):
+    """A quantity without padding zeros, grouped by thousands: 1200.5000 -> 1,200.5."""
+    if value in (None, ""):
+        return ""
+    from decimal import Decimal
+
+    from trammel.core.money import trim_decimal
+
+    text = trim_decimal(Decimal(value))
+    whole, _, frac = text.partition(".")
+    sign = "-" if whole.startswith("-") else ""
+    whole = f"{int(whole.lstrip('-') or 0):,}"
+    return f"{sign}{whole}.{frac}" if frac else f"{sign}{whole}"
+
+
+@register.filter
 def pct(value):
     """A percentage without trailing zeros: 6.5000 -> 6.5%, 10.0000 -> 10%."""
     if value in (None, ""):

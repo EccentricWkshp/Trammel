@@ -1,0 +1,10 @@
+{% extends "settings_base.html" %}
+{% block title %}Stock settings{% endblock %}
+{% block settings_content %}
+<h1>Stock settings</h1>
+<form method="post" class="stack" novalidate>
+  {% csrf_token %}
+  {% include "partials/form_body.html" %}
+  <div class="actions"><button type="submit" class="primary">Save</button></div>
+</form>
+{% endblock %}

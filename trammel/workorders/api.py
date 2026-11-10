@@ -98,6 +98,8 @@ class MaterialUseIn(Schema):
     unit: str = ""
     unit_cost: Decimal | None = None
     billable: bool = True
+    #: A stock lot to draw from, for a material tracked in stock (else oldest first).
+    lot: UUID | None = None
 
 
 def _wo(request, perm, pk) -> WorkOrder:
@@ -198,7 +200,7 @@ def add_note(request, wo_id: UUID, payload: NoteIn):
 def record_material(request, wo_id: UUID, payload: MaterialUseIn):
     wo = _wo(request, "workorders.edit", wo_id)
     material = Material.objects.filter(pk=payload.material).first() if payload.material else None
-    usage = services.record_material(
+    usages = services.record_material(
         wo,
         material=material,
         quantity=payload.quantity,
@@ -206,6 +208,11 @@ def record_material(request, wo_id: UUID, payload: MaterialUseIn):
         description=payload.description,
         unit_cost=payload.unit_cost,
         billable=payload.billable,
+        lot=payload.lot,
         user=request.actor.user,
     )
-    return Status(201, {"id": str(usage.pk), "total_cost": str(usage.total_cost)})
+    total = sum((u.total_cost for u in usages), Decimal("0"))
+    return Status(
+        201,
+        {"id": str(usages[0].pk), "ids": [str(u.pk) for u in usages], "total_cost": str(total)},
+    )

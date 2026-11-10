@@ -60,6 +60,7 @@ class Builder:
         self.business()
         self.staff()
         self.shop()
+        self.stock()
         self.tax()
         self.catalog()
         self.customers()
@@ -260,9 +261,73 @@ class Builder:
             markup=D("50"),
             vendor=self.filament_vendor,
         )
-        material("Wood screws #8 x 1-1/4", category="hardware", unit="each", unit_cost=D("0.06"))
+        self.screws = material(
+            "Wood screws #8 x 1-1/4", category="hardware", unit="each", unit_cost=D("0.06")
+        )
         material("Danish oil", category="finish", unit="l", unit_cost=D("38.00"))
         self.say("4 machines and 7 materials")
+
+    def stock(self):
+        """Locations, tracked materials and what is on hand, so jobs draw from stock."""
+        from trammel.core import modules
+        from trammel.shop.models import MaterialUnit
+        from trammel.stock import services as stock
+        from trammel.stock.models import Location
+
+        if not modules.is_enabled("stock"):
+            return
+
+        def place(name, parent=None):
+            found = Location.objects.filter(name=name, parent=parent).first()
+            return found or stock.save_location(Location(name=name, parent=parent))
+
+        shop = place("Shop")
+        rack = place("Lumber rack", shop)
+        cart = place("Sheet goods cart", shop)
+        shelf = place("Hardware shelf", shop)
+        cabinet = place("Filament cabinet", shop)
+        MaterialUnit.objects.get_or_create(
+            material=self.screws, unit="box", defaults={"quantity": 1, "stock_quantity": 100}
+        )
+        MaterialUnit.objects.get_or_create(
+            material=self.pla, unit="spool", defaults={"quantity": 1, "stock_quantity": 1}
+        )
+        today = dt.date.today()
+        plan = [
+            # material, where, restock at, reorder, [(days ago, quantity, unit, total cost)]
+            (
+                self.ply,
+                cart,
+                D("10"),
+                D("25"),
+                [(120, "20", "", "340.00"), (40, "25", "", "475.00")],
+            ),
+            (self.acrylic, cart, D("4"), D("10"), [(90, "5", "", "120.00")]),
+            (self.walnut, rack, D("20"), D("50"), [(150, "60", "", "825.00")]),
+            (self.maple, rack, None, None, [(150, "30", "", "294.00")]),
+            (self.pla, cabinet, D("2"), D("5"), [(60, "4", "spool", "84.00")]),
+            (self.screws, shelf, D("200"), D("500"), [(200, "5", "box", "27.50")]),
+        ]
+        for material, where, low, reorder, receipts in plan:
+            stock.set_tracking(
+                material,
+                tracked=True,
+                min_quantity=low,
+                reorder_quantity=reorder,
+                default_location=where,
+            )
+            for n, (days, qty, unit, total) in enumerate(receipts):
+                stock.receive(
+                    material,
+                    quantity=D(qty),
+                    unit=unit,
+                    total_cost=D(total),
+                    received_on=today - dt.timedelta(days=days),
+                    vendor=material.vendor,
+                    opening=n == 0,
+                    user=self.admin,
+                )
+        self.say("5 stock locations and 6 tracked materials")
 
     def tax(self):
         from trammel.tax.models import Boundary, Jurisdiction, TaxCategory, TaxRate

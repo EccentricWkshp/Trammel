@@ -170,7 +170,7 @@ def test_force_close_cancels_work_orders_and_stops_timers(wo, admin):
 @pytest.mark.django_db
 def test_material_use_and_notes_are_append_only(wo, admin, approved):
     _job, _rev, _laser, ply = approved
-    usage = services.record_material(wo, material=ply, quantity=D("1.5"), unit="", user=admin)
+    [usage] = services.record_material(wo, material=ply, quantity=D("1.5"), unit="", user=admin)
     assert usage.total_cost == D("60.00")
     usage.quantity = D("2")
     with pytest.raises(ValidationError):

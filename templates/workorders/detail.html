@@ -82,7 +82,7 @@
   <div class="overview-grid">
     <section class="card">
       <h2>Planned</h2>
-      {% if planned %}<ul class="plain">{% for p in planned %}<li>{{ p.description }}{% if p.quantity %} — {{ p.quantity|floatformat:"-4" }} {{ p.unit }}{% endif %}</li>{% endfor %}</ul>{% else %}<p class="muted">Nothing planned.</p>{% endif %}
+      {% if planned %}<ul class="plain">{% for p in planned %}<li>{{ p.description }}{% if p.quantity %} — {{ p.quantity|floatformat:"-4" }} {{ p.unit }}{% endif %}{% if p.stock_note %}<br><span class="muted small">{{ p.stock_note }}</span>{% endif %}</li>{% endfor %}</ul>{% else %}<p class="muted">Nothing planned.</p>{% endif %}
     </section>
     {% if can_edit %}
     <section class="card">
@@ -99,7 +99,7 @@
   {% if usage %}
   <div class="table-wrap"><table>
     <thead><tr><th scope="col">Material</th><th scope="col">Quantity</th>{% if can_costs %}<th scope="col" class="num">Cost</th>{% endif %}<th scope="col">By</th></tr></thead>
-    <tbody>{% for u in usage %}<tr><td>{{ u.description }}{% if not u.billable %} <span class="badge">not billable</span>{% endif %}</td><td>{{ u.quantity|floatformat:"-4" }} {{ u.unit }}</td>{% if can_costs %}<td class="num">{{ u.total_cost|money }}</td>{% endif %}<td>{{ u.recorded_by.get_short_name }} {{ u.created_at|md }}</td></tr>{% endfor %}</tbody>
+    <tbody>{% for u in usage %}<tr><td>{{ u.description }}{% if not u.billable %} <span class="badge">not billable</span>{% endif %}{% if u.source == "stock" %} <span class="muted small">from stock</span>{% endif %}</td><td>{{ u.quantity|floatformat:"-4" }} {{ u.unit }}</td>{% if can_costs %}<td class="num">{{ u.total_cost|money }}</td>{% endif %}<td>{{ u.recorded_by.get_short_name }} {{ u.created_at|md }}</td></tr>{% endfor %}</tbody>
   </table></div>
   {% else %}<p class="muted">No material use recorded.</p>{% endif %}
   {% if can_edit %}

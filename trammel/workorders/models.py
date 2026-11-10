@@ -248,11 +248,17 @@ class PlannedMaterial(models.Model):
 
 
 class MaterialUsage(AppendOnlyModel):
-    """Material consumed on a work order, costed from the price list (Phase 1).
+    """Material consumed on a work order (FR-STK-8).
 
-    Append-only: a mistake is corrected with a negative entry. Phase 2 replaces
-    this with consumption from the stock ledger at lot cost (FR-STK-3, -8).
+    Append-only: a mistake is corrected with a negative entry. A material
+    tracked in stock is drawn from its lots (FR-STK-3), one usage per lot, at
+    the lot's cost; the stock ledger holds the per-lot detail.
     """
+
+    class Source(models.TextChoices):
+        PRICE_LIST = "price_list", "Price list"
+        STOCK = "stock", "Stock"
+        MANUAL = "manual", "Cost entered"
 
     work_order = models.ForeignKey(WorkOrder, on_delete=models.PROTECT, related_name="material_use")
     material = models.ForeignKey(
@@ -265,6 +271,7 @@ class MaterialUsage(AppendOnlyModel):
     total_cost = MoneyField()
     billable = models.BooleanField(default=True)
     note = models.CharField(max_length=300, blank=True)
+    source = models.CharField(max_length=12, choices=Source.choices, default=Source.PRICE_LIST)
     recorded_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )

@@ -104,6 +104,10 @@ def _to_decimal(value: Fraction) -> Decimal:
     return Decimal(value.numerator) / Decimal(value.denominator)
 
 
+#: Exact fraction to Decimal, for callers doing their own exact arithmetic.
+to_decimal = _to_decimal
+
+
 def convert(value: Decimal | int | str, from_unit: str, to_unit: str) -> Decimal:
     src, dst = get(from_unit), get(to_unit)
     if not compatible(from_unit, to_unit):

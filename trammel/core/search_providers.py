@@ -4,7 +4,6 @@ the actor may view what it returns, through the same record scoping as every lis
 from __future__ import annotations
 
 from django.apps import apps
-from django.urls import reverse
 
 from . import access, modules
 from .search import Hit, matching, register
@@ -120,8 +119,11 @@ def materials(actor, term):
         return
     from trammel.shop.models import Material
 
+    # A scanned barcode is matched exactly, so it finds its material first.
+    scanned = Material.objects.filter(barcodes__code=term.strip())
     qs = matching(Material.objects.all(), term, ("name", "sku", "vendor__name"))
-    for m in _scoped(actor, "shop.view", qs)[:10]:
-        yield Hit(
-            "Material", str(m), reverse("shop:material_edit", args=[m.pk]), m.get_category_display()
-        )
+    seen = set()
+    for m in [*_scoped(actor, "shop.view", scanned), *_scoped(actor, "shop.view", qs)[:10]]:
+        if m.pk not in seen:
+            seen.add(m.pk)
+            yield Hit("Material", str(m), m.get_absolute_url(), m.get_category_display())

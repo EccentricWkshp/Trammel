@@ -121,7 +121,7 @@
   {% for p in planned %}
     <tr>
       <td class="check"><span class="box"></span></td>
-      <td>{{ p.description }}</td>
+      <td>{{ p.description }}{% if p.stock_note %}<br><small>{{ p.stock_note }}</small>{% endif %}</td>
       <td class="qty">{% if p.quantity %}{{ p.quantity|floatformat:"-4" }} {{ p.get_unit_display }}{% endif %}</td>
       <td class="write"></td>
     </tr>

@@ -5,7 +5,8 @@ from django.core.management import CommandError, call_command
 
 from trammel.billing.models import Invoice
 from trammel.jobs.models import Job
-from trammel.workorders.models import WorkOrder
+from trammel.stock import services as stock
+from trammel.workorders.models import MaterialUsage, WorkOrder
 
 
 @pytest.mark.django_db
@@ -25,6 +26,9 @@ def test_seed_demo_builds_every_stage_once(admin):
     assert Invoice.objects.filter(kind="deposit", status="paid").count() == 2
     assert any(i.is_overdue for i in Invoice.objects.all())
     assert Invoice.objects.filter(kind="direct_sale", status="paid").exists()
+    # Tracked materials used on work orders came out of stock, and the ledger adds up.
+    assert MaterialUsage.objects.filter(source="stock").exists()
+    assert stock.restock_list().exists() and stock.check_ledger() == []
     with pytest.raises(CommandError, match="already"):
         call_command("seed_demo", yes=True)
 

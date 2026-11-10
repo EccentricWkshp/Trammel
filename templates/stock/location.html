@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% load trammel %}
+{% block title %}{{ location }}{% endblock %}
+{% block content %}
+<header class="record-header">
+  <div class="record-title">
+    <p class="breadcrumb"><a href="{% url 'stock:locations' %}">Stock locations</a>{% if location.parent %} · <a href="{{ location.parent.get_absolute_url }}">{{ location.parent }}</a>{% endif %}</p>
+    <h1>{{ location.name }}{% if not location.is_active %} <span class="badge">not in use</span>{% endif %}</h1>
+    <p class="muted">{{ location.path }}</p>
+  </div>
+  {% if can_manage %}<div class="actions">
+    <a class="button" href="{% url 'stock:location_edit' location.pk %}">Edit</a>
+    <a href="{% url 'stock:location_create' %}?parent={{ location.pk }}">Add a location inside</a>
+  </div>{% endif %}
+</header>
+{% if location.notes %}<p class="prewrap">{{ location.notes }}</p>{% endif %}
+{% if children %}
+<p>Inside: {% for c in children %}<a href="{{ c.get_absolute_url }}">{{ c.name }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}</p>
+{% endif %}
+<div class="table-wrap">
+<table>
+  <thead><tr><th scope="col">Material</th><th scope="col">Lot</th><th scope="col">Received</th><th scope="col" class="num">On hand</th>{% if can_costs %}<th scope="col" class="num">Value</th>{% endif %}</tr></thead>
+  <tbody>
+  {% for lot in lots %}
+    <tr>
+      <td><a href="{{ lot.item.get_absolute_url }}">{{ lot.item.material }}</a></td>
+      <td><a href="{{ lot.get_absolute_url }}">{{ lot.number }}</a></td>
+      <td>{{ lot.received_on|d }}</td>
+      <td class="num">{{ lot.qty_on_hand|qty }} {{ lot.item.material.get_unit_display }}</td>
+      {% if can_costs %}<td class="num">{{ lot.value_on_hand|money }}</td>{% endif %}
+    </tr>
+  {% empty %}
+    <tr><td colspan="5" class="muted">Nothing is kept here.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

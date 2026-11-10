@@ -109,7 +109,10 @@ def test_machine_screens_and_audit(admin_client):
 def test_view_only_users_cannot_edit(client, setup_done):
     viewer = make_user("viewer@example.com", "shop.view")
     client.force_login(viewer)
-    assert client.get("/shop/materials/").status_code == 200
+    # The materials list is the stock page, which anyone who may see materials can open.
+    assert client.get("/shop/materials/").url == "/stock/"
+    page = client.get("/stock/").content.decode()
+    assert "Materials and stock" in page and "Add material" not in page and "Restock" not in page
     assert client.get("/shop/materials/new/").status_code == 403
 
 

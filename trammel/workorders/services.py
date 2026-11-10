@@ -14,6 +14,7 @@ from trammel.core.money import round_money
 from trammel.core.services import save_audited
 from trammel.shop.models import Machine, Material
 
+from . import hooks
 from .models import (
     ChangeOrder,
     ChangeOrderLine,
@@ -70,17 +71,40 @@ def _carry_over(wo: WorkOrder, revision) -> None:
         Operation.objects.create(
             work_order=wo, position=position, name=line.description[:200], machine=machine
         )
+        if line.kind == "material" and line.material is not None:
+            PlannedMaterial.objects.create(
+                work_order=wo,
+                material=line.material,
+                description=str(line.material),
+                quantity=line.quantity,
+                unit=line.unit,
+            )
+            continue
+        # Estimator lines say which material and how much in their breakdown.
+        rows = [r for r in line.breakdown or [] if r.get("category") == "materials"]
+        planned = False
+        for row in rows:
+            material = Material.objects.filter(pk=row.get("material")).first()
+            if material is None:
+                continue
+            PlannedMaterial.objects.create(
+                work_order=wo,
+                material=material,
+                description=row.get("detail") or str(material),
+                quantity=Decimal(row["quantity"]) if row.get("quantity") else None,
+                unit=row.get("unit", ""),
+            )
+            planned = True
+        # Lines estimated before rows carried the material (0.2.x and earlier).
         material = line.material
         if material is None and line.inputs.get("material"):
             material = Material.objects.filter(pk=line.inputs["material"]).first()
-        if material is not None:
-            row = next((r for r in line.breakdown if r.get("category") == "materials"), None)
+        if material is not None and not planned:
+            row = rows[0] if rows else None
             PlannedMaterial.objects.create(
                 work_order=wo,
                 material=material,
                 description=row["detail"] if row else str(material),
-                quantity=line.quantity if line.kind == "material" else None,
-                unit=line.unit if line.kind == "material" else "",
             )
 
 
@@ -384,18 +408,75 @@ def record_material(
     unit_cost: Decimal | None = None,
     note: str = "",
     billable: bool = True,
+    lot=None,
     user=None,
-) -> MaterialUsage:
-    """Material consumed on a work order (FR-STK-8 in Phase 1 form). Negative corrects."""
+) -> list[MaterialUsage]:
+    """Material consumed on a work order (FR-STK-8). A negative quantity corrects.
+
+    A material tracked in stock is drawn from its lots by the stock module,
+    which may write one usage per lot; anything else is costed from the price
+    list, or at the cost given. Returns the usages written.
+    """
     _require_editable(wo)
     if not quantity:
         raise ValidationError("Enter a quantity.")
+    source = MaterialUsage.Source.MANUAL
     if material is not None:
         unit = unit or material.unit
-        unit_cost = material.cost_per(unit) if unit_cost is None else unit_cost
         description = description or str(material)
+        handled = hooks.handle_material(
+            wo,
+            material=material,
+            quantity=quantity,
+            unit=unit,
+            description=description,
+            unit_cost=unit_cost,
+            note=note,
+            billable=billable,
+            lot=lot,
+            user=user,
+        )
+        if handled is not None:
+            return handled
+        if lot is not None:
+            raise ValidationError(f"{material} is not tracked in stock, so it has no lots.")
+        if unit_cost is None:
+            source = MaterialUsage.Source.PRICE_LIST
+            unit_cost = material.cost_per(unit)
     if unit_cost is None or not description:
         raise ValidationError("Pick a material, or describe it and give its cost.")
+    return [
+        write_usage(
+            wo,
+            material=material,
+            description=description,
+            quantity=quantity,
+            unit=unit,
+            unit_cost=unit_cost,
+            note=note,
+            billable=billable,
+            source=source,
+            user=user,
+        )
+    ]
+
+
+def write_usage(
+    wo: WorkOrder,
+    *,
+    material: Material | None,
+    description: str,
+    quantity: Decimal,
+    unit: str,
+    unit_cost: Decimal,
+    total_cost: Decimal | None = None,
+    note: str = "",
+    billable: bool = True,
+    source: str = MaterialUsage.Source.MANUAL,
+    user=None,
+) -> MaterialUsage:
+    """Write one usage row. `total_cost` is given when it is known exactly (a lot
+    draw); otherwise it is quantity × unit cost, rounded."""
     ensure_started(wo)
     usage = MaterialUsage.objects.create(
         work_order=wo,
@@ -404,9 +485,10 @@ def record_material(
         quantity=quantity,
         unit=unit,
         unit_cost=unit_cost,
-        total_cost=round_money(quantity * unit_cost),
+        total_cost=round_money(quantity * unit_cost) if total_cost is None else total_cost,
         note=note,
         billable=billable,
+        source=source,
         recorded_by=user,
     )
     audit.record(

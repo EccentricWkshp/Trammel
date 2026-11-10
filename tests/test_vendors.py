@@ -34,7 +34,9 @@ def test_vendor_screens(admin_client, vendor):
 
 @pytest.mark.django_db
 def test_material_links_a_vendor_and_a_product_page(admin_client, vendor):
-    page = admin_client.get(f"/shop/materials/new/?vendor={vendor.pk}").content.decode()
+    page = admin_client.get(
+        f"/shop/materials/new/?vendor={vendor.pk}", follow=True
+    ).content.decode()
     assert f'<option value="{vendor.pk}" selected>' in page
     response = admin_client.post(
         "/shop/materials/new/",
@@ -53,8 +55,8 @@ def test_material_links_a_vendor_and_a_product_page(admin_client, vendor):
     assert walnut.vendor == vendor and walnut.url == "https://example.com/walnut"
     page = admin_client.get(f"/shop/materials/{walnut.pk}/").content.decode()
     assert "Open the product page" in page and "Spec sheets, photos and files" in page
-    listing = admin_client.get("/shop/materials/?q=edensaw").content.decode()
-    assert "Walnut" in listing and "Product page" in listing
+    listing = admin_client.get("/shop/materials/?q=edensaw", follow=True).content.decode()
+    assert "Walnut" in listing and "Edensaw" in listing
 
 
 @pytest.mark.django_db

@@ -1,0 +1,16 @@
+<details class="lot-actions">
+  <summary>Move or scrap</summary>
+  <form method="post" action="{% url 'stock:lot_action' lot.pk 'transfer' %}" class="stack">
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{{ next }}">
+    <label>Quantity <input type="text" inputmode="decimal" name="quantity" value="{{ lot.qty_on_hand|floatformat:"-4" }}" required></label>
+    <label>Unit <select name="unit">{% for code, label in material.unit_choices %}<option value="{{ code }}"{% if code == material.unit %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+    <label>Move to <select name="to"><option value="">—</option>{% for loc in locations %}{% if loc.pk != lot.location_id %}<option value="{{ loc.pk }}">{{ loc }}</option>{% endif %}{% endfor %}</select></label>
+    <label>Note <input type="text" name="note" maxlength="300"></label>
+    <div class="actions">
+      <button type="submit">Move</button>
+      <button type="submit" class="danger" formaction="{% url 'stock:lot_action' lot.pk 'scrap' %}">Scrap</button>
+    </div>
+    <p class="muted small">Scrapping needs a note saying why.</p>
+  </form>
+</details>

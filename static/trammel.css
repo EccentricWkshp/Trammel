@@ -167,7 +167,9 @@ form.inline { display: inline; }
 .filters { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: end; margin: var(--space-2) 0 var(--space-4); }
 .filters > div, .filters > p { margin: 0; }
 .filters label { font-weight: 600; font-size: .9rem; margin: 0; }
-.filters input, .filters select { width: auto; min-width: 9rem; }
+.filters input:not([type="checkbox"]), .filters select { width: auto; min-width: 9rem; }
+.filters label.choice { display: flex; align-items: center; align-self: center; font-weight: normal; }
+.filters label.choice input { margin: 0 .4rem 0 0; }
 
 /* Tables */
 .table-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
@@ -267,6 +269,18 @@ details.new-product { border: 1px solid var(--border); border-radius: var(--radi
 details.new-product > summary { cursor: pointer; color: var(--accent); }
 details.new-product[open] > summary { margin-bottom: var(--space-2); }
 details.new-product .field { margin-bottom: var(--space-3); }
+
+/* Stock */
+.subnav { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); margin: 0 0 var(--space-3); }
+.field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 0 var(--space-4); }
+.stock-actions { display: flex; flex-direction: column; gap: var(--space-3); margin: var(--space-4) 0; }
+.stock-actions > details, details.stock-tracking { border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-2) var(--space-3); background: var(--surface); }
+.stock-actions > details > summary, details.stock-tracking > summary, details.lot-actions > summary { cursor: pointer; color: var(--accent); }
+.stock-actions > details[open] > summary, details.stock-tracking[open] > summary { margin-bottom: var(--space-3); }
+details.stock-tracking { margin-top: var(--space-4); }
+details.lot-actions[open] { min-width: 16rem; }
+details.lot-actions form { margin-top: var(--space-2); }
+ul.columns { columns: 16rem; column-gap: var(--space-5); }
 h3.file-group { margin: var(--space-4) 0 var(--space-2); font-size: .95rem; color: var(--muted); }
 
 /* Quotes, invoices and other priced documents */

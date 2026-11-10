@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block main_class %}page narrow{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{% url 'stock:list' %}">Materials and stock</a>{% if material %} › <a href="{{ material.get_absolute_url }}">{{ material }}</a>{% endif %}</p>
+<h1>{{ title }}</h1>
+<form method="post" class="stack" novalidate>
+  {% csrf_token %}
+  {% if form %}
+  <fieldset>
+    <legend>The material</legend>
+    {% include "partials/form_body.html" %}
+  </fieldset>
+  {% endif %}
+
+  {% if stock_form %}
+  {% with f=stock_form %}
+  <fieldset class="stock-section">
+    <legend>Stock</legend>
+    {% if f.non_field_errors %}<div class="form-errors" role="alert">{% for e in f.non_field_errors %}<p>{{ e }}</p>{% endfor %}</div>{% endif %}
+    {% if f.keep %}<div class="field field-check">{{ f.keep.as_field_group }}</div>{% endif %}
+    <div class="field-grid">
+      {% if has_locations %}<div class="field">{{ f.location.as_field_group }}</div>{% endif %}
+      <div class="field">{% if has_locations %}{{ f.new_location.as_field_group }}{% else %}<label for="{{ f.new_location.id_for_label }}">Kept in</label>{{ f.new_location }}<div class="helptext">Name the place, such as “Shelf 3”. You can arrange locations inside one another later.</div>{{ f.new_location.errors }}{{ f.location.errors }}{% endif %}</div>
+      <div class="field">{{ f.min_quantity.as_field_group }}</div>
+      <div class="field">{{ f.reorder_quantity.as_field_group }}</div>
+      {% if f.on_hand %}
+      <div class="field">{{ f.on_hand.as_field_group }}</div>
+      <div class="field">{{ f.on_hand_cost.as_field_group }}</div>
+      {% endif %}
+    </div>
+  </fieldset>
+  {% endwith %}
+  {% endif %}
+
+  <div class="actions">
+    <button type="submit" class="primary">Save</button>
+    <a href="{% if material %}{{ material.get_absolute_url }}{% else %}{% url 'stock:list' %}{% endif %}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

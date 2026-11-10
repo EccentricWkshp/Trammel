@@ -1,0 +1,13 @@
+{% load trammel %}
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Material</th><th scope="col" class="num">On hand</th><th scope="col" class="num">Restock at</th></tr></thead>
+  <tbody>
+  {% for item in section.rows %}
+    <tr>
+      <td><a href="{{ item.get_absolute_url }}">{{ item.material }}</a></td>
+      <td class="num">{{ item.on_hand|qty }} {{ item.material.get_unit_display }}</td>
+      <td class="num">{{ item.min_quantity|qty }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>

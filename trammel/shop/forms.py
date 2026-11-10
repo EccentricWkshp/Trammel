@@ -1,7 +1,9 @@
 from django import forms
 from django.db.models import Q
 
-from .models import Machine, Material, Vendor
+from trammel.core import units
+
+from .models import Machine, Material, MaterialBarcode, MaterialUnit, Vendor
 
 WEAR_ROWS = 4
 
@@ -125,6 +127,58 @@ class MaterialForm(forms.ModelForm):
             Q(is_active=True) | Q(pk=current)
         ).order_by("name")
         self.fields["vendor"].empty_label = "—"
+
+
+class _ForMaterial(forms.ModelForm):
+    def __init__(self, *args, material, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.instance.material = material
+        for field in self.fields.values():
+            if isinstance(field, forms.DecimalField):
+                field.widget.attrs["inputmode"] = "decimal"
+
+
+class MaterialUnitForm(_ForMaterial):
+    """“[100] [each] = [1] box”: the right-hand unit is the material's stock unit."""
+
+    class Meta:
+        model = MaterialUnit
+        fields = ["quantity", "unit", "stock_quantity"]
+        labels = {"quantity": "Amount", "stock_quantity": "Equals"}
+
+    def __init__(self, *args, material, **kwargs):
+        super().__init__(*args, material=material, **kwargs)
+        self.fields["unit"].choices = [
+            ("", "—"),
+            *[
+                (dim, [(c, label) for c, label in group if c != material.unit])
+                for dim, group in units.UNIT_CHOICES
+                if dim != "Time"
+            ],
+        ]
+        self.fields["stock_quantity"].help_text = units.get(material.unit).label
+
+
+class MaterialBarcodeForm(_ForMaterial):
+    class Meta:
+        model = MaterialBarcode
+        fields = ["code", "quantity", "unit"]
+        labels = {"code": "Barcode", "quantity": "One scan is"}
+
+    def __init__(self, *args, material, **kwargs):
+        super().__init__(*args, material=material, **kwargs)
+        self.fields["unit"].choices = [("", "—"), *material.unit_choices()]
+        self.fields["unit"].required = False
+        self.fields["code"].widget.attrs["autocomplete"] = "off"
+
+    def clean_code(self):
+        code = self.cleaned_data["code"].strip()
+        if not code:
+            raise forms.ValidationError("Enter the barcode.")
+        clash = MaterialBarcode.objects.filter(code=code).select_related("material").first()
+        if clash is not None:
+            raise forms.ValidationError(f"{code} is already the barcode of {clash.material}.")
+        return code
 
 
 class VendorForm(forms.ModelForm):

@@ -44,6 +44,8 @@ def menu_for(actor, section: str = "main") -> list[MenuItem]:
                 continue
             if entry.admin_only and not access.is_admin(actor):
                 continue
+            if entry.hidden_with and entry.hidden_with in enabled:
+                continue
             if entry.permission and not access.has_perm(actor, entry.permission):
                 continue
             try:
