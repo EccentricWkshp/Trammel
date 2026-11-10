@@ -59,12 +59,43 @@ class MaterialUseForm(forms.Form):
         help_text="For a material kept in stock: a lot number, or scan its label. "
         "Otherwise the oldest is used.",
     )
+    leftover_length = forms.DecimalField(
+        label="Leftover piece: length",
+        required=False,
+        min_value=0,
+        max_digits=14,
+        decimal_places=4,
+        help_text="A piece of what was used that goes back into stock as a remnant. "
+        "The work order pays only for the rest.",
+    )
+    leftover_width = forms.DecimalField(
+        label="width",
+        required=False,
+        min_value=0,
+        max_digits=14,
+        decimal_places=4,
+        help_text="For sheet goods. Leave it out for boards and bars.",
+    )
+    leftover_unit = forms.ChoiceField(
+        label="in",
+        choices=[("in", "in"), ("ft", "ft"), ("mm", "mm"), ("cm", "cm"), ("m", "m")],
+        required=False,
+    )
     billable = forms.BooleanField(required=False, initial=True)
+
+    STOCK_ONLY = ("lot", "leftover_length", "leftover_width", "leftover_unit")
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if not hooks.lots_offered():
-            del self.fields["lot"]
+            for name in self.STOCK_ONLY:
+                del self.fields[name]
+
+    def leftover(self):
+        d = self.cleaned_data
+        if d.get("leftover_length"):
+            return (d["leftover_length"], d.get("leftover_width"), d.get("leftover_unit") or "in")
+        return None
 
 
 class ChangeOrderLineForm(forms.ModelForm):
@@ -372,6 +403,7 @@ def material_add(request, pk):
                 unit_cost=d["unit_cost"],
                 billable=d["billable"],
                 lot=d.get("lot") or None,
+                leftover=form.leftover(),
                 user=request.user,
             )
         except (ValidationError, units.IncompatibleUnits) as exc:

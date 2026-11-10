@@ -14,6 +14,7 @@ from trammel.shop.models import Material, MaterialBarcode
 from trammel.workorders import hooks as wo_hooks
 
 from . import services
+from .floor import LENGTH_UNITS
 from .models import Location, StockLot, StockMove
 
 # The stock list shows every material, so it is where the materials menu leads, and a
@@ -67,7 +68,18 @@ def offer_new_material(request, code):
 
 @wo_hooks.material_handler
 def draw_tracked_material(
-    wo, *, material, quantity, unit, description, unit_cost, note, billable, lot, user
+    wo,
+    *,
+    material,
+    quantity,
+    unit,
+    description,
+    unit_cost,
+    note,
+    billable,
+    lot,
+    user,
+    leftover=None,
 ):
     """Tracked materials come out of stock at lot cost; returns go back to their lots."""
     if services.tracked_item(material) is None:
@@ -78,6 +90,8 @@ def draw_tracked_material(
             "Leave the cost blank."
         )
     if quantity < 0:
+        if leftover:
+            raise ValidationError("A return has no leftover piece.")
         return services.return_to_stock(
             wo, material, quantity=-quantity, unit=unit, note=note, billable=billable, user=user
         )
@@ -87,6 +101,7 @@ def draw_tracked_material(
         quantity=quantity,
         unit=unit,
         lot=lot,
+        leftover=leftover,
         description=description,
         note=note,
         billable=billable,
@@ -106,7 +121,11 @@ def planned_in_stock(planned):
         .select_related("item__material", "location")
         .order_by("received_on", "created_at")
     )
+    pieces: dict = {}
     for lot in lots:
+        if lot.is_remnant:
+            pieces.setdefault(lot.item.material_id, []).append(lot.size)
+            continue
         entry = where.setdefault(lot.item.material_id, [services.ZERO, [], lot.item.material])
         entry[0] += lot.qty_on_hand
         if lot.location.path not in entry[1]:
@@ -120,11 +139,16 @@ def planned_in_stock(planned):
     for p in planned:
         if p.material_id not in tracked:
             continue
+        extra = ""
+        if p.material_id in pieces:
+            sizes = pieces[p.material_id]
+            extra = f"; remnant{'s' if len(sizes) > 1 else ''} {', '.join(sizes[:4])}"
+            extra += "…" if len(sizes) > 4 else ""
         if p.material_id not in where:
-            notes[p.pk] = "None in stock"
+            notes[p.pk] = f"None in stock{extra}"
             continue
         qty, places, material = where[p.material_id]
-        notes[p.pk] = f"{services.fmt(qty, material.unit)} in stock: {', '.join(places)}"
+        notes[p.pk] = f"{services.fmt(qty, material.unit)} in stock: {', '.join(places)}{extra}"
     return notes
 
 
@@ -139,6 +163,8 @@ def material_stock(request, material):
     can_manage = access.has_perm(request.actor, "stock.manage")
     tracked = item is not None and item.tracked
     lots = list(item.lots.filter(qty_on_hand__gt=0).select_related("location")) if item else []
+    # Remnants first: an offcut that fits is used before a new sheet is cut.
+    lots.sort(key=lambda x: (not x.is_remnant, x.received_on, x.created_at))
     context = {
         "material": material,
         "item": item,
@@ -168,9 +194,11 @@ def material_stock(request, material):
         context["count_form"] = CountForm(material=material, item=item)
         context["lot_form"] = LotActionForm(material=material)
         context["locations"] = Location.objects.filter(is_active=True)
+        context["length_units"] = LENGTH_UNITS
         here = {}
         for x in lots:
-            here[x.location] = here.get(x.location, services.ZERO) + x.qty_on_hand
+            if not x.is_remnant:
+                here[x.location] = here.get(x.location, services.ZERO) + x.qty_on_hand
         context["by_location"] = sorted(here.items(), key=lambda kv: kv[0].path)
     return panels.Panel(
         "Stock",

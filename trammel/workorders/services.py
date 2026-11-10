@@ -409,6 +409,7 @@ def record_material(
     note: str = "",
     billable: bool = True,
     lot=None,
+    leftover: tuple | None = None,
     user=None,
 ) -> list[MaterialUsage]:
     """Material consumed on a work order (FR-STK-8). A negative quantity corrects.
@@ -434,10 +435,15 @@ def record_material(
             note=note,
             billable=billable,
             lot=lot,
+            leftover=leftover,
             user=user,
         )
         if handled is not None:
             return handled
+        if leftover:
+            raise ValidationError(
+                f"{material} is not kept in stock, so a leftover piece cannot be kept."
+            )
         if lot is not None:
             raise ValidationError(f"{material} is not tracked in stock, so it has no lots.")
         if unit_cost is None:

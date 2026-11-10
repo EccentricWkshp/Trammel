@@ -129,7 +129,7 @@ def test_use_a_lot_on_a_work_order_from_the_floor(admin_client, lots, screws, wo
     newer = lots[1]
     admin_client.get(f"/floor/wo/{wo.pk}/")  # the floor remembers the work order
     page = admin_client.get(f"/stock/f/lot/{newer.pk}/").content.decode()
-    assert f'value="{wo.pk}" selected' in page and "Use from" in page
+    assert f'value="{wo.pk}" selected' in page and f"Use {newer.number}" in page
     response = admin_client.post(
         "/stock/f/use/",
         {

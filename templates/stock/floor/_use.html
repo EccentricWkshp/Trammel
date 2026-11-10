@@ -1,6 +1,7 @@
+{% load trammel %}
 {% if can_use %}
 <details class="floor-action" open>
-  <summary><h2 class="inline-heading">Use on a work order</h2></summary>
+  <summary><h2 class="inline-heading">{% if lot.is_remnant %}Use this remnant{% else %}Use on a work order{% endif %}</h2></summary>
   {% if work_orders %}
   <form method="post" action="{% url 'stock:floor_use' %}" class="stack">
     {% csrf_token %}
@@ -12,12 +13,27 @@
         <option value="">— choose —</option>
         {% for wo in work_orders %}<option value="{{ wo.pk }}"{% if wo.pk|stringformat:"s" == last_work_order %} selected{% endif %}>{{ wo.number }} · {{ wo.title }}</option>{% endfor %}
       </select></div>
+    {% if lot.is_remnant %}
+    <input type="hidden" name="quantity" value="{{ lot.qty_on_hand|floatformat:"-4" }}">
+    <input type="hidden" name="unit" value="{{ material.unit }}">
+    <p class="muted">The whole remnant ({{ lot.size }}) is used.</p>
+    {% else %}
     <div class="row">
       <div><label for="use-qty">Quantity</label><input id="use-qty" type="text" inputmode="decimal" name="quantity" required></div>
       <div><label for="use-unit">Unit</label><select id="use-unit" name="unit">{% for code, label in unit_choices %}<option value="{{ code }}"{% if code == material.unit %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
     </div>
+    {% endif %}
+    <details class="leftover"{% if lot.is_remnant %} open{% endif %}>
+      <summary>Something left over to keep?</summary>
+      <p class="muted small">Its size. It goes back into stock as a remnant, and the work order pays only for the rest. Leave the width out for boards and bars.</p>
+      <div class="row">
+        <div><label for="lo-l">Length</label><input id="lo-l" type="text" inputmode="decimal" name="leftover_length"></div>
+        <div><label for="lo-w">Width</label><input id="lo-w" type="text" inputmode="decimal" name="leftover_width"></div>
+        <div><label for="lo-u">Unit</label><select id="lo-u" name="leftover_unit">{% for u in length_units %}<option value="{{ u }}"{% if u == lot.dim_unit %} selected{% endif %}>{{ u }}</option>{% endfor %}</select></div>
+      </div>
+    </details>
     <label class="check"><input type="checkbox" name="billable" checked><span>Bill the customer for it</span></label>
-    <button type="submit" class="big primary">Use{% if lot %} from {{ lot.number }}{% endif %}</button>
+    <button type="submit" class="big primary">Use{% if lot %} {{ lot.number }}{% endif %}</button>
   </form>
   {% else %}<p class="muted">No open work orders.</p>{% endif %}
 </details>

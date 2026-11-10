@@ -111,8 +111,10 @@ def tracked_item(material: Material) -> StockItem | None:
     return StockItem.objects.filter(material=material, tracked=True).first()
 
 
-def on_hand(item: StockItem, location: Location | None = None) -> Decimal:
+def on_hand(item: StockItem, location: Location | None = None, *, remnants: bool = True) -> Decimal:
     lots = item.lots.all() if location is None else item.lots.filter(location=location)
+    if not remnants:
+        lots = lots.filter(length__isnull=True)
     return lots.aggregate(q=Coalesce(Sum("qty_on_hand"), ZERO))["q"]
 
 
@@ -192,6 +194,15 @@ def _stock_quantity(material: Material, quantity, unit: str) -> Decimal:
     return q
 
 
+def _whole_remnant(lot: StockLot, quantity: Decimal, doing: str) -> None:
+    """A remnant is one piece: it is moved, scrapped or used whole."""
+    if lot.is_remnant and quantity != lot.qty_on_hand:
+        raise ValidationError(
+            f"{lot.number} is a remnant ({lot.size}); {doing} all of it. "
+            "To keep part of it, cut that part off as a remnant first."
+        )
+
+
 def _draw_value(lot: StockLot, quantity: Decimal) -> Decimal:
     if quantity == lot.qty_on_hand:
         return lot.value_on_hand
@@ -251,8 +262,10 @@ def _new_lot(
     user=None,
     entered=None,
     source=None,
+    piece: dict | None = None,
 ) -> StockLot:
     lot = StockLot.objects.create(
+        **(piece or {}),
         number=numbering.next_number("stock_lot"),
         item=item,
         location=location,
@@ -353,6 +366,7 @@ def transfer(
     qty = _stock_quantity(material, quantity, unit)
     if qty > lot.qty_on_hand:
         raise ValidationError(f"{lot.number} has only {fmt(lot.qty_on_hand, material.unit)}.")
+    _whole_remnant(lot, qty, "move")
     value = _draw_value(lot, qty)
     from_location = lot.location
     _move(lot, Reason.TRANSFER, -qty, -value, user=user, note=f"To {to}. {note}".strip())
@@ -394,6 +408,7 @@ def scrap(lot: StockLot, *, quantity: Decimal, unit: str = "", note: str, user=N
     qty = _stock_quantity(material, quantity, unit)
     if qty > lot.qty_on_hand:
         raise ValidationError(f"{lot.number} has only {fmt(lot.qty_on_hand, material.unit)}.")
+    _whole_remnant(lot, qty, "scrap")
     move = _move(lot, Reason.SCRAP, -qty, -_draw_value(lot, qty), user=user, note=note.strip())
     audit.record(
         "stock.scrap",
@@ -419,7 +434,8 @@ def count(
     quantity the counter was shown; if stock moved since, the count is refused
     rather than overwriting that change. Returns the difference, in stock units."""
     item = _lock(_require_tracked(item_for(material), material))
-    here = on_hand(item, location)
+    # Remnants are handled one by one (used, moved or scrapped), not counted.
+    here = on_hand(item, location, remnants=False)
     if expected is not None and _q(expected) != here:
         raise ValidationError(
             f"Stock of {material} in {location} changed while you were counting "
@@ -437,7 +453,7 @@ def count(
     if diff < 0:
         remaining = -diff
         lots = StockLot.objects.select_for_update().filter(
-            item=item, location=location, qty_on_hand__gt=0
+            item=item, location=location, qty_on_hand__gt=0, length__isnull=True
         )
         for lot in lots:
             take = min(lot.qty_on_hand, remaining)
@@ -478,6 +494,140 @@ def _cost_or_refuse(item: StockItem) -> Decimal:
 
 
 # ---------------------------------------------------------------------------
+# Remnants (FR-STK-5)
+# ---------------------------------------------------------------------------
+
+#: The area unit that goes with a length unit, for pieces measured both ways.
+AREA_OF = {
+    "mm": "sq_mm",
+    "cm": "sq_cm",
+    "m": "sq_m",
+    "in": "sq_in",
+    "ft": "sq_ft",
+    "linear_ft": "sq_ft",
+    "yd": "sq_yd",
+}
+
+
+def _dimension(value, name: str) -> Decimal | None:
+    if value in (None, ""):
+        return None
+    try:
+        value = Decimal(str(value))
+    except ArithmeticError:
+        raise ValidationError(f"The {name} is not a number.") from None
+    if value <= 0:
+        raise ValidationError(f"The {name} must be more than zero.")
+    return value
+
+
+def _piece(material: Material, length, width, unit: str) -> dict:
+    """A piece's size as lot fields, plus its `quantity` in the stock unit.
+
+    With a width, the piece is measured by area (sheet goods); without, by
+    length (boards and bars). The material's conversions say how much stock
+    that is."""
+    length = _dimension(length, "length")
+    width = _dimension(width, "width")
+    if length is None:
+        raise ValidationError("Give the remnant's length.")
+    if unit not in AREA_OF:
+        raise ValidationError("Give the size in mm, cm, m, in, ft or yd.")
+    try:
+        if width is None:
+            quantity = material.to_stock(length, unit)
+        else:
+            quantity = material.to_stock(length * width, AREA_OF[unit])
+    except units.IncompatibleUnits:
+        how = "by area" if width is not None else "by length"
+        raise ValidationError(
+            f"{material} cannot be measured {how}. "
+            + (
+                "Leave the width out."
+                if width is not None
+                else "Give its width too, or give it a length conversion on the material."
+            )
+        ) from None
+    quantity = _q(quantity)
+    if quantity <= 0:
+        raise ValidationError("That piece is too small to keep.")
+    long_side, short_side = (length, width) if width is None or length >= width else (width, length)
+    return {
+        "quantity": quantity,
+        "length": length,
+        "width": width,
+        "dim_unit": unit,
+        "long_mm": units.canonical(long_side, unit).quantize(Decimal("0.001")),
+        "short_mm": units.canonical(short_side, unit).quantize(Decimal("0.001"))
+        if short_side is not None
+        else None,
+    }
+
+
+@transaction.atomic
+def cut_remnant(
+    lot: StockLot,
+    *,
+    length,
+    width=None,
+    unit: str,
+    location: Location | None = None,
+    note: str = "",
+    user=None,
+) -> StockLot:
+    """Record a piece of a lot as a remnant of its own: its size, its share of the
+    lot's value, and where it is kept."""
+    item = _lock(lot.item)
+    material = item.material
+    lot = StockLot.objects.select_for_update().get(pk=lot.pk)
+    piece = _piece(material, length, width, unit)
+    qty = piece.pop("quantity")
+    if qty > lot.qty_on_hand:
+        raise ValidationError(
+            f"{lot.number} has only {fmt(lot.qty_on_hand, material.unit)}; "
+            f"a piece that size is {fmt(qty, material.unit)}."
+        )
+    value = _draw_value(lot, qty)
+    _move(lot, Reason.REMNANT, -qty, -value, user=user, note=note or "Remnant cut off")
+    remnant = _new_lot(
+        item,
+        reason=Reason.REMNANT,
+        quantity=qty,
+        value=value,
+        location=location or lot.location,
+        received_on=lot.received_on,
+        vendor=lot.vendor,
+        parent=lot,
+        unit_cost=lot.unit_cost,
+        note=note or f"Cut from {lot.number}",
+        user=user,
+        piece=piece,
+    )
+    audit.record(
+        "stock.remnant",
+        material,
+        summary=f"{material}: remnant {remnant.number} ({remnant.size}) from {lot.number}",
+    )
+    return remnant
+
+
+def remnants(material: Material | None = None, *, length=None, width=None, unit: str = "in"):
+    """Remnants on hand at least `length` × `width`, either way round, smallest first."""
+    qs = StockLot.objects.filter(
+        qty_on_hand__gt=0, length__isnull=False, item__tracked=True
+    ).select_related("item__material", "location")
+    if material is not None:
+        qs = qs.filter(item__material=material)
+    sides = [d for d in (_dimension(length, "length"), _dimension(width, "width")) if d]
+    if sides and unit in AREA_OF:
+        need = sorted((units.canonical(d, unit) for d in sides), reverse=True)
+        qs = qs.filter(long_mm__gte=need[0])
+        if len(need) == 2:
+            qs = qs.filter(short_mm__gte=need[1])
+    return qs.order_by("item__material__name", "qty_on_hand", "received_on")
+
+
+# ---------------------------------------------------------------------------
 # Work orders
 # ---------------------------------------------------------------------------
 
@@ -490,13 +640,18 @@ def consume(
     quantity: Decimal,
     unit: str = "",
     lot=None,
+    leftover: tuple | None = None,
     description: str = "",
     note: str = "",
     billable: bool = True,
     user=None,
 ) -> list:
     """Use stock on a work order: oldest lots first, or the lot given. Writes one
-    usage per lot drawn from, at that lot's cost (FR-STK-3)."""
+    usage per lot drawn from, at that lot's cost (FR-STK-3).
+
+    Remnants are used only when picked. `leftover` is (length, width, unit) of a
+    piece cut off what was used and kept: it goes back to stock as a remnant of
+    the last lot drawn, and the work order pays only for the rest (FR-STK-5)."""
     from trammel.workorders import services as wo_services
     from trammel.workorders.models import MaterialUsage
 
@@ -509,6 +664,8 @@ def consume(
         lots = lots.filter(pk=find_lot(item, lot).pk)
         if not lots.exists():
             raise ValidationError(f"That lot has no {material} left.")
+    else:
+        lots = lots.filter(length__isnull=True)
     lots = list(lots.order_by("received_on", "created_at", "id"))
     available = sum((x.qty_on_hand for x in lots), ZERO)
     if qty > available:
@@ -518,9 +675,16 @@ def consume(
                 f"{lots[0].number} has only {fmt(available, material.unit)} of {material}."
             )
         if StockSettings.load().shortfall != StockSettings.Shortfall.FOUND:
+            pieces = item.lots.filter(qty_on_hand__gt=0, length__isnull=False).count()
+            hint = (
+                f" There {'is' if pieces == 1 else 'are'} also {pieces} "
+                f"remnant{'' if pieces == 1 else 's'}, used only when picked."
+                if pieces
+                else ""
+            )
             raise ValidationError(
                 f"Only {fmt(available, material.unit)} of {material} is in stock, and "
-                f"{fmt(qty, material.unit)} is needed. Count or receive it first."
+                f"{fmt(qty, material.unit)} is needed. Count or receive it first.{hint}"
             )
         cost = _cost_or_refuse(item)
         where = item.default_location or (lots[-1].location if lots else None)
@@ -549,21 +713,41 @@ def consume(
         remaining -= take
         if not remaining:
             break
+    if lot is not None and lots[0].is_remnant and qty != lots[0].qty_on_hand:
+        raise ValidationError(
+            f"{lots[0].number} is a remnant ({lots[0].size}) and is used whole. "
+            "Give the size of what is left over, and that is kept as a new remnant."
+        )
+    piece = kept = None
+    if leftover:
+        piece = _piece(material, *leftover)
+        kept = piece.pop("quantity")
+        if kept >= picks[-1][1]:
+            raise ValidationError(
+                "The leftover piece is as big as what was taken. Use less instead, "
+                "or leave the leftover out."
+            )
     for n, (x, take) in enumerate(picks):
         value = _draw_value(x, take)
-        if n == len(picks) - 1:
+        last = n == len(picks) - 1
+        if last:
             entered = quantity - entered_so_far
         else:
             entered = _q(material.convert(take, material.unit, unit))
             entered_so_far += entered
+        kept_value = ZERO
+        if last and kept:
+            # The job pays for what it used; the leftover's share goes back with it.
+            kept_value = round_money(value * kept / take)
+            entered -= _q(material.convert(kept, material.unit, unit))
         usage = wo_services.write_usage(
             wo,
             material=material,
             description=description,
             quantity=entered,
             unit=unit,
-            unit_cost=_q(value / entered) if entered else ZERO,
-            total_cost=value,
+            unit_cost=_q((value - kept_value) / entered) if entered else ZERO,
+            total_cost=value - kept_value,
             note=note if len(picks) == 1 else f"{note} ({x.number})".strip(),
             billable=billable,
             source=MaterialUsage.Source.STOCK,
@@ -579,6 +763,22 @@ def consume(
             source=usage,
             note=wo.number,
         )
+        if last and kept:
+            _new_lot(
+                item,
+                reason=Reason.REMNANT,
+                quantity=kept,
+                value=kept_value,
+                location=x.location,
+                received_on=x.received_on,
+                vendor=x.vendor,
+                parent=x,
+                unit_cost=x.unit_cost,
+                note=f"Left over from {wo.number}",
+                user=user,
+                source=usage,
+                piece=piece,
+            )
         usages.append(usage)
     return usages
 
@@ -611,7 +811,10 @@ def returnable(wo, item: StockItem) -> list[tuple[StockMove, Decimal, Decimal]]:
     back = {
         row["source_id"]: (row["q"], row["v"])
         for row in StockMove.objects.filter(
-            item=item, reason=Reason.RETURN, source_type=USAGE, source_id__in=usage_ids
+            item=item,
+            reason__in=(Reason.RETURN, Reason.REMNANT),
+            source_type=USAGE,
+            source_id__in=usage_ids,
         )
         .values("source_id")
         .annotate(q=Sum("quantity"), v=Sum("value"))
@@ -736,7 +939,9 @@ def check_ledger() -> list[str]:
 
     drawn = {
         row["source_id"]: row["v"]
-        for row in StockMove.objects.filter(reason=Reason.CONSUME, source_type=USAGE)
+        for row in StockMove.objects.filter(
+            reason__in=(Reason.CONSUME, Reason.REMNANT), source_type=USAGE
+        )
         .values("source_id")
         .annotate(v=Sum("value"))
     }

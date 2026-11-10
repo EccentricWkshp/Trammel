@@ -327,7 +327,10 @@ class Builder:
                     opening=n == 0,
                     user=self.admin,
                 )
-        self.say("5 stock locations and 6 tracked materials")
+        # An offcut of plywood kept as a remnant (FR-STK-5).
+        first = self.ply.stock.lots.order_by("received_on").first()
+        stock.cut_remnant(first, length=D("12"), width=D("10"), unit="in", user=self.admin)
+        self.say("5 stock locations, 6 tracked materials and a remnant")
 
     def tax(self):
         from trammel.tax.models import Boundary, Jurisdiction, TaxCategory, TaxRate

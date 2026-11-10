@@ -13,18 +13,18 @@
   </dl>
 
   <div class="card-heading"><h3>Lots</h3><span class="actions small">{% if ctx.lots %}<a href="{% url 'stock:labels' %}?lots_of={{ m.pk }}">Labels for these lots</a>{% endif %}<a href="{% url 'stock:labels' %}?material={{ m.pk }}">Bin label</a><a href="{% url 'stock:floor_material' m.pk %}">Shop-floor page</a></span></div>
-  <p class="muted small">Used oldest first. Each lot keeps the cost it came in at.</p>
+  <p class="muted small">Used oldest first. Each lot keeps the cost it came in at. Remnants are listed first and used only when picked.</p>
   <div class="table-wrap"><table>
     <thead><tr><th scope="col">Lot</th><th scope="col">Location</th><th scope="col">Received</th><th scope="col" class="num">On hand</th>{% if ctx.can_costs %}<th scope="col" class="num">Value</th>{% endif %}{% if ctx.can_edit %}<th scope="col"><span class="visually-hidden">Actions</span></th>{% endif %}</tr></thead>
     <tbody>
     {% for lot in ctx.lots %}
       <tr>
-        <td><a href="{{ lot.get_absolute_url }}">{{ lot.number }}</a></td>
+        <td><a href="{{ lot.get_absolute_url }}">{{ lot.number }}</a>{% if lot.is_remnant %} <span class="badge">remnant {{ lot.size }}</span>{% endif %}</td>
         <td><a href="{{ lot.location.get_absolute_url }}">{{ lot.location }}</a></td>
         <td>{{ lot.received_on|d }}</td>
         <td class="num">{{ lot.qty_on_hand|qty }}</td>
         {% if ctx.can_costs %}<td class="num">{{ lot.value_on_hand|money }}</td>{% endif %}
-        {% if ctx.can_edit %}<td>{% include "stock/_lot_actions.html" with lot=lot material=m locations=ctx.locations next=request.get_full_path %}</td>{% endif %}
+        {% if ctx.can_edit %}<td>{% include "stock/_lot_actions.html" with lot=lot material=m locations=ctx.locations next=request.get_full_path %}{% include "stock/_cut_remnant.html" with lot=lot locations=ctx.locations length_units=ctx.length_units next=request.get_full_path %}</td>{% endif %}
       </tr>
     {% empty %}
       <tr><td colspan="6" class="muted">None in stock.</td></tr>
@@ -44,7 +44,7 @@
     </details>
     <details>
       <summary>Count</summary>
-      <p class="muted small">Enter what is there. The difference is recorded as found or missing stock.</p>
+      <p class="muted small">Enter what is there, not counting remnants. The difference is recorded as found or missing stock.</p>
       {% for location, here in ctx.by_location %}
       <form method="post" action="{% url 'stock:count' m.pk %}" class="filters" aria-label="Count {{ location }}">
         {% csrf_token %}

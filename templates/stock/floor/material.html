@@ -9,10 +9,10 @@
 {% if lots %}
 <ul class="floor-list">
   {% for x in lots %}
-  <li><a class="floor-card" href="{% url 'stock:floor_lot' x.pk %}"><strong>{{ x.number }}</strong> · {{ x.qty_on_hand|qty }} {{ material.get_unit_display }}<br><span class="muted">{{ x.location }} · received {{ x.received_on|d }}</span></a></li>
+  <li><a class="floor-card" href="{% url 'stock:floor_lot' x.pk %}"><strong>{{ x.number }}</strong> · {% if x.is_remnant %}<span class="badge">remnant {{ x.size }}</span>{% else %}{{ x.qty_on_hand|qty }} {{ material.get_unit_display }}{% endif %}<br><span class="muted">{{ x.location }} · received {{ x.received_on|d }}</span></a></li>
   {% endfor %}
 </ul>
-<p class="muted">Used oldest first unless you open a lot and use it from there.</p>
+<p class="muted">Remnants are listed first and used only when you open one. Otherwise the oldest lot is used first.</p>
 {% endif %}
 {% else %}
 <p class="muted">Not tracked in stock. Using it records the cost from the price list.</p>

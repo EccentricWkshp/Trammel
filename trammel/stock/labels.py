@@ -51,7 +51,11 @@ def for_lots(lots) -> list[Label]:
             lot.pk,
             str(lot.item.material),
             lot.number,
-            [str(lot.location), f"Received {formats.show(lot.received_on)}"],
+            [
+                f"Remnant {lot.size}" if lot.is_remnant else "",
+                str(lot.location),
+                f"Received {formats.show(lot.received_on)}",
+            ],
         )
         for lot in lots
     ]

@@ -11,6 +11,7 @@
 {% if can_stock %}
 <nav class="subnav" aria-label="Stock">
   <a href="{% url 'stock:restock' %}">Restock list</a>
+  <a href="{% url 'stock:remnants' %}">Remnants</a>
   <a href="{% url 'stock:moves' %}">History</a>
   <a href="{% url 'stock:locations' %}">Locations</a>
   {% if can_manage %}<a href="{% url 'stock:settings' %}">Stock settings</a>{% endif %}

@@ -10,6 +10,7 @@
       <div><dt>On hand</dt><dd>{{ lot.qty_on_hand|qty }} {{ material.get_unit_display }}</dd></div>
       <div><dt>Location</dt><dd><a href="{{ lot.location.get_absolute_url }}">{{ lot.location }}</a></dd></div>
       <div><dt>Received</dt><dd>{{ lot.received_on|d }}</dd></div>
+      {% if lot.is_remnant %}<div><dt>Remnant</dt><dd>{{ lot.size }}</dd></div>{% endif %}
       <div><dt>Came in as</dt><dd>{{ lot.get_origin_display }}</dd></div>
       {% if lot.vendor %}<div><dt>Vendor</dt><dd>{{ lot.vendor }}</dd></div>{% endif %}
       {% if can_costs %}<div><dt>Cost</dt><dd>{{ lot.unit_cost|money }} / {{ material.get_unit_display }}</dd></div><div><dt>Value</dt><dd>{{ lot.value_on_hand|money }}</dd></div>{% endif %}
@@ -21,6 +22,7 @@
 <p class="actions"><a class="button" href="{% url 'stock:labels' %}?lot={{ lot.pk }}">Print label</a> <a href="{% url 'stock:floor_lot' lot.pk %}">Shop-floor page</a></p>
 {% if can_edit and lot.qty_on_hand %}
 {% include "stock/_lot_actions.html" with next=request.get_full_path locations=locations %}
+{% include "stock/_cut_remnant.html" with next=request.get_full_path locations=locations %}
 {% endif %}
 <h2>History</h2>
 <div class="table-wrap">

@@ -1,0 +1,14 @@
+<details class="lot-actions">
+  <summary>Cut off a remnant</summary>
+  <form method="post" action="{% url 'stock:cut_remnant' lot.pk %}" class="stack">
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{{ next }}">
+    <p class="muted small">Keep a piece of this lot as its own remnant, with its size and its share of the cost. Leave the width out for boards and bars.</p>
+    <label>Length <input type="text" inputmode="decimal" name="length" required></label>
+    <label>Width <input type="text" inputmode="decimal" name="width"></label>
+    <label>Unit <select name="unit">{% for u in length_units %}<option value="{{ u }}">{{ u }}</option>{% endfor %}</select></label>
+    <label>Kept in <select name="location"><option value="">Where the lot is</option>{% for loc in locations %}<option value="{{ loc.pk }}">{{ loc }}</option>{% endfor %}</select></label>
+    <label>Note <input type="text" name="note" maxlength="300"></label>
+    <div class="actions"><button type="submit">Keep as a remnant</button></div>
+  </form>
+</details>

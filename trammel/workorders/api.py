@@ -100,6 +100,10 @@ class MaterialUseIn(Schema):
     billable: bool = True
     #: A stock lot to draw from, for a material tracked in stock (else oldest first).
     lot: UUID | None = None
+    #: A piece of what was used, kept as a remnant: length, optional width, unit.
+    leftover_length: Decimal | None = None
+    leftover_width: Decimal | None = None
+    leftover_unit: str = "in"
 
 
 def _wo(request, perm, pk) -> WorkOrder:
@@ -209,6 +213,11 @@ def record_material(request, wo_id: UUID, payload: MaterialUseIn):
         unit_cost=payload.unit_cost,
         billable=payload.billable,
         lot=payload.lot,
+        leftover=(
+            (payload.leftover_length, payload.leftover_width, payload.leftover_unit)
+            if payload.leftover_length
+            else None
+        ),
         user=request.actor.user,
     )
     total = sum((u.total_cost for u in usages), Decimal("0"))

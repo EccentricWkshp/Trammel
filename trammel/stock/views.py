@@ -27,6 +27,7 @@ from trammel.core.web import (
 from trammel.shop.models import Material, MaterialBarcode
 
 from . import labels, services
+from .floor import LENGTH_UNITS
 from .forms import (
     BarcodeForm,
     CountForm,
@@ -353,6 +354,7 @@ def lot_detail(request, pk):
             "can_edit": can_edit,
             "can_costs": access.has_perm(request.actor, "core.see_costs"),
             "locations": Location.objects.filter(is_active=True) if can_edit else [],
+            "length_units": LENGTH_UNITS,
         },
     )
 
@@ -601,6 +603,63 @@ def lot_action(request, pk, action):
     except ValidationError as exc:
         _errors(request, exc)
     return redirect(back)
+
+
+@permission_required("stock.edit")
+@require_POST
+def cut_remnant(request, pk):
+    """Keep a piece of a lot as a remnant of its own (FR-STK-5)."""
+    lot = get_object_or_404(StockLot.objects.select_related("item__material"), pk=pk)
+    back = _next(request, _stock_tab(lot.item.material))
+    to = Location.objects.filter(pk=request.POST.get("location") or None).first()
+    try:
+        remnant = services.cut_remnant(
+            lot,
+            length=request.POST.get("length", "").strip(),
+            width=request.POST.get("width", "").strip() or None,
+            unit=request.POST.get("unit", "in"),
+            location=to,
+            note=request.POST.get("note", "").strip(),
+            user=request.user,
+        )
+    except ValidationError as exc:
+        _errors(request, exc)
+    else:
+        messages.success(
+            request, f"Remnant {remnant.number} ({remnant.size}) is in {remnant.location}."
+        )
+    return redirect(back)
+
+
+@permission_required("stock.view")
+def remnant_list(request):
+    """Remnants on hand, found by the size needed, either way round (FR-STK-5)."""
+    material = Material.objects.filter(pk=request.GET.get("material") or None).first()
+    unit = request.GET.get("unit") if request.GET.get("unit") in services.AREA_OF else "in"
+    length, width = request.GET.get("length", "").strip(), request.GET.get("width", "").strip()
+    try:
+        found = services.remnants(material, length=length or None, width=width or None, unit=unit)
+    except ValidationError as exc:
+        _errors(request, exc)
+        found = services.remnants(material)
+    return render(
+        request,
+        "stock/remnants.html",
+        {
+            "remnants": found[:200],
+            "materials": Material.objects.filter(
+                stock__lots__length__isnull=False, stock__lots__qty_on_hand__gt=0
+            )
+            .distinct()
+            .order_by("name"),
+            "material": material,
+            "length": length,
+            "width": width,
+            "unit": unit,
+            "units": [u for u in services.AREA_OF if u != "linear_ft"],
+            "can_costs": access.has_perm(request.actor, "core.see_costs"),
+        },
+    )
 
 
 @permission_required("stock.manage")

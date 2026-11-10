@@ -30,6 +30,9 @@ from .models import Location, StockItem, StockLot
 #: so “Use on work order” offers it first.
 LAST_WORK_ORDER = "floor_work_order"
 
+#: Units a remnant's size is given in.
+LENGTH_UNITS = ("in", "ft", "mm", "cm", "m")
+
 
 def _work_orders(request):
     return (
@@ -46,6 +49,7 @@ def _use_context(request, material: Material) -> dict:
         "work_orders": _work_orders(request) if can_use else [],
         "last_work_order": request.session.get(LAST_WORK_ORDER, ""),
         "unit_choices": material.unit_choices(),
+        "length_units": LENGTH_UNITS,
     }
 
 
@@ -111,7 +115,11 @@ def location(request, pk):
         .order_by("item__material__name", "received_on")
     )
     by_material: dict = {}
+    pieces = []
     for x in lots:
+        if x.is_remnant:
+            pieces.append(x)
+            continue
         entry = by_material.setdefault(x.item.material_id, [x.item.material, Decimal("0"), []])
         entry[1] += x.qty_on_hand
         entry[2].append(x)
@@ -121,6 +129,7 @@ def location(request, pk):
         {
             "location": location,
             "materials": list(by_material.values()),
+            "remnants": pieces,
             "children": location.children.filter(is_active=True),
             **_common(request),
         },
@@ -141,6 +150,7 @@ def material(request, pk):
         if item and item.tracked and access.has_perm(request.actor, "stock.view")
         else []
     )
+    lots.sort(key=lambda x: (not x.is_remnant, x.qty_on_hand, x.received_on))
     return render(
         request,
         "stock/floor/material.html",
@@ -180,6 +190,13 @@ def use(request):
         messages.error(request, "Enter how much was used.")
         return redirect(back)
     lot_id = request.POST.get("lot") or None
+    leftover = None
+    if request.POST.get("leftover_length", "").strip():
+        leftover = (
+            request.POST["leftover_length"].strip(),
+            request.POST.get("leftover_width", "").strip() or None,
+            request.POST.get("leftover_unit") or "in",
+        )
     try:
         usages = wo_services.record_material(
             wo,
@@ -188,6 +205,7 @@ def use(request):
             unit=request.POST.get("unit", ""),
             billable=request.POST.get("billable") == "on",
             lot=lot_id,
+            leftover=leftover,
             user=request.user,
         )
     except (ValidationError, units.IncompatibleUnits) as exc:

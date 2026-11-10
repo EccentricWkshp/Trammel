@@ -25,7 +25,15 @@
   {% endif %}
 </section>
 {% empty %}
-<p class="muted">Nothing is kept here.</p>
+{% if not remnants %}<p class="muted">Nothing is kept here.</p>{% endif %}
 {% endfor %}
+{% if remnants %}
+<h2>Remnants here</h2>
+<ul class="floor-list">
+  {% for x in remnants %}
+  <li><a class="floor-card" href="{% url 'stock:floor_lot' x.pk %}"><strong>{{ x.item.material }}</strong> <span class="badge">{{ x.size }}</span><br><span class="muted">{{ x.number }}</span></a></li>
+  {% endfor %}
+</ul>
+{% endif %}
 <p><a href="{{ location.get_absolute_url }}">Open the full page</a></p>
 {% endblock %}

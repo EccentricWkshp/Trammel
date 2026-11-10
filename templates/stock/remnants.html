@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% load trammel %}
+{% block title %}Remnants{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{% url 'stock:list' %}">Materials and stock</a></p>
+<h1>Remnants</h1>
+<p class="lede">Offcuts kept in stock. Give the size you need to find pieces that fit, either way round, smallest first.</p>
+<form method="get" class="filters" role="search">
+  <label>Material
+    <select name="material"><option value="">Any</option>
+      {% for m in materials %}<option value="{{ m.pk }}"{% if material and m.pk == material.pk %} selected{% endif %}>{{ m }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>At least <input type="text" inputmode="decimal" name="length" value="{{ length }}" placeholder="length" size="6"></label>
+  <label>× <input type="text" inputmode="decimal" name="width" value="{{ width }}" placeholder="width" size="6"></label>
+  <label>Unit <select name="unit">{% for u in units %}<option value="{{ u }}"{% if u == unit %} selected{% endif %}>{{ u }}</option>{% endfor %}</select></label>
+  <button type="submit">Find</button>
+</form>
+<div class="table-wrap">
+<table>
+  <thead><tr><th scope="col">Material</th><th scope="col">Size</th><th scope="col">Lot</th><th scope="col">Location</th>{% if can_costs %}<th scope="col" class="num">Value</th>{% endif %}<th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+  <tbody>
+  {% for r in remnants %}
+    <tr>
+      <td><a href="{{ r.item.get_absolute_url }}">{{ r.item.material }}</a></td>
+      <td><strong>{{ r.size }}</strong></td>
+      <td><a href="{{ r.get_absolute_url }}">{{ r.number }}</a></td>
+      <td>{{ r.location }}</td>
+      {% if can_costs %}<td class="num">{{ r.value_on_hand|money }}</td>{% endif %}
+      <td><a href="{% url 'stock:labels' %}?lot={{ r.pk }}">Label</a></td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="6" class="muted">{% if length or width %}No remnant that size.{% else %}No remnants in stock.{% endif %}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

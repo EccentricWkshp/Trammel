@@ -137,6 +137,20 @@ class StockLot(models.Model):
     value_on_hand = MoneyField(default=ZERO, editable=False)
     note = models.CharField(max_length=300, blank=True)
 
+    # A remnant (FR-STK-5): an offcut with its own size. Its quantity in the stock
+    # unit comes from that size. Remnants are used only when picked, never by
+    # oldest-first, and are searched by size in either orientation.
+    length = models.DecimalField(null=True, blank=True, editable=False, **QTY)
+    width = models.DecimalField(null=True, blank=True, editable=False, **QTY)
+    dim_unit = models.CharField(max_length=12, blank=True, editable=False)
+    #: The longer and shorter side in mm, for searching either way round.
+    long_mm = models.DecimalField(
+        null=True, blank=True, editable=False, db_index=True, max_digits=14, decimal_places=3
+    )
+    short_mm = models.DecimalField(
+        null=True, blank=True, editable=False, max_digits=14, decimal_places=3
+    )
+
     class Meta:
         ordering = ["received_on", "created_at", "id"]
         constraints = [
@@ -159,6 +173,23 @@ class StockLot(models.Model):
 
     def get_absolute_url(self) -> str:
         return reverse("stock:lot", args=[self.pk])
+
+    @property
+    def is_remnant(self) -> bool:
+        return self.length is not None
+
+    @property
+    def size(self) -> str:
+        """“24 × 18 in”, or “30 in” for a piece measured by length only."""
+        if self.length is None:
+            return ""
+        from trammel.core import units
+        from trammel.core.money import trim_decimal
+
+        label = units.get(self.dim_unit).label if self.dim_unit else ""
+        if self.width is None:
+            return f"{trim_decimal(self.length)} {label}"
+        return f"{trim_decimal(self.length)} × {trim_decimal(self.width)} {label}"
 
 
 class StockMove(AppendOnlyModel):
