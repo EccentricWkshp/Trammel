@@ -48,17 +48,43 @@ class QuoteTemplate(BaseModel):
 
 
 class Quote(BaseModel):
+    """A quote, or a change order: the same priced document, told apart by kind.
+
+    Anything priced for a job before it is approved is a quote. Once the job
+    is approved the agreed scope exists, so anything priced after that is a
+    change order (FR-WO-5): numbered in its own series, approved without the
+    customer agreement (it may carry amended terms of its own), never moving
+    the job's status, and flowing into the work order when approved.
+    """
+
+    class Kind(models.TextChoices):
+        QUOTE = "quote", "Quote"
+        CHANGE_ORDER = "change_order", "Change order"
+
     job = models.ForeignKey("jobs.Job", on_delete=models.PROTECT, related_name="quotes")
+    kind = models.CharField(
+        max_length=12, choices=Kind.choices, default=Kind.QUOTE, editable=False, db_index=True
+    )
     number = models.CharField(max_length=32, unique=True, editable=False)
     title = models.CharField(max_length=200)
 
     customer_scope_path = "job__customer_id"
+    soft_delete_cascade = ("revisions",)
 
     class Meta:
         ordering = ["-created_at"]
 
     def __str__(self) -> str:
         return f"{self.number} {self.title}"
+
+    @property
+    def is_change_order(self) -> bool:
+        return self.kind == self.Kind.CHANGE_ORDER
+
+    @property
+    def noun(self) -> str:
+        """“quote” or “change order”, for messages."""
+        return self.get_kind_display().lower()
 
     def get_absolute_url(self) -> str:
         latest = self.latest
@@ -105,7 +131,9 @@ REVISION_LIFECYCLE = Lifecycle(
             guards=(_has_lines,),
             after=(_mark_sent,),
         ),
-        Transition(Status.SENT, Status.APPROVED, permission="quotes.approve", label="Approve"),
+        # Quotes and change orders are approved under different permissions;
+        # services.approve checks the right one.
+        Transition(Status.SENT, Status.APPROVED, label="Approve"),
         Transition(Status.SENT, Status.DECLINED, permission="quotes.edit", label="Declined"),
         Transition(Status.SENT, Status.EXPIRED, permission="quotes.edit", label="Expire"),
         Transition(
@@ -138,8 +166,21 @@ class QuoteRevision(LifecycleModel, BaseModel):
     )
     template = models.ForeignKey(QuoteTemplate, null=True, blank=True, on_delete=models.PROTECT)
     valid_until = models.DateField(null=True, blank=True)
+    #: What is being done, in narrative terms: details a list of lines doesn't
+    #: capture. Shown near the top of the document.
+    description = models.TextField(
+        blank=True,
+        help_text="What is being done, in your own words: details the lines don't capture. "
+        "Shown on the document above the lines.",
+    )
     customer_notes = models.TextField("notes for the customer", blank=True)
     internal_notes = models.TextField(blank=True)
+    #: Change orders only (FR-AGR-6): changed terms the customer accepts with
+    #: the change order. Blank means the job's agreement stands as it is.
+    amended_terms = models.TextField(
+        blank=True,
+        help_text="Changed terms the customer accepts with this change order (optional).",
+    )
     discount_pct = PercentField("quote discount (%)", default=ZERO)
     deposit_kind = models.CharField(max_length=8, choices=Deposit.choices, default=Deposit.NONE)
     deposit_value = models.DecimalField(
@@ -198,6 +239,10 @@ class QuoteRevision(LifecycleModel, BaseModel):
     def __str__(self) -> str:
         return f"{self.quote.number} rev {self.number}"
 
+    @property
+    def never_sent(self) -> bool:
+        return self.status == Status.DRAFT and self.sent_at is None
+
     def get_absolute_url(self) -> str:
         return reverse("quotes:revision", args=[self.pk])
 
@@ -213,6 +258,8 @@ class QuoteRevision(LifecycleModel, BaseModel):
     def deposit_amount(self) -> Decimal:
         from trammel.core.money import round_money
 
+        if self.total <= 0:  # a change order that credits the customer
+            return ZERO
         if self.deposit_kind == self.Deposit.PERCENT:
             return round_money(self.total * self.deposit_value / 100)
         if self.deposit_kind == self.Deposit.FIXED:

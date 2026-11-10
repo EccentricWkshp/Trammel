@@ -41,6 +41,8 @@ class QuoteLineOut(ModelSchema):
 
 class RevisionOut(ModelSchema):
     quote_number: str
+    #: "quote", or "change_order" for anything priced after the job was approved.
+    kind: str
     job: UUID
     lines: list[QuoteLineOut]
 
@@ -51,7 +53,9 @@ class RevisionOut(ModelSchema):
             "number",
             "status",
             "valid_until",
+            "description",
             "customer_notes",
+            "amended_terms",
             "discount_pct",
             "deposit_kind",
             "deposit_value",
@@ -77,6 +81,10 @@ class RevisionOut(ModelSchema):
     @staticmethod
     def resolve_quote_number(obj):
         return obj.quote.number
+
+    @staticmethod
+    def resolve_kind(obj):
+        return obj.quote.kind
 
     @staticmethod
     def resolve_job(obj):
@@ -115,8 +123,12 @@ class DeclineIn(Schema):
 
 
 class QuoteDraftIn(Schema):
+    #: What is being done, in narrative terms.
+    description: str | None = None
     shipping: Decimal | None = None
     fulfillment: QuoteRevision.Fulfillment | None = None
+    #: Change orders only: changed terms accepted with it.
+    amended_terms: str | None = None
 
 
 def _rev(request, perm, pk) -> QuoteRevision:
@@ -130,10 +142,14 @@ def _form_errors(form) -> ValidationError:
 
 
 @router.get("/", response=list[RevisionOut])
-def list_quotes(request, job: UUID | None = None, status: str | None = None):
+def list_quotes(
+    request, job: UUID | None = None, status: str | None = None, kind: str | None = None
+):
     qs = QuoteRevision.objects.select_related("quote")
     if job:
         qs = qs.filter(quote__job_id=job)
+    if kind:
+        qs = qs.filter(quote__kind=kind)
     if status:
         qs = qs.filter(status=status)
     return access.scoped(request.actor, "quotes.view", qs).order_by("-created_at")[:200]
@@ -146,6 +162,7 @@ def get_revision(request, revision_id: UUID):
 
 @router.post("/", response={201: RevisionOut})
 def create(request, payload: QuoteCreateIn):
+    """A quote, or a change order when the job has already been approved."""
     access.require(request.actor, "quotes.create")
     job = access.get_or_404(request.actor, "jobs.view", Job.objects.all(), pk=payload.job)
     return Status(201, services.create_quote(job, title=payload.title))
@@ -158,6 +175,8 @@ def add_line(request, revision_id: UUID, payload: QuoteLineIn):
     if form_class is None:
         raise ValidationError({"kind": [f"One of: {', '.join(LINE_FORMS)}"]})
     form = form_class(payload.data)
+    if revision.quote.is_change_order and hasattr(form, "allow_credit"):
+        form.allow_credit()
     # New catalog products are added through the catalog API, not with a line.
     getattr(form, "drop_new_product", lambda: None)()
     if not form.is_valid():
@@ -194,12 +213,15 @@ def delete_line(request, revision_id: UUID, line_id: UUID):
 
 @router.patch("/{revision_id}", response=RevisionOut)
 def update_draft(request, revision_id: UUID, payload: QuoteDraftIn):
-    """Change a draft revision's fulfillment or shipping charge."""
+    """Change a draft revision's description, fulfillment, shipping charge or amended
+    terms."""
     from trammel.core import audit
 
     revision = _rev(request, "quotes.edit", revision_id)
+    if payload.amended_terms is not None and not revision.quote.is_change_order:
+        raise ValidationError({"amended_terms": ["Only a change order carries amended terms."]})
     before = audit.snapshot(revision)
-    for field in ("shipping", "fulfillment"):
+    for field in ("description", "shipping", "fulfillment", "amended_terms"):
         if (value := getattr(payload, field)) is not None:
             setattr(revision, field, value)
     services.update_revision(revision, before=before)
@@ -217,7 +239,8 @@ def send(request, revision_id: UUID):
 
 @router.post("/{revision_id}/approve", response=RevisionOut)
 def approve(request, revision_id: UUID, payload: ApproveIn):
-    revision = _rev(request, "quotes.approve", revision_id)
+    revision = _rev(request, "quotes.view", revision_id)
+    access.require(request.actor, services.approve_permission(revision.quote), revision)
     services.approve(revision, actor=request.actor, user=request.actor.user, **payload.dict())
     revision.refresh_from_db()
     return revision

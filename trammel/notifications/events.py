@@ -35,28 +35,30 @@ EVENTS: dict[str, Event] = {
     for e in [
         Event(
             "quote_sent",
-            "Quote sent to the customer",
+            "Quote or change order sent to the customer",
             "customer",
-            "Quote {{ quote.number }} from {{ business.name }}",
-            "Hello {{ customer.name }},\n\nPlease find quote {{ quote.number }} for "
+            "{{ quote.document_title }} {{ quote.number }} from {{ business.name }}",
+            "Hello {{ customer.name }},\n\nPlease find {{ quote.document_title|lower }} "
+            "{{ quote.number }} for "
             '"{{ quote.title }}" attached. The total is {{ quote.total|money }}'
             "{% if quote.valid_until %}, valid until {{ quote.valid_until|date }}{% endif %}.\n\n"
             "Reply to this email with any questions.\n\n{{ business.name }}\n{{ business.phone }}\n",
         ),
         Event(
             "quote_approved",
-            "Quote approved",
+            "Quote or change order approved",
             "staff",
             "Approved: {{ quote.number }} ({{ customer.name }})",
-            "{{ approved_by }} approved quote {{ quote.number }} revision {{ quote.revision }} for "
+            "{{ approved_by }} approved {{ quote.document_title|lower }} {{ quote.number }} "
+            "revision {{ quote.revision }} for "
             "{{ customer.name }}: {{ quote.total|money }}.\n",
         ),
         Event(
             "quote_declined",
-            "Quote declined",
+            "Quote or change order declined",
             "staff",
             "Declined: {{ quote.number }} ({{ customer.name }})",
-            "Quote {{ quote.number }} for {{ customer.name }} was declined."
+            "{{ quote.document_title }} {{ quote.number }} for {{ customer.name }} was declined."
             "{% if reason %}\nReason: {{ reason }}{% endif %}\n",
         ),
         Event(

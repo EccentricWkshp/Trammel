@@ -20,7 +20,6 @@ from trammel.shop.models import Machine, Material
 from trammel.timetracking import services as time
 from trammel.timetracking.models import TimeEntry
 from trammel.workorders import services
-from trammel.workorders.models import ChangeOrderLine
 
 D = Decimal
 
@@ -179,25 +178,6 @@ def test_material_use_and_notes_are_append_only(wo, admin, approved):
     note = services.add_note(wo, text="Glued up", user=admin)
     with pytest.raises(ValidationError):
         note.delete()
-
-
-@pytest.mark.django_db
-def test_change_order_approval_adds_terms_and_an_operation(wo, admin):
-    co = services.create_change_order(wo.job, title="Add a drawer")
-    co.amended_terms = "Drawer slides are warranted by their maker."
-    co.save()
-    services.save_co_line(
-        ChangeOrderLine(change_order=co, description="Drawer", quantity=1, unit_price=D("150"))
-    )
-    co.refresh_from_db()
-    assert co.total == D("150.00")
-    from trammel.workorders.models import ChangeOrder
-
-    ChangeOrder.lifecycle.apply(co, "sent", actor=admin)
-    co = services.approve_change_order(co, actor=admin, approved_by_name="Grace", user=admin)
-    assert co.status == "approved" and co.agreement.status == "accepted"
-    assert not co.agreement.is_primary
-    assert wo.operations.filter(name__contains=co.number).exists()
 
 
 @pytest.mark.django_db

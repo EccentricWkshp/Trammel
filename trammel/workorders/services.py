@@ -1,4 +1,4 @@
-"""Work order and change order writes (FR-WO). Web, API and the shop-floor app call these."""
+"""Work order writes (FR-WO). Web, API and the shop-floor app call these."""
 
 from __future__ import annotations
 
@@ -16,9 +16,7 @@ from trammel.shop.models import Machine, Material
 
 from . import hooks
 from .models import (
-    ChangeOrder,
-    ChangeOrderLine,
-    COStatus,
+    ACTIVE,
     MaterialUsage,
     Operation,
     PlannedMaterial,
@@ -53,23 +51,38 @@ def create(job, *, title: str = "", revision=None) -> WorkOrder:
         number=numbering.next_number("work_order"),
         target_completion=job.target_completion,
         source_revision=revision,
-        instructions=job.description,
+        # The quote's description says in words what the lines list.
+        instructions="\n\n".join(
+            t for t in (job.description, revision.description if revision else "") if t
+        ),
     )
     save_audited(wo, summary=f"Created work order for {job.number}")
     if revision is not None:
         _carry_over(wo, revision)
+    # Change orders approved before the work order existed come with it.
+    for change in pending_change_orders(job):
+        add_change_order(wo, change)
     return wo
 
 
-def _carry_over(wo: WorkOrder, revision) -> None:
+def _carry_over(wo: WorkOrder, revision, parent: Operation | None = None) -> None:
+    """An operation per line of `revision`, with its planned materials; under
+    `parent` when given (a change order's lines are steps of one operation)."""
     position = 0
     for line in revision.lines.select_related("machine", "material"):
+        if line.line_total < 0:
+            continue  # a credit for removed scope is not work to do
         position += 10
         machine = line.machine
         if machine is None and line.inputs.get("machine"):
             machine = Machine.objects.filter(pk=line.inputs["machine"]).first()
         op = Operation.objects.create(
-            work_order=wo, position=position, name=line.description[:200], machine=machine
+            work_order=wo,
+            parent=parent,
+            depth=parent.depth + 1 if parent else 0,
+            position=position,
+            name=line.description[:200],
+            machine=machine,
         )
         # Other modules plan for the line too: stock expands a product's bill of materials.
         hooks.run_carry_over(wo, line, op)
@@ -111,6 +124,70 @@ def _carry_over(wo: WorkOrder, revision) -> None:
                 material=material,
                 description=row["detail"] if row else str(material),
             )
+
+
+def _change_orders(job):
+    from trammel.quotes.models import Quote, QuoteRevision
+
+    return QuoteRevision.objects.filter(
+        quote__job=job, quote__kind=Quote.Kind.CHANGE_ORDER, status="approved"
+    ).select_related("quote")
+
+
+def pending_change_orders(job) -> list:
+    """The job's approved change orders not yet added to any of its work orders."""
+    added = set(
+        Operation.objects.filter(work_order__job=job, source_revision__isnull=False).values_list(
+            "source_revision_id", flat=True
+        )
+    )
+    return [r for r in _change_orders(job).order_by("quote__number") if r.pk not in added]
+
+
+def change_orders_on(wo: WorkOrder) -> list:
+    """The approved change orders added to this work order."""
+    ids = wo.operations.filter(source_revision__isnull=False).values_list(
+        "source_revision_id", flat=True
+    )
+    return list(_change_orders(wo.job).filter(pk__in=ids).order_by("quote__number"))
+
+
+@transaction.atomic
+def add_change_order(wo: WorkOrder, revision) -> Operation:
+    """Add an approved change order to the work: one operation named for it, its
+    lines as sub-operations with their planned materials and bills of materials,
+    as a work order made from a quote gets them (FR-WO-5)."""
+    _require_editable(wo)
+    quote = revision.quote
+    if not quote.is_change_order or revision.status != "approved" or quote.job_id != wo.job_id:
+        raise ValidationError("Only an approved change order for this job can be added.")
+    if Operation.objects.filter(work_order__job=wo.job, source_revision=revision).exists():
+        raise ValidationError(f"{quote.number} has already been added to a work order.")
+    last = wo.operations.filter(parent=None).aggregate(m=models.Max("position"))["m"] or 0
+    op = Operation.objects.create(
+        work_order=wo,
+        position=last + 10,
+        name=f"{quote.number}: {quote.title}"[:200],
+        description=revision.description or revision.customer_notes,
+        source_revision=revision,
+    )
+    _carry_over(wo, revision, parent=op)
+    if not op.children.exists():  # nothing to make: a credit, say
+        op.status = Operation.State.DONE
+        op.completed_at = timezone.now()
+        op.save(update_fields=["status", "completed_at"])
+    audit.record("operation.add", wo, summary=f"Added change order {quote.number} to {wo.number}")
+    return op
+
+
+def add_approved_change_order(revision, approval=None) -> None:
+    """On approval: straight onto the job's work order when it has exactly one
+    active; otherwise each active work order offers it to be added by hand."""
+    if not revision.quote.is_change_order:
+        return
+    active = list(revision.quote.job.work_orders.filter(status__in=ACTIVE)[:2])
+    if len(active) == 1:
+        add_change_order(active[0], revision)
 
 
 @transaction.atomic
@@ -557,86 +634,3 @@ def confirm_materials(wo: WorkOrder, confirmed: bool = True) -> None:
         wo,
         summary=f"{wo.number}: material use {'confirmed' if confirmed else 'unconfirmed'}",
     )
-
-
-# ---------------------------------------------------------------------------
-# Change orders
-# ---------------------------------------------------------------------------
-
-
-@transaction.atomic
-def create_change_order(job, *, title: str, description: str = "") -> ChangeOrder:
-    if job.status not in ("approved", "in_progress", "completed"):
-        raise ValidationError("Change orders amend an approved job.")
-    co = ChangeOrder(
-        job=job, title=title, description=description, number=numbering.next_number("change_order")
-    )
-    return save_audited(co)
-
-
-def _co_total(co: ChangeOrder) -> None:
-    co.total = sum((line.line_total for line in co.lines.all()), ZERO)
-    ChangeOrder.objects.filter(pk=co.pk).update(total=co.total)
-
-
-@transaction.atomic
-def save_co_line(line: ChangeOrderLine) -> ChangeOrderLine:
-    if line.change_order.status != COStatus.DRAFT:
-        raise ValidationError("Lines can only change on a draft change order.")
-    line.line_total = round_money(Decimal(line.quantity) * Decimal(line.unit_price))
-    line.save()
-    _co_total(line.change_order)
-    return line
-
-
-@transaction.atomic
-def delete_co_line(line: ChangeOrderLine) -> None:
-    co = line.change_order
-    if co.status != COStatus.DRAFT:
-        raise ValidationError("Lines can only change on a draft change order.")
-    line.delete()
-    _co_total(co)
-
-
-@transaction.atomic
-def approve_change_order(
-    co: ChangeOrder, *, actor, approved_by_name: str, how: str = "", user=None
-) -> ChangeOrder:
-    """Approve like a quote (FR-WO-5); amended terms are accepted with it (FR-AGR-6)."""
-    if not approved_by_name.strip():
-        raise ValidationError("Who approved the change order?")
-    ChangeOrder.lifecycle.apply(co, COStatus.APPROVED, actor=actor)
-    agreement = None
-    if co.amended_terms.strip():
-        from trammel.agreements import services as agreements
-        from trammel.agreements.models import AgreementTemplate
-
-        template = AgreementTemplate.default()
-        agreement = agreements.issue(co.job, template=template, primary=False)
-        agreement.text = f"Amended terms — {co.number}\n\n{co.amended_terms.strip()}"
-        agreement.save(update_fields=["text"])
-        agreements.accept(
-            agreement,
-            method="manual",
-            accepted_by_name=approved_by_name,
-            how=how,
-            notes=f"Accepted with change order {co.number}",
-            user=user,
-        )
-    ChangeOrder.objects.filter(pk=co.pk).update(
-        approved_by_name=approved_by_name.strip(),
-        approved_at=timezone.now(),
-        approval_how=how,
-        agreement=agreement,
-    )
-    # Flow into the work: an operation on the job's first active work order.
-    wo = co.job.work_orders.filter(status__in=["open", "in_progress", "waiting"]).first()
-    if wo is not None:
-        add_operation(
-            wo, name=f"Change order {co.number}: {co.title}"[:200], description=co.description
-        )
-    audit.record(
-        "change_order.approve", co, summary=f"{approved_by_name} approved {co.number} ({co.total})"
-    )
-    co.refresh_from_db()
-    return co

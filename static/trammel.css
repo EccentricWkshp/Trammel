@@ -275,6 +275,7 @@ a.day-number:hover { text-decoration: underline; }
 .calendar-week td.today { background: var(--accent-soft); }
 .calendar-bar { display: flex; flex-wrap: wrap; gap: .75rem; margin-bottom: .75rem; }
 .calendar-default { margin-left: auto; align-self: center; }
+.description-box textarea { width: 100%; }
 /* A row of linked choices, the current one filled. */
 .segmented { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
 .segmented a { padding: .35rem .8rem; text-decoration: none; color: var(--text); border-right: 1px solid var(--border); }

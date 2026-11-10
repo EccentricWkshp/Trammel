@@ -6,7 +6,7 @@ from trammel.core.access import SYSTEM
 from trammel.jobs import hooks
 
 from . import hooks as hooks_wo
-from .models import ACTIVE, ChangeOrder, Status, WorkOrder
+from .models import ACTIVE, Status, WorkOrder
 from .models import Operation as _Op
 
 OpStatus = _Op.State
@@ -74,16 +74,11 @@ def job_work_orders(request, job):
             "work_orders": access.scoped(
                 request.actor, "workorders.view", job.work_orders.all()
             ).order_by("created_at"),
-            "change_orders": access.scoped(
-                request.actor, "workorders.view", ChangeOrder.objects.filter(job=job)
-            ),
             "approved": QuoteRevision.objects.filter(
-                quote__job=job, status="approved"
+                quote__job=job, quote__kind="quote", status="approved"
             ).select_related("quote"),
             "can_create": access.has_perm(request.actor, "workorders.create", job),
             "create_problems": can_create_for(job),
-            "can_change": access.has_perm(request.actor, "workorders.edit", job)
-            and job.status in ("approved", "in_progress", "completed"),
         },
         order=20,
         tab="work-orders",
@@ -150,3 +145,51 @@ def materials_to_record(request):
         more_url=reverse("workorders:list"),
         empty="Every done operation's materials are recorded.",
     )
+
+
+@panels.register("workorders.workorder")
+def work_order_change_orders(request, wo):
+    """The job's approved change orders: those on this work order, and those not
+    on any yet, to add (FR-WO-5)."""
+    from trammel.core import modules
+
+    from . import services
+
+    if not modules.is_enabled("quotes") or not access.has_perm(request.actor, "quotes.view"):
+        return None
+    added = services.change_orders_on(wo)
+    pending = services.pending_change_orders(wo.job)
+    if not added and not pending:
+        return None
+    return panels.Panel(
+        "Change orders",
+        "workorders/_change_orders.html",
+        {
+            "wo": wo,
+            "added": added,
+            "pending": pending,
+            "can_add": wo.status in ACTIVE
+            and access.has_perm(request.actor, "workorders.edit", wo),
+        },
+        order=30,
+        tab="change-orders",
+        count=len(added) + len(pending),
+    )
+
+
+def _change_order_approved(revision, approval=None):
+    from trammel.core import modules
+
+    from . import services
+
+    if modules.is_enabled("workorders"):
+        services.add_approved_change_order(revision, approval)
+
+
+def _connect():
+    from trammel.quotes import services as quotes
+
+    quotes.on_approved.append(_change_order_approved)
+
+
+_connect()

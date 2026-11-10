@@ -4,9 +4,9 @@
 {% block content %}
 <header class="record-header">
   <div class="record-title">
-    <p class="breadcrumb"><a href="{% url 'quotes:list' %}">Quotes</a> · <a href="{{ job.get_absolute_url }}">{{ job.number }} {{ job.title }}</a> · {{ job.customer.name }}</p>
+    <p class="breadcrumb"><a href="{% url 'quotes:list' %}{% if quote.is_change_order %}?kind=change_order{% endif %}">{% if quote.is_change_order %}Change orders{% else %}Quotes{% endif %}</a> · <a href="{{ job.get_absolute_url }}">{{ job.number }} {{ job.title }}</a> · {{ job.customer.name }}</p>
     <h1>{{ quote.number }} <span class="muted">rev {{ revision.number }}</span> · {{ quote.title }}</h1>
-    <p class="status-line"><span class="status status-{% if revision.status == 'approved' %}completed{% elif revision.status == 'draft' %}proposal{% else %}{{ revision.status }}{% endif %}">{{ revision.get_status_display }}</span>
+    <p class="status-line">{% if quote.is_change_order %}<span class="badge">Change order</span> {% endif %}<span class="status status-{% if revision.status == 'approved' %}completed{% elif revision.status == 'draft' %}proposal{% else %}{{ revision.status }}{% endif %}">{{ revision.get_status_display }}</span>
       {% if revision.rates_overridden %}<span class="badge warn">rates overridden</span>{% endif %}</p>
     <dl class="facts-inline">
       <div><dt>Total</dt><dd><strong>{{ revision.total|money }}</strong></dd></div>
@@ -27,12 +27,12 @@
 {% if approval %}
 <aside class="callout">
   Approved by <strong>{{ approval.approved_by_name }}</strong> on {{ approval.approved_at|dt }} ({{ approval.get_how_display|lower }}){% if approval.recorded_by %}, recorded by {{ approval.recorded_by }}{% endif %}.
-  {% if approval.agreement %}The customer agreement was accepted with it.{% endif %}
+  {% if approval.agreement %}{% if quote.is_change_order %}Its amended terms were accepted with it.{% else %}The customer agreement was accepted with it.{% endif %}{% endif %}
   {% if approval.notes %}<br>{{ approval.notes }}{% endif %}
 </aside>
 {% endif %}
 
-<section class="lifecycle" aria-label="Quote actions">
+<section class="lifecycle" aria-label="{{ quote.get_kind_display }} actions">
   {% if can_send %}
   <form method="post" action="{% url 'quotes:send' revision.pk %}">{% csrf_token %}<button type="submit" class="primary">Mark as sent</button></form>
   {% endif %}
@@ -46,13 +46,29 @@
   {% if can_revise %}
   <form method="post" action="{% url 'quotes:revise' revision.pk %}">{% csrf_token %}<button type="submit">Create new revision</button></form>
   {% endif %}
-  {% if not can_send and not can_approve and not can_revise %}<span class="muted">{% if revision.status == "approved" %}Changes after approval are made with a change order.{% else %}No actions available.{% endif %}</span>{% endif %}
+  {% if not can_send and not can_approve and not can_revise %}<span class="muted">{% if revision.status == "approved" %}Changes after approval are made with {% if quote.is_change_order %}another{% else %}a{% endif %} change order, from the job's Quotes tab.{% else %}No actions available.{% endif %}</span>{% endif %}
+  {% if can_delete %}<a class="push-right" href="{% url 'quotes:delete' revision.pk %}">Delete {{ quote.noun }}…</a>{% endif %}
 </section>
 
 {% include "partials/tabs.html" %}
 
 <div class="tab-body">
 {% if tab == "lines" %}
+<section class="card description-box" aria-labelledby="description-heading">
+  <h2 id="description-heading">Description</h2>
+  {% if can_edit %}
+  <form method="post" action="{% url 'quotes:description' revision.pk %}" class="stack">
+    {% csrf_token %}
+    <label for="description" class="muted">What is being done, in your own words: details the lines don't capture. Shown on the {{ quote.noun }} above the lines.</label>
+    <textarea id="description" name="description" rows="5">{{ revision.description }}</textarea>
+    <div class="actions"><button type="submit">Save description</button></div>
+  </form>
+  {% elif revision.description %}
+  <p class="prewrap">{{ revision.description }}</p>
+  {% else %}
+  <p class="muted">No description.</p>
+  {% endif %}
+</section>
 <section aria-label="Lines">
   {% if can_edit %}
   <div class="add-lines">
@@ -119,7 +135,7 @@
 {% elif tab == "details" %}
 {% if form %}
 <section class="card">
-  <h2>Validity, deposit, notes and rates</h2>
+  <h2>{% if quote.is_change_order %}Validity, deposit, notes, amended terms and rates{% else %}Validity, deposit, notes and rates{% endif %}</h2>
   <form method="post" action="{% url 'quotes:revision_update' revision.pk %}" class="stack" novalidate>
     {% csrf_token %}
     {% include "partials/form_body.html" %}
@@ -134,10 +150,11 @@
   <dt>Labor rate</dt><dd>{{ revision.labor_rate|money }}/h{% if revision.rates_overridden %} <span class="badge warn">overridden</span>{% endif %}</dd>
 </dl>
 {% if revision.customer_notes %}<h3>Notes for the customer</h3><p class="prewrap">{{ revision.customer_notes }}</p>{% endif %}
+{% if revision.amended_terms %}<h3>Amended terms</h3><p class="prewrap">{{ revision.amended_terms }}</p>{% endif %}
 {% endif %}
 
 {% elif tab == "preview" %}
-<iframe name="quote-preview" class="document-preview" src="{% url 'quotes:document' revision.pk %}" sandbox title="Quote preview"></iframe>
+<iframe name="quote-preview" class="document-preview" src="{% url 'quotes:document' revision.pk %}" sandbox title="{{ quote.get_kind_display }} preview"></iframe>
 {% elif tab == "revisions" %}
 <section>
   <ul>

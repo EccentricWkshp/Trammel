@@ -46,6 +46,7 @@ class RevisionForm(forms.ModelForm):
             "deposit_value",
             "template",
             "customer_notes",
+            "amended_terms",
             "internal_notes",
             "labor_rate",
             "overhead_rate",
@@ -56,11 +57,18 @@ class RevisionForm(forms.ModelForm):
         widgets = {
             "valid_until": DATE,
             "customer_notes": forms.Textarea(attrs={"rows": 3}),
+            "amended_terms": forms.Textarea(attrs={"rows": 4}),
             "internal_notes": forms.Textarea(attrs={"rows": 2}),
         }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        if self.instance.quote_id and self.instance.quote.is_change_order:
+            # The job's minimum charge was met by its quote.
+            del self.fields["minimum_charge"]
+            self.fields["deposit_kind"].help_text = "A deposit on this change order, if any."
+        else:
+            del self.fields["amended_terms"]
         self.fields["template"].queryset = QuoteTemplate.objects.filter(
             Q(is_active=True) | Q(pk=self.instance.template_id)
         )
@@ -273,6 +281,15 @@ class AdhocLineForm(_LineForm):
     save_to_catalog = forms.BooleanField(
         required=False, help_text="Also add this item to the product catalog."
     )
+
+    def allow_credit(self) -> None:
+        """On a change order, a negative price credits removed scope."""
+        self.fields["unit_price"] = MoneyInput(
+            max_digits=14,
+            decimal_places=4,
+            help_text="A negative price is a credit for scope taken out.",
+        )
+        self.fields.pop("save_to_catalog", None)
 
     def make(self, revision, line=None):
         d = self.cleaned_data

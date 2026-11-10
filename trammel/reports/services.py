@@ -68,7 +68,7 @@ class JobCosting:
 def job_costing(job) -> JobCosting:
     from trammel.quotes.models import QuoteRevision
     from trammel.timetracking.models import TimeEntry
-    from trammel.workorders.models import ChangeOrderLine, MaterialUsage
+    from trammel.workorders.models import MaterialUsage
 
     c = JobCosting()
     for rev in QuoteRevision.objects.filter(quote__job=job, status="approved"):
@@ -79,11 +79,6 @@ def job_costing(job) -> JobCosting:
                 key = category if category in CATEGORIES else "other"
                 c.quoted[key] += round_money(Decimal(amount) * factor)
         c.quoted["other"] += rev.minimum_adjustment
-    for line in ChangeOrderLine.objects.filter(
-        change_order__job=job, change_order__status="approved"
-    ):
-        c.quoted[line.category if line.category in CATEGORIES else "other"] += line.line_total
-        c.quoted_cost += round_money(line.quantity * line.unit_cost)
     for kind, total, minutes in (
         TimeEntry.objects.filter(work_order__job=job)
         .values_list("kind")

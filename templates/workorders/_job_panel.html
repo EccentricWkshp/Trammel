@@ -16,13 +16,3 @@
   {% endif %}
 {% endif %}
 
-<h3>Change orders</h3>
-{% if ctx.change_orders %}
-<ul class="plain">{% for co in ctx.change_orders %}<li><a href="{{ co.get_absolute_url }}">{{ co.number }}</a> {{ co.title }} — {{ co.get_status_display }}, {{ co.total|money }}</li>{% endfor %}</ul>
-{% else %}<p class="muted">None.</p>{% endif %}
-{% if ctx.can_change %}
-<form method="post" action="{% url 'workorders:change_order_create' job.pk %}" class="filters">{% csrf_token %}
-  <label>New change order <input type="text" name="title" placeholder="What is changing" required></label>
-  <button type="submit">Create</button>
-</form>
-{% endif %}

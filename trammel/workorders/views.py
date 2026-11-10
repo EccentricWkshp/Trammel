@@ -24,7 +24,7 @@ from trammel.jobs.models import Job
 from trammel.shop.models import Machine, Material
 
 from . import hooks, services
-from .models import ChangeOrder, ChangeOrderLine, COStatus, Operation, WorkOrder
+from .models import Operation, WorkOrder
 
 
 class WorkOrderForm(forms.ModelForm):
@@ -99,20 +99,6 @@ class MaterialUseForm(forms.Form):
         return None
 
 
-class ChangeOrderLineForm(forms.ModelForm):
-    class Meta:
-        model = ChangeOrderLine
-        fields = [
-            "description",
-            "quantity",
-            "unit",
-            "unit_price",
-            "unit_cost",
-            "category",
-            "tax_category",
-        ]
-
-
 def _wo(request, perm, pk) -> WorkOrder:
     return access.get_or_404(
         request.actor, perm, WorkOrder.objects.select_related("job__customer"), pk=pk
@@ -156,7 +142,7 @@ def wo_create(request, job_pk):
         from trammel.quotes.models import QuoteRevision
 
         revision = QuoteRevision.objects.filter(
-            pk=rev_pk, quote__job=job, status="approved"
+            pk=rev_pk, quote__job=job, quote__kind="quote", status="approved"
         ).first()
     try:
         wo = services.create(job, title=request.POST.get("title", ""), revision=revision)
@@ -180,7 +166,9 @@ def wo_new(request):
     ready = [j for j in candidates if not services.can_create_for(j)]
     job = next((j for j in ready if str(j.pk) == request.GET.get("job")), None)
     approved = (
-        QuoteRevision.objects.filter(quote__job=job, status="approved").select_related("quote")
+        QuoteRevision.objects.filter(
+            quote__job=job, quote__kind="quote", status="approved"
+        ).select_related("quote")
         if job
         else []
     )
@@ -515,103 +503,22 @@ def traveler(request, pk):
     return document_response(request, html)
 
 
-# ---------------------------------------------------------------------------
-# Change orders
-# ---------------------------------------------------------------------------
-
-
-def _co(request, perm, pk) -> ChangeOrder:
-    return access.get_or_404(
-        request.actor, perm, ChangeOrder.objects.select_related("job__customer"), pk=pk
-    )
-
-
 @permission_required("workorders.edit")
 @require_POST
-def co_create(request, job_pk):
-    job = access.get_or_404(request.actor, "jobs.view", Job.objects.all(), pk=job_pk)
-    try:
-        co = services.create_change_order(
-            job, title=request.POST.get("title", "").strip() or "Change order"
-        )
-    except ValidationError as exc:
-        messages.error(request, " ".join(exc.messages))
-        return redirect(job)
-    return redirect(co)
+def add_change_order(request, pk):
+    """Add an approved change order of the job to this work order (FR-WO-5)."""
+    from trammel.quotes.models import QuoteRevision
 
-
-@permission_required("workorders.view")
-def co_detail(request, pk):
-    co = _co(request, "workorders.view", pk)
-    draft = co.status == COStatus.DRAFT and access.has_perm(request.actor, "workorders.edit", co)
-    form = ChangeOrderLineForm(request.POST or None) if draft else None
-    if request.method == "POST" and draft:
-        if "description_text" in request.POST:
-            before = audit.snapshot(co)
-            co.description = request.POST.get("description_text", "")
-            co.amended_terms = request.POST.get("amended_terms", "")
-            save_audited(co, before=before)
-            return redirect(co)
-        if form.is_valid():
-            line = form.save(commit=False)
-            line.change_order = co
-            services.save_co_line(line)
-            return redirect(co)
-    return render(
-        request,
-        "workorders/change_order.html",
-        {
-            "co": co,
-            "lines": co.lines.all(),
-            "form": form,
-            "draft": draft,
-            "can_approve": co.status == COStatus.SENT
-            and access.has_perm(request.actor, "workorders.approve", co),
-            "can_send": draft,
-        },
-    )
-
-
-@permission_required("workorders.edit")
-@require_POST
-def co_line_delete(request, pk, line_pk):
-    co = _co(request, "workorders.edit", pk)
-    line = co.lines.filter(pk=line_pk).first()
-    if line is None:
+    wo = _wo(request, "workorders.edit", pk)
+    revision = QuoteRevision.objects.filter(
+        pk=request.POST.get("revision") or None, quote__job=wo.job
+    ).first()
+    if revision is None:
         raise Http404
     try:
-        services.delete_co_line(line)
+        services.add_change_order(wo, revision)
     except ValidationError as exc:
         messages.error(request, " ".join(exc.messages))
-    return redirect(co)
-
-
-@permission_required("workorders.view")
-@require_POST
-def co_action(request, pk):
-    co = _co(request, "workorders.view", pk)
-    action = request.POST.get("action")
-    try:
-        if action == "send":
-            ChangeOrder.lifecycle.apply(co, COStatus.SENT, actor=request.actor)
-        elif action == "decline":
-            ChangeOrder.lifecycle.apply(
-                co, COStatus.DECLINED, actor=request.actor, reason=request.POST.get("reason", "")
-            )
-        elif action == "approve":
-            services.approve_change_order(
-                co,
-                actor=request.actor,
-                approved_by_name=request.POST.get("approved_by_name", ""),
-                how=request.POST.get("how", ""),
-                user=request.user,
-            )
-        else:
-            raise Http404
-    except TransitionError as exc:
-        messages.error(request, " ".join(exc.problems))
-    except ValidationError as exc:
-        messages.error(request, " ".join(exc.messages))
-    except PermissionDenied:
-        messages.error(request, "Your role does not allow that.")
-    return redirect(co)
+    else:
+        messages.success(request, f"{revision.quote.number} added to {wo.number}.")
+    return redirect(reverse("workorders:detail", args=[wo.pk]) + "?tab=change-orders")

@@ -43,7 +43,6 @@
     </form>
     {% endfor %}
     <details class="more-actions"><summary>Add more…</summary>
-      <form method="post" action="{% url 'billing:pull' invoice.pk %}">{% csrf_token %}<input type="hidden" name="what" value="change_orders"><button type="submit">Approved change orders</button></form>
       <form method="post" action="{% url 'billing:pull' invoice.pk %}">{% csrf_token %}<input type="hidden" name="what" value="time"><button type="submit">Unbilled time</button></form>
       <form method="post" action="{% url 'billing:pull' invoice.pk %}">{% csrf_token %}<input type="hidden" name="what" value="materials"><button type="submit">Unbilled materials</button></form>
       {% if invoice.kind == "final" %}<form method="post" action="{% url 'billing:pull' invoice.pk %}">{% csrf_token %}<input type="hidden" name="what" value="deposits"><button type="submit">Deposits received</button></form>{% endif %}

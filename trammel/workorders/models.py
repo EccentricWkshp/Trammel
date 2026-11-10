@@ -1,4 +1,7 @@
-"""Work orders, operations, materials, notes and change orders (FR-WO-1..8)."""
+"""Work orders, operations, materials and notes (FR-WO-1..8).
+
+Change orders are quotes of their own kind (trammel.quotes); an approved one
+adds its operations here (services.add_change_order)."""
 
 from __future__ import annotations
 
@@ -215,6 +218,16 @@ class Operation(models.Model):
     )
     status = models.CharField(max_length=8, choices=State.choices, default=State.PENDING)
     completed_at = models.DateTimeField(null=True, blank=True)
+    #: Set on the operation an approved change order added (its lines are the
+    #: sub-operations), so a change order is never added twice.
+    source_revision = models.ForeignKey(
+        "quotes.QuoteRevision",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="+",
+        editable=False,
+    )
     completed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )
@@ -314,107 +327,3 @@ class WorkOrderNote(AppendOnlyModel):
 
     def __str__(self) -> str:
         return self.text[:60]
-
-
-# ---------------------------------------------------------------------------
-# Change orders (FR-WO-5, FR-AGR-6)
-# ---------------------------------------------------------------------------
-
-
-class COStatus(models.TextChoices):
-    DRAFT = "draft", "Draft"
-    SENT = "sent", "Sent"
-    APPROVED = "approved", "Approved"
-    DECLINED = "declined", "Declined"
-
-
-def _co_has_lines(co):
-    if not co.lines.exists() and not co.amended_terms.strip():
-        yield "Add a line or amended terms before sending."
-
-
-CO_LIFECYCLE = Lifecycle(
-    field="status",
-    initial=COStatus.DRAFT,
-    transitions=[
-        Transition(
-            COStatus.DRAFT,
-            COStatus.SENT,
-            permission="workorders.edit",
-            label="Mark as sent",
-            guards=(_co_has_lines,),
-        ),
-        Transition(
-            COStatus.SENT, COStatus.APPROVED, permission="workorders.approve", label="Approve"
-        ),
-        Transition(
-            COStatus.SENT, COStatus.DECLINED, permission="workorders.edit", label="Declined"
-        ),
-    ],
-)
-
-
-class ChangeOrder(LifecycleModel, BaseModel):
-    job = models.ForeignKey("jobs.Job", on_delete=models.PROTECT, related_name="change_orders")
-    number = models.CharField(max_length=32, unique=True, editable=False)
-    title = models.CharField(max_length=200)
-    description = models.TextField(blank=True)
-    amended_terms = models.TextField(
-        blank=True,
-        help_text="Changed terms the customer accepts with this change order (optional).",
-    )
-    status = models.CharField(
-        max_length=10, choices=COStatus.choices, default=COStatus.DRAFT, editable=False
-    )
-    total = MoneyField(default=ZERO, editable=False)
-    approved_by_name = models.CharField(max_length=150, blank=True, editable=False)
-    approved_at = models.DateTimeField(null=True, blank=True, editable=False)
-    approval_how = models.CharField(max_length=12, blank=True, editable=False)
-    agreement = models.ForeignKey(
-        "agreements.CustomerAgreement",
-        null=True,
-        blank=True,
-        on_delete=models.PROTECT,
-        related_name="+",
-        editable=False,
-    )
-
-    lifecycle = CO_LIFECYCLE
-    customer_scope_path = "job__customer_id"
-
-    class Meta:
-        ordering = ["-created_at"]
-
-    def __str__(self) -> str:
-        return f"{self.number} {self.title}"
-
-    def get_absolute_url(self) -> str:
-        return reverse("workorders:change_order", args=[self.pk])
-
-
-class ChangeOrderLine(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
-    change_order = models.ForeignKey(ChangeOrder, on_delete=models.CASCADE, related_name="lines")
-    description = models.CharField(max_length=300)
-    quantity = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal("1"))
-    unit = models.CharField(max_length=12, choices=units.UNIT_CHOICES, default="each")
-    unit_price = RateField(default=ZERO)
-    unit_cost = RateField(default=ZERO)
-    line_total = MoneyField(default=ZERO)
-    category = models.CharField(
-        max_length=10,
-        default="other",
-        choices=[
-            ("materials", "Materials"),
-            ("labor", "Labor"),
-            ("machine", "Machine time"),
-            ("other", "Other"),
-        ],
-    )
-    tax_category = models.ForeignKey(
-        "tax.TaxCategory", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
-    )
-    invoice_line_id = models.UUIDField(null=True, blank=True, editable=False)
-
-    def __str__(self) -> str:
-        return self.description

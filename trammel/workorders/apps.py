@@ -24,12 +24,8 @@ class WorkOrdersConfig(ModuleConfig):
                 "workorders.edit",
                 "Work on work orders: operations, notes, materials, status; change orders",
             ),
-            Permission("workorders.approve", "Record change order approval"),
             Permission("workorders.reopen", "Reopen work orders"),
         ),
         menu=(MenuEntry("Work orders", "workorders:list", "workorders.view", "main", 40),),
-        sequences=(
-            SequenceDef("work_order", "Work orders", "WO"),
-            SequenceDef("change_order", "Change orders", "CO"),
-        ),
+        sequences=(SequenceDef("work_order", "Work orders", "WO"),),
     )

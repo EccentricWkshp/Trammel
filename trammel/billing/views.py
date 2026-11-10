@@ -240,7 +240,6 @@ def invoice_create(request):
     if job and kind == Invoice.Kind.FINAL:
         for rev in QuoteRevision.objects.filter(quote__job=job, status="approved"):
             services.add_from_quote(invoice, rev)
-        services.add_change_orders(invoice)
         services.add_deposit_credits(invoice)
     return redirect(invoice)
 
@@ -393,7 +392,7 @@ def line_delete(request, pk, line_pk):
 @permission_required("billing.create")
 @require_POST
 def pull(request, pk):
-    """Add lines from the job's quote, change orders, time or materials (FR-BIL-1)."""
+    """Add lines from the job's quotes and change orders, time or materials (FR-BIL-1)."""
     invoice = _invoice(request, "billing.create", pk)
     what = request.POST.get("what")
     try:
@@ -408,8 +407,6 @@ def pull(request, pk):
             except InvalidOperation:
                 percent = Decimal("100")
             added = services.add_from_quote(invoice, rev, percent=percent)
-        elif what == "change_orders":
-            added = services.add_change_orders(invoice)
         elif what == "time":
             added = services.add_unbilled_time(invoice)
         elif what == "materials":

@@ -7,20 +7,24 @@ from django.utils import timezone
 from trammel.core import access, dashboard, panels
 from trammel.jobs import hooks
 
-from .models import QuoteRevision, Status
+from .models import Quote, QuoteRevision, Status
+
+QUOTE = Quote.Kind.QUOTE
 
 
 @hooks.check("quoted")
 def needs_a_sent_quote(job):
     if not QuoteRevision.objects.filter(
-        quote__job=job, status__in=[Status.SENT, Status.APPROVED]
+        quote__job=job, quote__kind=QUOTE, status__in=[Status.SENT, Status.APPROVED]
     ).exists():
         yield "Send a quote first; the job becomes quoted when one is sent."
 
 
 @hooks.check("approved")
 def needs_an_approved_quote(job):
-    if not QuoteRevision.objects.filter(quote__job=job, status=Status.APPROVED).exists():
+    if not QuoteRevision.objects.filter(
+        quote__job=job, quote__kind=QUOTE, status=Status.APPROVED
+    ).exists():
         yield "Approve a quote first; the job becomes approved when one is approved."
 
 
@@ -29,13 +33,15 @@ def copy_quote_lines(source, new):
     """FR-JOB-5: duplicating a job copies its quote lines into a new draft quote."""
     from . import services
 
+    quotes = QuoteRevision.objects.filter(quote__job=source, quote__kind=QUOTE)
     approved = (
-        QuoteRevision.objects.filter(quote__job=source, status=Status.APPROVED).first()
-        or QuoteRevision.objects.filter(quote__job=source).order_by("-created_at").first()
+        quotes.filter(status=Status.APPROVED).first() or quotes.order_by("-created_at").first()
     )
     if approved is None:
         return
     revision = services.create_quote(new, title=approved.quote.title)
+    revision.description = approved.description
+    revision.save(update_fields=["description"])
     for line in approved.lines.all():
         line.pk = None
         line.revision = revision
@@ -51,21 +57,28 @@ def _revisions(request, qs):
 def job_quotes(request, job):
     if not access.has_perm(request.actor, "quotes.view"):
         return None
+    from . import services
+
     latest = {}
     for rev in _revisions(request, QuoteRevision.objects.filter(quote__job=job)).order_by(
         "quote__created_at", "-number"
     ):
         latest.setdefault(rev.quote_id, rev)
+    revisions = list(latest.values())
+    after_approval = services.is_after_approval(job)
     return panels.Panel(
         "Quotes",
         "quotes/_job_panel.html",
         {
-            "revisions": list(latest.values()),
-            "can_create": access.has_perm(request.actor, "quotes.create", job),
+            "revisions": [r for r in revisions if not r.quote.is_change_order],
+            "change_orders": [r for r in revisions if r.quote.is_change_order],
+            "after_approval": after_approval,
+            "can_create": access.has_perm(request.actor, "quotes.create", job)
+            and job.status not in ("closed", "declined", "cancelled"),
         },
         order=10,
         tab="quotes",
-        count=len(latest),
+        count=len(revisions),
     )
 
 
@@ -94,7 +107,7 @@ def customer_quotes(request, customer):
     "Quotes awaiting approval",
     order=30,
     permission="quotes.view",
-    description="Sent quotes, those closest to expiring first.",
+    description="Sent quotes and change orders, those closest to expiring first.",
 )
 def quotes_awaiting(request):
     today = timezone.localdate()

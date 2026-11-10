@@ -7,7 +7,7 @@ DEFAULT_TEMPLATE = """\
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Quote {{ quote.number }}</title>
+<title>{{ quote.document_title }} {{ quote.number }}</title>
 <style>
   @page { size: letter; margin: 0.7in; }
   body { font-family: "Helvetica Neue", Arial, sans-serif; font-size: 10.5pt; color: #1d1f21;
@@ -28,6 +28,7 @@ DEFAULT_TEMPLATE = """\
   .totals { margin-left: auto; width: 45%; margin-top: 10pt; }
   .totals td { border: 0; padding: 2pt 4pt; }
   .totals .grand td { font-weight: bold; font-size: 12pt; border-top: 2px solid #1d1f21; }
+  .description { margin-bottom: 14pt; white-space: pre-wrap; }
   .notes { margin-top: 18pt; white-space: pre-wrap; }
   .terms { margin-top: 24pt; font-size: 8.5pt; color: #333; white-space: pre-wrap;
            page-break-before: always; }
@@ -37,7 +38,7 @@ DEFAULT_TEMPLATE = """\
 <header>
   <div>
     {% if business.logo %}<img class="logo" src="{{ business.logo }}" alt="{{ business.name }}">{% endif %}
-    <h1>Quote</h1>
+    <h1>{{ quote.document_title }}</h1>
     <div>{{ quote.number }}{% if quote.revision > 1 %} (revision {{ quote.revision }}){% endif %}</div>
   </div>
   <div class="business">
@@ -63,6 +64,8 @@ DEFAULT_TEMPLATE = """\
     {% if quote.valid_until %}Valid until: {{ quote.valid_until|date }}{% endif %}
   </div>
 </div>
+
+{% if quote.description %}<div class="description">{{ quote.description }}</div>{% endif %}
 
 <table>
   <thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Amount</th></tr></thead>

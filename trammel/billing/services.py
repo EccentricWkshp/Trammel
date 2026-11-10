@@ -123,15 +123,17 @@ def add_from_quote(invoice: Invoice, revision, *, percent: Decimal = Decimal("10
     billed = _already_billed("quote_line") if percent == 100 else set()
     count = 0
     factor = percent / 100
+    # A change order's lines say which change order they come from.
+    prefix = f"{revision.quote.number}: " if revision.quote.is_change_order else ""
     for line in revision.lines.select_related("tax_category"):
         if line.pk in billed:
             continue
         category = next(iter(line.split), "other") if len(line.split) == 1 else "other"
         add_line(
             invoice,
-            description=line.description
+            description=prefix + line.description
             if percent == 100
-            else f"{line.description} ({percent.normalize():f}% progress)",
+            else f"{prefix}{line.description} ({percent.normalize():f}% progress)",
             quantity=line.quantity,
             unit=line.unit,
             unit_price=(line.line_total / line.quantity * factor).quantize(Decimal("0.0001"))
@@ -203,33 +205,6 @@ def set_shipping(invoice: Invoice, amount: Decimal) -> None:
         before={"shipping": str(before)},
         after={"shipping": str(amount)},
     )
-
-
-@transaction.atomic
-def add_change_orders(invoice: Invoice) -> int:
-    from trammel.workorders.models import ChangeOrderLine
-
-    _require_draft(invoice)
-    billed = _already_billed("change_order_line")
-    count = 0
-    for line in ChangeOrderLine.objects.filter(
-        change_order__job=invoice.job, change_order__status="approved"
-    ):
-        if line.pk in billed:
-            continue
-        add_line(
-            invoice,
-            description=f"{line.change_order.number}: {line.description}",
-            quantity=line.quantity,
-            unit=line.unit,
-            unit_price=line.unit_price,
-            category=line.category,
-            tax_category=line.tax_category,
-            source_type="change_order_line",
-            source_id=line.pk,
-        )
-        count += 1
-    return count
 
 
 @transaction.atomic
@@ -709,7 +684,7 @@ def write_off(
 def create_deposit_invoice(revision, approval=None) -> Invoice | None:
     amount = revision.deposit_amount
     job = revision.quote.job
-    if not amount or job.customer.is_internal:
+    if amount <= 0 or job.customer.is_internal:
         return None
     invoice = create(job.customer, kind=Invoice.Kind.DEPOSIT, job=job, source_revision=revision)
     label = (
@@ -719,7 +694,9 @@ def create_deposit_invoice(revision, approval=None) -> Invoice | None:
     )
     add_line(
         invoice,
-        description=f"{label} on quote {revision.quote.number} (total {revision.total})",
+        description=(
+            f"{label} on {revision.quote.noun} {revision.quote.number} (total {revision.total})"
+        ),
         quantity=1,
         unit_price=amount,
         category="deposit",

@@ -13,8 +13,10 @@ printing, laser work. Self-hosted: the data stays on the shop's own hardware.
 - **Quotes** — line items, catalog products, and estimators for general work,
   3D printing, laser jobs and profile cutting (plasma, CNC); revisions,
   templates, approval with customer agreements, deposits, and a shipping or
-  delivery charge.
-- **Work orders** — operations, planned and used materials, change orders,
+  delivery charge. Anything priced after a job is approved is a change order,
+  with the same detail and optional amended terms and deposit.
+- **Work orders** — operations, planned and used materials, approved change
+  orders added as operations,
   printable travelers with a QR code, and a phone/tablet shop-floor app.
 - **Machines, materials and vendors** — a machine rate calculator, a materials
   price list linked to vendors with product pages and files.

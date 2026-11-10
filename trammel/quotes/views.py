@@ -31,7 +31,7 @@ from .forms import (
     QuoteWithNewJobForm,
     RevisionForm,
 )
-from .models import QuoteLine, QuoteRevision, QuoteSettings, QuoteTemplate, Status
+from .models import Quote, QuoteLine, QuoteRevision, QuoteSettings, QuoteTemplate, Status
 
 
 def _revision(request, perm, pk) -> QuoteRevision:
@@ -69,9 +69,11 @@ def _handles_redirect(view):
 
 @permission_required("quotes.view")
 def quote_list(request):
-    qs = QuoteRevision.objects.select_related("quote__job__customer").exclude(
-        status=Status.SUPERSEDED
-    )
+    kind = request.GET.get("kind", Quote.Kind.QUOTE)
+    if kind not in Quote.Kind.values:
+        kind = Quote.Kind.QUOTE
+    qs = QuoteRevision.objects.select_related("quote__job__customer").filter(quote__kind=kind)
+    qs = qs.exclude(status=Status.SUPERSEDED)
     status = request.GET.get("status", "")
     if status in Status.values:
         qs = qs.filter(status=status)
@@ -88,6 +90,11 @@ def quote_list(request):
         request,
         "quotes/list.html",
         {
+            "kind": kind,
+            "tabs": [
+                {"key": k, "label": f"{label}s", "url": f"?kind={k}", "active": k == kind}
+                for k, label in Quote.Kind.choices
+            ],
             "page": paginate(request, qs),
             "status": status,
             "statuses": Status.choices,
@@ -131,7 +138,8 @@ def quote_new(request):
     except ValidationError as exc:
         messages.error(request, " ".join(exc.messages))
     if revision is not None:
-        messages.success(request, f"Quote {revision.quote.number} created.")
+        quote = revision.quote
+        messages.success(request, f"{quote.get_kind_display()} {quote.number} created.")
         return redirect(revision)
     return render(
         request,
@@ -156,6 +164,7 @@ def quote_create(request, job_pk):
 def revision_detail(request, pk):
     revision = _revision(request, "quotes.view", pk)
     actor = request.actor
+    quote = revision.quote
     can_edit = revision.is_draft and access.has_perm(actor, "quotes.edit", revision)
     can_costs = access.has_perm(actor, "core.see_costs")
     lines = list(revision.lines.select_related("product", "machine", "material", "tax_category"))
@@ -180,7 +189,9 @@ def revision_detail(request, pk):
             "estimators": ESTIMATORS.values(),
             "can_send": revision.is_draft and access.has_perm(actor, "quotes.edit", revision),
             "can_approve": revision.status == Status.SENT
-            and access.has_perm(actor, "quotes.approve", revision),
+            and access.has_perm(actor, services.approve_permission(quote), revision),
+            "can_delete": access.has_perm(actor, "quotes.edit", revision)
+            and not services.can_delete(quote),
             "can_revise": revision.status in (Status.SENT, Status.DECLINED, Status.EXPIRED)
             and access.has_perm(actor, "quotes.edit", revision),
             "history": revision.quote.revisions.order_by("-number"),
@@ -225,6 +236,23 @@ def revision_update(request, pk):
 @permission_required("quotes.edit")
 @_handles_redirect
 @require_POST
+def description(request, pk):
+    """Save the draft's narrative description, from the box above its lines."""
+    revision = _draft(request, pk)
+    before = audit.snapshot(revision)
+    revision.description = request.POST.get("description", "").strip()
+    try:
+        services.update_revision(revision, before=before)
+    except ValidationError as exc:
+        messages.error(request, " ".join(exc.messages))
+    else:
+        messages.success(request, "Description saved.")
+    return redirect(revision)
+
+
+@permission_required("quotes.edit")
+@_handles_redirect
+@require_POST
 def shipping(request, pk):
     revision = _draft(request, pk)
     before = audit.snapshot(revision)
@@ -252,6 +280,8 @@ def line_edit(request, pk, kind=None, line_pk=None):
     if form_class is None:
         raise Http404
     form = form_class(request.POST or None, initial=form_class.initial_from(line) if line else None)
+    if revision.quote.is_change_order and hasattr(form, "allow_credit"):
+        form.allow_credit()
     can_catalog = modules.is_enabled("catalog") and access.has_perm(request.actor, "catalog.edit")
     if not can_catalog:
         form.fields.pop("save_to_catalog", None)
@@ -363,12 +393,14 @@ def send(request, pk):
     return redirect(revision)
 
 
-@permission_required("quotes.approve")
+@permission_required("quotes.view")
 def approve(request, pk):
-    revision = _revision(request, "quotes.approve", pk)
+    revision = _revision(request, "quotes.view", pk)
+    quote = revision.quote
+    access.require(request.actor, services.approve_permission(quote), revision)
     from trammel.agreements import services as agreements
 
-    needs_agreement = not agreements.satisfied(revision.quote.job)
+    needs_agreement = not quote.is_change_order and not agreements.satisfied(quote.job)
     form = ApprovalForm(
         request.POST or None,
         initial={
@@ -376,6 +408,8 @@ def approve(request, pk):
             "approved_at": timezone.localtime().strftime("%Y-%m-%dT%H:%M"),
         },
     )
+    if quote.is_change_order:
+        del form.fields["accept_agreement"]
     if request.method == "POST" and form.is_valid():
         d = form.cleaned_data
         try:
@@ -386,20 +420,54 @@ def approve(request, pk):
                 how=d["how"],
                 approved_at=d["approved_at"],
                 notes=d["notes"],
-                accept_agreement=d["accept_agreement"],
+                accept_agreement=d.get("accept_agreement", False),
                 user=request.user,
             )
         except (ValidationError, TransitionError) as exc:
             form.add_error(None, getattr(exc, "problems", None) or exc.messages)
         except PermissionDenied:
-            form.add_error(None, "Your role does not allow approving quotes.")
+            form.add_error(None, f"Your role does not allow approving {quote.noun}s.")
         else:
             messages.success(request, f"{revision} approved.")
             return redirect(revision)
     return render(
         request,
         "quotes/approve.html",
-        {"form": form, "revision": revision, "needs_agreement": needs_agreement},
+        {
+            "form": form,
+            "revision": revision,
+            "quote": quote,
+            "needs_agreement": needs_agreement,
+        },
+    )
+
+
+@permission_required("quotes.edit")
+def quote_delete(request, pk):
+    """Delete a quote or change order nothing has happened to: never sent."""
+    revision = _revision(request, "quotes.edit", pk)
+    quote = revision.quote
+    refuse = services.can_delete(quote)
+    if request.method == "POST" and not refuse:
+        try:
+            services.delete_quote(quote, reason=request.POST.get("reason", ""))
+        except ValidationError as exc:
+            messages.error(request, " ".join(exc.messages))
+            return redirect(revision)
+        messages.success(request, f"{quote} moved to the trash. It can be restored for 30 days.")
+        return redirect(quote.job)
+    return render(
+        request,
+        "core/confirm_delete.html",
+        {
+            "obj": quote,
+            "noun": quote.noun,
+            "used": bool(refuse),
+            "refuse": refuse,
+            "archive_url": "",
+            "back": revision.get_absolute_url(),
+            "parts": "its revisions",
+        },
     )
 
 

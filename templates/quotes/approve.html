@@ -6,6 +6,9 @@
 <p class="breadcrumb"><a href="{{ revision.get_absolute_url }}">{{ revision }}</a></p>
 <h1>Record approval of {{ revision }}</h1>
 <p>Total {{ revision.total|money }}{% if revision.deposit_amount %}; a deposit invoice for {{ revision.deposit_amount|money }} will be created{% endif %}.</p>
+{% if quote.is_change_order %}
+<p class="muted">{% if revision.amended_terms %}This change order carries amended terms; recording its approval records that the customer accepted them too.{% else %}The job's customer agreement already covers this change order.{% endif %} Once approved, it is added to the job's work order.</p>
+{% endif %}
 {% if needs_agreement %}
 <aside class="callout warn"><p>This job's customer agreement has not been accepted. Approval covers the quote and the agreement, so confirm below that the customer accepted the terms — or waive the agreement on the job page first.</p></aside>
 {% endif %}

@@ -13,12 +13,15 @@ from trammel.core.placeholders import P
 QUOTE = ph.Group(
     "Quote",
     (
+        P("quote.document_title", "“Quote” or “Change order”"),
+        P("quote.is_change_order", "True for a change order"),
         P("quote.number", "Quote number"),
         P("quote.title", "Title"),
         P("quote.revision", "Revision number"),
         P("quote.status", "Status, e.g. Sent"),
         P("quote.date", "Date sent (or created)"),
         P("quote.valid_until", "Valid until"),
+        P("quote.description", "What is being done, in narrative terms"),
         P("quote.notes", "Notes for the customer"),
         P("quote.lines_total", "Total of the lines"),
         P("quote.discount_pct", "Quote discount (%)"),
@@ -53,7 +56,13 @@ JOB = ph.Group("Job", (P("job.number", "Job number"), P("job.title", "Job title"
 
 AGREEMENT = ph.Group(
     "Customer agreement",
-    (P("agreement", "The agreement text for this job, if one was issued"),),
+    (
+        P(
+            "agreement",
+            "The agreement text for this job, if one was issued; on a change order, "
+            "its amended terms",
+        ),
+    ),
 )
 
 
@@ -63,12 +72,16 @@ def sample_quote() -> dict:
     shipping = Decimal("85.00")
     tax = Decimal("290.66")
     return {
+        "document_title": "Quote",
+        "is_change_order": False,
         "number": "Q-2026-0012",
         "title": "Walnut dining table",
         "revision": 2,
         "status": "Sent",
         "date": timezone.localdate(),
         "valid_until": timezone.localdate() + dt.timedelta(days=30),
+        "description": "A solid walnut dining table seating six, with a breadboard top, "
+        "tapered legs and an oil finish. The top is glued up from book-matched boards.",
         "notes": "Price includes delivery within 25 miles.",
         "lines": lines,
         "lines_total": subtotal,

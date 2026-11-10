@@ -6,11 +6,11 @@ import datetime as dt
 from collections.abc import Callable
 from decimal import Decimal
 
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.utils import timezone
 
-from trammel.core import audit, numbering, templating
+from trammel.core import access, audit, numbering, templating
 from trammel.core.access import SYSTEM
 from trammel.core.models import BusinessProfile, ShopRates
 from trammel.core.money import plain_decimal, round_money
@@ -44,13 +44,31 @@ def _snapshot_rates(revision: QuoteRevision) -> None:
     revision.minimum_charge = rates.minimum_job_charge
 
 
+#: Job states in which the agreed scope exists, so anything priced is a change order.
+AFTER_APPROVAL = ("approved", "in_progress", "completed")
+
+
+def is_after_approval(job) -> bool:
+    """Whether the job's scope has been agreed: approved (or further along), or
+    holding an approved quote (a job on hold after approval, say)."""
+    return (
+        job.status in AFTER_APPROVAL
+        or QuoteRevision.objects.filter(
+            quote__job=job, quote__kind=Quote.Kind.QUOTE, status=S.APPROVED
+        ).exists()
+    )
+
+
 @transaction.atomic
 def create_quote(job, *, title: str = "") -> QuoteRevision:
+    """A quote, or, once the job is approved, a change order (FR-WO-5)."""
     if job.status in ("closed", "declined", "cancelled"):
         raise ValidationError(f"Job {job.number} is {job.get_status_display().lower()}.")
+    change = is_after_approval(job)
     quote = Quote.objects.create(
         job=job,
-        number=numbering.next_number("quote"),
+        kind=Quote.Kind.CHANGE_ORDER if change else Quote.Kind.QUOTE,
+        number=numbering.next_number("change_order" if change else "quote"),
         title=title or job.title,
         created_by=audit.current_actor().user,
     )
@@ -62,9 +80,34 @@ def create_quote(job, *, title: str = "") -> QuoteRevision:
         valid_until=timezone.localdate() + dt.timedelta(days=settings.validity_days),
     )
     _snapshot_rates(revision)
+    if change:
+        revision.minimum_charge = ZERO  # the job's minimum was met by its quote
     revision.save()
-    audit.record("create", quote, summary=f"Created quote {quote.number} for {job.number}")
+    audit.record("create", quote, summary=f"Created {quote.noun} {quote.number} for {job.number}")
     return revision
+
+
+def can_delete(quote: Quote) -> str:
+    """Why `quote` can't be deleted, or "" if it can: only while nothing has
+    happened to it, that is none of its revisions has ever been sent."""
+    if (
+        quote.revisions.exclude(status=S.DRAFT).exists()
+        or quote.revisions.filter(sent_at__isnull=False).exists()
+    ):
+        return (
+            f"This {quote.noun} has been sent, so it is kept as a record of what the "
+            "customer was offered. It can't be deleted."
+        )
+    return ""
+
+
+@transaction.atomic
+def delete_quote(quote: Quote, *, reason: str = "") -> None:
+    """Move an unsent quote or change order, with its revisions, to the trash."""
+    if problem := can_delete(quote):
+        raise ValidationError(problem)
+    quote.delete()
+    audit.record_delete(quote, reason=reason)
 
 
 @transaction.atomic
@@ -76,7 +119,9 @@ def revise(revision: QuoteRevision, *, actor=None) -> QuoteRevision:
     are change orders (FR-WO-5).
     """
     if revision.status == S.APPROVED:
-        raise ValidationError("An approved quote is changed with a change order, not a revision.")
+        raise ValidationError(
+            f"An approved {revision.quote.noun} is changed with a change order, not a revision."
+        )
     if revision.status == S.DRAFT:
         raise ValidationError("This revision is still a draft; edit it directly.")
     quote = revision.quote
@@ -88,6 +133,7 @@ def revise(revision: QuoteRevision, *, actor=None) -> QuoteRevision:
         number=latest.number + 1,
         template=revision.template,
         valid_until=timezone.localdate() + dt.timedelta(days=QuoteSettings.load().validity_days),
+        description=revision.description,
         customer_notes=revision.customer_notes,
         internal_notes=revision.internal_notes,
         discount_pct=revision.discount_pct,
@@ -101,6 +147,7 @@ def revise(revision: QuoteRevision, *, actor=None) -> QuoteRevision:
         minimum_charge=revision.minimum_charge,
         rates_overridden=revision.rates_overridden,
         shipping=revision.shipping,
+        amended_terms=revision.amended_terms,
     )
     new.save()
     for line in revision.lines.all():
@@ -273,7 +320,11 @@ def recalculate(revision: QuoteRevision) -> QuoteRevision:
     taxable = sum((line.line_total for line in lines if _taxable(line, default)), ZERO)
     discount = round_money(lines_total * revision.discount_pct / 100)
     subtotal = lines_total - discount
-    minimum = max(ZERO, revision.minimum_charge - subtotal) if lines else ZERO
+    minimum = (
+        max(ZERO, revision.minimum_charge - subtotal)
+        if lines and not revision.quote.is_change_order
+        else ZERO
+    )
     items = subtotal + minimum
     if lines_total:
         taxable = taxable * (1 - revision.discount_pct / 100) + (minimum if taxable else ZERO)
@@ -325,7 +376,8 @@ def send(revision: QuoteRevision, *, actor) -> QuoteRevision:
     # Any other open revision of this quote is superseded by this one.
     for other in revision.quote.revisions.filter(status=S.SENT).exclude(pk=revision.pk):
         QuoteRevision.lifecycle.apply(other, S.SUPERSEDED, actor=SYSTEM)
-    _move_job(revision.quote.job, "quoted", "proposal")
+    if not revision.quote.is_change_order:
+        _move_job(revision.quote.job, "quoted", "proposal")
     for fn in on_sent:
         fn(revision)
     return revision
@@ -334,8 +386,10 @@ def send(revision: QuoteRevision, *, actor) -> QuoteRevision:
 def snapshot(revision: QuoteRevision) -> dict:
     return {
         "quote": revision.quote.number,
+        "kind": revision.quote.kind,
         "revision": revision.number,
         "valid_until": str(revision.valid_until),
+        "description": revision.description,
         "totals": {
             k: str(getattr(revision, k))
             for k in (
@@ -349,6 +403,7 @@ def snapshot(revision: QuoteRevision) -> dict:
             )
         },
         "tax_label": revision.tax_label,
+        "amended_terms": revision.amended_terms,
         "deposit": {
             "kind": revision.deposit_kind,
             "value": str(revision.deposit_value),
@@ -381,18 +436,53 @@ def approve(
     method: str = Approval.Method.MANUAL,
     user=None,
 ) -> Approval:
-    """Approve the quote and, with it, the customer agreement (FR-QUO-8, §6 step 5)."""
+    """Approve the quote and, with it, the customer agreement (FR-QUO-8, §6 step 5).
+
+    A change order is approved without the customer agreement, which the job
+    already has; its amended terms, if it carries any, are accepted with it
+    (FR-AGR-6). It never moves the job's status.
+    """
     from trammel.agreements import services as agreements
 
+    quote = revision.quote
+    noun = quote.noun
+    if not access.has_perm(actor, approve_permission(quote), revision):
+        raise PermissionDenied(f"Your role does not allow approving {noun}s.")
     if not approved_by_name.strip():
-        raise ValidationError("Who approved the quote?")
+        raise ValidationError(f"Who approved the {noun}?")
     if (
         revision.status == S.SENT
         and revision.valid_until
         and revision.valid_until < timezone.localdate()
     ):
-        raise ValidationError("This quote has expired. Create a new revision to re-quote.")
-    job = revision.quote.job
+        raise ValidationError(f"This {noun} has expired. Create a new revision to re-quote.")
+    job = quote.job
+    if quote.is_change_order:
+        QuoteRevision.lifecycle.apply(revision, S.APPROVED, actor=actor)
+        agreement = None
+        if revision.amended_terms.strip():
+            issued = agreements.issue(job, primary=False)
+            issued.text = f"Amended terms — {quote.number}\n\n{revision.amended_terms.strip()}"
+            issued.save(update_fields=["text"])
+            agreement = agreements.accept(
+                issued,
+                method="manual",
+                accepted_by_name=approved_by_name,
+                how=how,
+                accepted_at=approved_at,
+                notes=f"Accepted with change order {quote.number}",
+                user=user,
+            )
+        return _record_approval(
+            revision,
+            agreement=agreement,
+            method=method,
+            how=how,
+            approved_by_name=approved_by_name,
+            approved_at=approved_at,
+            notes=notes,
+            user=user,
+        )
     agreement = agreements.accepted(job)
     if agreement is None and not agreements.satisfied(job) and not accept_agreement:
         raise ValidationError(
@@ -418,6 +508,36 @@ def approve(
             notes=f"Accepted with quote {revision}",
             user=user,
         )
+    approval = _record_approval(
+        revision,
+        agreement=agreement,
+        method=method,
+        how=how,
+        approved_by_name=approved_by_name,
+        approved_at=approved_at,
+        notes=notes,
+        user=user,
+        move_job=True,
+    )
+    return approval
+
+
+def approve_permission(quote: Quote) -> str:
+    return "quotes.approve_change_orders" if quote.is_change_order else "quotes.approve"
+
+
+def _record_approval(
+    revision: QuoteRevision,
+    *,
+    agreement,
+    method,
+    how,
+    approved_by_name,
+    approved_at,
+    notes,
+    user,
+    move_job: bool = False,
+) -> Approval:
     approval = Approval.objects.create(
         revision=revision,
         method=method,
@@ -436,7 +556,8 @@ def approve(
         summary=f"{approval.approved_by_name} approved {revision}",
         after={"total": str(revision.total), "how": how},
     )
-    _move_job(job, "approved", "quoted")
+    if move_job:
+        _move_job(revision.quote.job, "approved", "quoted")
     for fn in on_approved:
         fn(revision, approval)
     return approval
@@ -471,20 +592,30 @@ def document_context(revision: QuoteRevision) -> dict:
 
     job = revision.quote.job
     business = BusinessProfile.load()
-    agreement = (
-        agreements.accepted(job) or job.agreements.filter(is_primary=True, status="issued").first()
-    )
+    change = revision.quote.is_change_order
+    if change:
+        # A change order carries its own amended terms, if any, not the job's agreement.
+        agreement_text = revision.amended_terms.strip()
+    else:
+        agreement = (
+            agreements.accepted(job)
+            or job.agreements.filter(is_primary=True, status="issued").first()
+        )
+        agreement_text = agreement.text if agreement else ""
     return {
         "business": templating.business_context(business),
         "customer": templating.customer_context(job.customer),
         "job": {"number": job.number, "title": job.title},
         "quote": {
+            "document_title": revision.quote.get_kind_display(),
+            "is_change_order": change,
             "number": revision.quote.number,
             "title": revision.quote.title,
             "revision": revision.number,
             "status": revision.get_status_display(),
             "date": (revision.sent_at or revision.created_at).date(),
             "valid_until": revision.valid_until,
+            "description": revision.description,
             "notes": revision.customer_notes,
             "lines": [
                 {
@@ -513,7 +644,7 @@ def document_context(revision: QuoteRevision) -> dict:
             if revision.deposit_kind == "percent"
             else None,
         },
-        "agreement": agreement.text if agreement else "",
+        "agreement": agreement_text,
     }
 
 
