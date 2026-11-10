@@ -6,6 +6,7 @@ from django import forms
 from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.db import transaction
 from django.http import Http404, HttpResponse
 from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
@@ -22,7 +23,7 @@ from trammel.jobs.models import Job
 from trammel.shop.models import Machine, Material
 
 from . import services
-from .models import ChangeOrder, ChangeOrderLine, COStatus, WorkOrder
+from .models import ChangeOrder, ChangeOrderLine, COStatus, Operation, WorkOrder
 
 
 class WorkOrderForm(forms.ModelForm):
@@ -118,18 +119,44 @@ def wo_create(request, job_pk):
     return redirect(wo)
 
 
+@permission_required("workorders.create")
+def wo_new(request):
+    """Start a work order from the work orders page: pick a job, then a quote."""
+    from trammel.quotes.models import QuoteRevision
+
+    candidates = access.scoped(
+        request.actor,
+        "jobs.view",
+        Job.objects.filter(status__in=("approved", "in_progress")).select_related("customer"),
+    ).order_by("-created_at")
+    ready = [j for j in candidates if not services.can_create_for(j)]
+    job = next((j for j in ready if str(j.pk) == request.GET.get("job")), None)
+    approved = (
+        QuoteRevision.objects.filter(quote__job=job, status="approved").select_related("quote")
+        if job
+        else []
+    )
+    return render(request, "workorders/new.html", {"jobs": ready, "job": job, "approved": approved})
+
+
 @permission_required("workorders.view")
 def wo_detail(request, pk):
     wo = _wo(request, "workorders.view", pk)
     actor = request.actor
     can_edit = access.has_perm(actor, "workorders.edit", wo) and wo.is_editable
+    operations = services.operation_tree(wo)
+    if can_edit:
+        options = services.parent_options(operations)
+        for op in operations:
+            op.parent_options = options[op.pk]
     return render(
         request,
         "workorders/detail.html",
         {
             "wo": wo,
             "job": wo.job,
-            "operations": wo.operations.select_related("machine", "completed_by"),
+            "operations": operations,
+            "can_nest": [op for op in operations if op.depth < Operation.MAX_DEPTH],
             "done_count": wo.operations.exclude(status="pending").count(),
             "planned": wo.planned_materials.select_related("material"),
             "usage": wo.material_use.select_related("material", "recorded_by"),
@@ -205,6 +232,19 @@ def _op(request, pk, op_pk):
     return wo, op
 
 
+def _parent(wo, value: str):
+    """The operation picked as a parent on a form; blank is the top level."""
+    if not value:
+        return None
+    try:
+        parent = wo.operations.filter(pk=value).first()
+    except ValidationError:
+        parent = None
+    if parent is None:
+        raise ValidationError("That operation is not on this work order.")
+    return parent
+
+
 def _ops_tab(wo):
     return f"{wo.get_absolute_url()}?tab=operations"
 
@@ -215,12 +255,17 @@ def op_edit(request, pk, op_pk):
     wo, op = _op(request, pk, op_pk)
     machine = Machine.objects.filter(pk=request.POST.get("machine") or None).first()
     try:
-        services.update_operation(
-            op,
-            name=request.POST.get("name", ""),
-            description=request.POST.get("description", ""),
-            machine=machine,
-        )
+        with transaction.atomic():
+            services.update_operation(
+                op,
+                name=request.POST.get("name", ""),
+                description=request.POST.get("description", ""),
+                machine=machine,
+            )
+            if "parent" in request.POST:
+                services.reparent_operation(
+                    op, _parent(wo, request.POST["parent"]), user=request.user
+                )
     except ValidationError as exc:
         messages.error(request, " ".join(exc.messages))
     return redirect(_ops_tab(wo))
@@ -267,7 +312,11 @@ def op_add(request, pk):
     else:
         try:
             services.add_operation(
-                wo, name=name, machine=machine, description=request.POST.get("description", "")
+                wo,
+                name=name,
+                machine=machine,
+                description=request.POST.get("description", ""),
+                parent=_parent(wo, request.POST.get("parent", "")),
             )
         except ValidationError as exc:
             messages.error(request, " ".join(exc.messages))
@@ -326,9 +375,23 @@ def materials_confirm(request, pk):
 def _traveler_context(request, wo: WorkOrder) -> dict:
     from trammel.files.services import attachments_for, media_root
 
-    images = []
+    images, files = [], []
     for link in [*attachments_for(wo.job), *attachments_for(wo)]:
-        blob = link.document.current.blob if link.document.current else None
+        doc = link.document
+        # Files with a type are printed only when the type says so; files
+        # with none are printed as they always were.
+        if doc.doc_type is not None and not doc.doc_type.show_on_traveler:
+            continue
+        blob = doc.current.blob if doc.current else None
+        if blob and not blob.thumbnail:
+            files.append(
+                {
+                    "title": doc.title,
+                    "type": doc.doc_type.name if doc.doc_type else "",
+                    "name": doc.current.original_name,
+                    "revision": doc.current.number,
+                }
+            )
         if blob and blob.thumbnail:
             data = (media_root() / blob.thumbnail).read_bytes()
             images.append(
@@ -341,12 +404,13 @@ def _traveler_context(request, wo: WorkOrder) -> dict:
     return {
         "wo": wo,
         "job": wo.job,
-        "operations": wo.operations.select_related("machine", "completed_by"),
+        "operations": services.operation_tree(wo),
         "blank_rows": range(6),
         "planned": wo.planned_materials.select_related("material"),
         "notes": wo.notes.filter(document__isnull=True).select_related("author")[:10],
         "printed_at": now(),
         "images": images,
+        "files": files,
         "qr": qr_svg(url),
         "url": url,
         "business": request.business,

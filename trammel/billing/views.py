@@ -227,7 +227,11 @@ def invoice_create(request):
             request.actor, "customers.view", Customer.objects.all(), pk=request.POST.get("customer")
         )
         kind = Invoice.Kind.DIRECT_SALE
-    invoice = services.create(customer, kind=kind, job=job)
+    try:
+        invoice = services.create(customer, kind=kind, job=job)
+    except ValidationError as exc:
+        messages.error(request, " ".join(exc.messages))
+        return redirect(job or customer)
     if job and kind == Invoice.Kind.FINAL:
         for rev in QuoteRevision.objects.filter(quote__job=job, status="approved"):
             services.add_from_quote(invoice, rev)

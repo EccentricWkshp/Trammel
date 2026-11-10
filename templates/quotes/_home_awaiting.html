@@ -1,0 +1,16 @@
+{% load trammel %}
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Quote</th><th scope="col">Customer</th><th scope="col">Valid until</th><th scope="col" class="num">Total</th></tr></thead>
+  <tbody>
+  {% for r in section.rows %}
+    <tr>
+      <td><a href="{{ r.get_absolute_url }}"><strong>{{ r.quote.number }}</strong></a>{% if r.number > 1 %} r{{ r.number }}{% endif %} {{ r.quote.title }}</td>
+      <td>{{ r.quote.job.customer.name }}</td>
+      <td>{{ r.valid_until|d|default:"—" }}
+        {% if r.valid_until and r.valid_until < section.context.today %}<span class="flag flag-late">Expired</span>
+        {% elif r.valid_until and r.valid_until <= section.context.soon %}<span class="flag flag-risk">Expires soon</span>{% endif %}</td>
+      <td class="num">{{ r.total|money }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>

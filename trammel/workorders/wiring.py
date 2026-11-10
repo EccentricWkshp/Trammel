@@ -1,4 +1,7 @@
-from trammel.core import access, panels
+from django.db.models import Case, F, IntegerField, Value, When
+from django.urls import reverse
+
+from trammel.core import access, dashboard, panels
 from trammel.core.access import SYSTEM
 from trammel.jobs import hooks
 
@@ -81,4 +84,34 @@ def job_work_orders(request, job):
         order=20,
         tab="work-orders",
         count=job.work_orders.count(),
+    )
+
+
+@dashboard.register(
+    "workorders.active",
+    "Open work orders",
+    order=40,
+    permission="workorders.view",
+    description="Work orders not yet complete, waiting ones first.",
+)
+def active_work_orders(request):
+    qs = access.scoped(
+        request.actor, "workorders.view", WorkOrder.objects.filter(status__in=ACTIVE)
+    )
+    ordered = qs.select_related("job__customer").order_by(
+        Case(
+            When(status=Status.WAITING, then=Value(0)),
+            default=Value(1),
+            output_field=IntegerField(),
+        ),
+        F("target_completion").asc(nulls_last=True),
+        "created_at",
+    )
+    rows = list(ordered[: dashboard.LIMIT])
+    return dashboard.Section(
+        template="workorders/_home_active.html",
+        rows=rows,
+        total=qs.count() if len(rows) == dashboard.LIMIT else None,
+        more_url=reverse("workorders:list"),
+        empty="No open work orders.",
     )

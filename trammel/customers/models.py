@@ -45,12 +45,23 @@ class Customer(BaseModel):
     #: A stand-in for walk-ins and early proposals (FR-CUS-3). Jobs move from a
     #: placeholder to a real customer without losing their history.
     is_placeholder = models.BooleanField(default=False, editable=False)
+    #: The shop itself, for internal jobs: fixtures, shop improvements, stock
+    #: made ahead. Such jobs need no quote approval or agreement, and are
+    #: never invoiced.
+    is_internal = models.BooleanField(default=False, editable=False)
 
     soft_delete_cascade = ("contacts", "addresses")
     customer_scope_path = "id"
 
     class Meta:
         ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["is_internal"],
+                condition=models.Q(is_internal=True, deleted_at__isnull=True),
+                name="one_internal_customer",
+            )
+        ]
 
     def __str__(self) -> str:
         return (
@@ -98,6 +109,14 @@ class Customer(BaseModel):
         obj = cls.objects.filter(is_placeholder=True).order_by("created_at").first()
         if obj is None:
             obj = cls.objects.create(name="Walk-in customer", is_placeholder=True)
+        return obj
+
+    @classmethod
+    def internal(cls) -> Customer:
+        """The shop itself, for internal jobs; created on first use."""
+        obj = cls.objects.filter(is_internal=True).first()
+        if obj is None:
+            obj = cls.objects.create(name="Shop (internal)", is_internal=True)
         return obj
 
 

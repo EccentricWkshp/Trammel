@@ -6,7 +6,23 @@
 <h1>{{ title }}</h1>
 <form method="post" class="stack" novalidate>
   {% csrf_token %}
-  {% include "partials/form_body.html" %}
+  {% if form.offers_new_product %}
+    {% if form.non_field_errors %}
+    <div class="form-errors" role="alert">{% for e in form.non_field_errors %}<p>{{ e }}</p>{% endfor %}</div>
+    {% endif %}
+    {% for field in form.visible_fields %}{% if not field.name|slice:":4" == "new_" %}
+    <div class="field{% if field.widget_type == 'checkbox' %} field-check{% endif %}">{{ field.as_field_group }}</div>
+    {% if field.name == "product" %}
+    <details class="new-product field"{% if form.new_product_open %} open{% endif %}>
+      <summary>Not in the catalog? Add a new product</summary>
+      <p class="helptext">Leave the product above unchosen. The new product is added to the catalog when the line is saved.</p>
+      {% for f in form.new_product_fields %}<div class="field">{{ f.as_field_group }}</div>{% endfor %}
+    </details>
+    {% endif %}
+    {% endif %}{% endfor %}
+  {% else %}
+    {% include "partials/form_body.html" %}
+  {% endif %}
   <div class="actions"><button type="submit" class="primary">Save line</button> <a href="{{ revision.get_absolute_url }}">Cancel</a></div>
 </form>
 {% endblock %}

@@ -32,23 +32,24 @@
   {% if wo.instructions %}<section class="card"><h2>Instructions</h2><p class="prewrap">{{ wo.instructions }}</p></section>{% endif %}
   <ol class="ops">
   {% for op in operations %}
-    <li class="op op-{{ op.status }}">
+    <li class="op op-{{ op.status }} op-depth-{{ op.depth }}{% if op.has_children %} op-parent{% endif %}">
       <span class="op-main">
-        <span class="op-name">{{ op.name }}{% if op.machine %} <span class="badge">{{ op.machine }}</span>{% endif %}</span>
+        <span class="op-name"><span class="op-number">{{ op.number }}</span> {{ op.name }}{% if op.machine %} <span class="badge">{{ op.machine }}</span>{% endif %}</span>
         {% if op.description %}<span class="op-desc muted prewrap">{{ op.description }}</span>{% endif %}
       </span>
       <span class="muted">{{ op.get_status_display }}{% if op.completed_by %} · {{ op.completed_by.get_short_name }} {{ op.completed_at|mdt }}{% endif %}</span>
       {% if can_edit %}
       <span class="row-actions">
         {% if op.status == "pending" %}
-          <form method="post" action="{% url 'workorders:op_set' wo.pk op.pk %}" class="inline">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="state" value="done"><button type="submit">Done</button></form>
+          {% if op.has_children %}<span class="muted small">Done when its steps are</span>
+          {% else %}<form method="post" action="{% url 'workorders:op_set' wo.pk op.pk %}" class="inline">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="state" value="done"><button type="submit">Done</button></form>{% endif %}
           <form method="post" action="{% url 'workorders:op_set' wo.pk op.pk %}" class="inline">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="state" value="skipped"><button type="submit" class="linklike">Skip</button></form>
         {% else %}
           <form method="post" action="{% url 'workorders:op_set' wo.pk op.pk %}" class="inline">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="state" value="pending"><button type="submit" class="linklike">Reopen</button></form>
         {% endif %}
         <span class="op-order">
-          <form method="post" action="{% url 'workorders:op_move' wo.pk op.pk %}" class="inline">{% csrf_token %}<input type="hidden" name="direction" value="up"><button type="submit" class="icon" aria-label="Move “{{ op.name }}” up"{% if forloop.first %} disabled{% endif %}>▲</button></form>
-          <form method="post" action="{% url 'workorders:op_move' wo.pk op.pk %}" class="inline">{% csrf_token %}<input type="hidden" name="direction" value="down"><button type="submit" class="icon" aria-label="Move “{{ op.name }}” down"{% if forloop.last %} disabled{% endif %}>▼</button></form>
+          <form method="post" action="{% url 'workorders:op_move' wo.pk op.pk %}" class="inline">{% csrf_token %}<input type="hidden" name="direction" value="up"><button type="submit" class="icon" aria-label="Move “{{ op.name }}” up"{% if op.is_first %} disabled{% endif %}>▲</button></form>
+          <form method="post" action="{% url 'workorders:op_move' wo.pk op.pk %}" class="inline">{% csrf_token %}<input type="hidden" name="direction" value="down"><button type="submit" class="icon" aria-label="Move “{{ op.name }}” down"{% if op.is_last %} disabled{% endif %}>▼</button></form>
         </span>
       </span>
       <details class="op-edit">
@@ -56,11 +57,12 @@
         <form method="post" action="{% url 'workorders:op_edit' wo.pk op.pk %}" class="op-form">{% csrf_token %}
           <label>Name <input type="text" name="name" value="{{ op.name }}" required maxlength="200"></label>
           <label>Machine <select name="machine"><option value="">—</option>{% if op.machine and not op.machine.is_active %}<option value="{{ op.machine_id }}" selected>{{ op.machine }} (inactive)</option>{% endif %}{% for m in machines %}<option value="{{ m.pk }}"{% if m.pk == op.machine_id %} selected{% endif %}>{{ m }}</option>{% endfor %}</select></label>
+          <label>Under <select name="parent"><option value="">Top level</option>{% for p in op.parent_options %}<option value="{{ p.pk }}"{% if p.pk == op.parent_id %} selected{% endif %}>{{ p.number }} {{ p.name }}</option>{% endfor %}</select></label>
           <label class="wide">Details <textarea name="description" rows="2">{{ op.description }}</textarea></label>
           <div class="actions"><button type="submit" class="primary">Save</button></div>
         </form>
         <form method="post" action="{% url 'workorders:op_delete' wo.pk op.pk %}" class="op-delete">{% csrf_token %}
-          <button type="submit" class="linklike danger-text">Delete this operation</button>{% if op.time_entries.exists %} <span class="muted small">Time logged against it stays on the work order.</span>{% endif %}
+          <button type="submit" class="linklike danger-text">Delete this operation{% if op.has_children %} and its steps{% endif %}</button>{% if op.time_entries.exists %} <span class="muted small">Time logged against it stays on the work order.</span>{% endif %}
         </form>
       </details>
       {% endif %}
@@ -71,6 +73,7 @@
   <form method="post" action="{% url 'workorders:op_add' wo.pk %}" class="filters">{% csrf_token %}
     <label>New operation <input type="text" name="name" required maxlength="200"></label>
     <label>Machine <select name="machine"><option value="">—</option>{% for m in machines %}<option value="{{ m.pk }}">{{ m }}</option>{% endfor %}</select></label>
+    {% if can_nest %}<label>Under <select name="parent"><option value="">Top level</option>{% for p in can_nest %}<option value="{{ p.pk }}">{{ p.number }} {{ p.name }}</option>{% endfor %}</select></label>{% endif %}
     <button type="submit">Add</button>
   </form>
   {% endif %}

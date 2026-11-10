@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Customize home{% endblock %}
+{% block main_class %}page narrow{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{% url 'core:dashboard' %}">Home</a></p>
+<h1>Customize home</h1>
+<p class="lede">Choose the sections on your home screen and the order they appear in. Lower numbers come first. These choices are yours alone.</p>
+<form method="post" novalidate>
+  {% csrf_token %}
+  <div class="table-wrap"><table class="home-arrange">
+    <thead><tr><th scope="col">Show</th><th scope="col">Section</th><th scope="col" class="num">Order</th></tr></thead>
+    <tbody>
+    {% for def, on, n in sections %}
+      <tr>
+        <td><input type="checkbox" name="on-{{ def.key }}" id="on-{{ def.key|slugify }}"{% if on %} checked{% endif %}></td>
+        <td><label for="on-{{ def.key|slugify }}">{{ def.title }}</label>{% if def.description %}<span class="helptext">{{ def.description }}</span>{% endif %}</td>
+        <td class="num"><input type="number" name="order-{{ def.key }}" value="{{ n }}" min="1" max="99" aria-label="Order of {{ def.title }}" class="order-input"></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  <div class="actions panel">
+    <button type="submit" class="primary">Save</button>
+    <button type="submit" name="reset" value="1">Back to the defaults</button>
+    <a href="{% url 'core:dashboard' %}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

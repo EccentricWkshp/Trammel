@@ -195,8 +195,18 @@ class Operation(models.Model):
         DONE = "done", "Done"
         SKIPPED = "skipped", "Skipped"
 
+    #: Sub-operations go at most four levels deep: depth 0 to 3.
+    MAX_DEPTH = 3
+
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     work_order = models.ForeignKey(WorkOrder, on_delete=models.CASCADE, related_name="operations")
+    #: The operation this is a step of. A parent is done when all of its
+    #: sub-operations are done or skipped (services._roll_up).
+    parent = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.CASCADE, related_name="children"
+    )
+    depth = models.PositiveSmallIntegerField(default=0, editable=False)
+    #: Order among siblings.
     position = models.PositiveIntegerField(default=0)
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True)
@@ -213,6 +223,9 @@ class Operation(models.Model):
 
     class Meta:
         ordering = ["position", "id"]
+        constraints = [
+            models.CheckConstraint(condition=models.Q(depth__lte=3), name="operation_depth_limit")
+        ]
 
     def __str__(self) -> str:
         return self.name

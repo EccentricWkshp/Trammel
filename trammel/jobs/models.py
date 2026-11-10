@@ -60,6 +60,10 @@ def _resume_to(state):
     return lambda job: job.held_from == state
 
 
+def _is_internal(job) -> bool:
+    return job.customer.is_internal
+
+
 _FWD = "jobs.edit"
 
 JOB_LIFECYCLE = Lifecycle(
@@ -73,6 +77,16 @@ JOB_LIFECYCLE = Lifecycle(
             permission=_FWD,
             label="Mark quoted",
             guards=(hooks.guard_for(Status.QUOTED),),
+        ),
+        # Work for the shop itself has no customer to approve a quote, so it
+        # is approved directly. Listed first: from quoted it wins over the
+        # quote-approval step below.
+        Transition(
+            (Status.PROPOSAL, Status.QUOTED),
+            Status.APPROVED,
+            permission=_FWD,
+            label="Approve internal job",
+            when=_is_internal,
         ),
         Transition(
             Status.QUOTED,
@@ -161,9 +175,28 @@ JOB_LIFECYCLE = Lifecycle(
 )
 
 
+class Priority(models.IntegerChoices):
+    """Stored as a number so lists sort by it; the API uses the lower-case names."""
+
+    LOW = 0, "Low"
+    NORMAL = 1, "Normal"
+    HIGH = 2, "High"
+    RUSH = 3, "Rush"
+
+    @property
+    def key(self) -> str:
+        return self.name.lower()
+
+
 class Job(LifecycleModel, BaseModel):
     number = models.CharField(max_length=32, unique=True, editable=False)
     title = models.CharField(max_length=200)
+    priority = models.PositiveSmallIntegerField(
+        choices=Priority.choices,
+        default=Priority.NORMAL,
+        db_index=True,
+        help_text="High and rush jobs are listed first on the home screen.",
+    )
     description = models.TextField(blank=True, help_text="Scope of work.")
     customer = models.ForeignKey(
         "customers.Customer", on_delete=models.PROTECT, related_name="jobs"
@@ -212,6 +245,14 @@ class Job(LifecycleModel, BaseModel):
     @property
     def is_open(self) -> bool:
         return self.status in OPEN_STATES
+
+    @property
+    def is_priority(self) -> bool:
+        return self.priority >= Priority.HIGH
+
+    @property
+    def priority_key(self) -> str:
+        return Priority(self.priority).key
 
     @property
     def is_deletable(self) -> bool:

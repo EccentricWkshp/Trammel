@@ -1,16 +1,25 @@
 {% extends "base.html" %}
-{% block title %}Dashboard{% endblock %}
+{% block title %}Home{% endblock %}
 {% block content %}
-<h1>{{ business.name }}</h1>
-<p class="lede">Welcome, {{ user.get_short_name }}.</p>
+<div class="heading-row">
+  <div>
+    <h1>{{ business.name }}</h1>
+    <p class="lede">Welcome, {{ user.get_short_name }}.</p>
+  </div>
+  <a href="{% url 'core:home_customize' %}">Customize home</a>
+</div>
 
-<section class="cards">
-  {% for item in main_menu %}
-  <a class="card" href="{{ item.url }}">
-    <h2>{{ item.label }}</h2>
-  </a>
-  {% empty %}
-  <p>Your role does not include any areas yet. Ask the system admin to assign you a role.</p>
-  {% endfor %}
-</section>
+<div class="home-sections">
+{% for def, section in sections %}
+  <section class="card home-section" aria-labelledby="home-{{ def.key|slugify }}">
+    <div class="card-heading">
+      <h2 id="home-{{ def.key|slugify }}">{{ def.title }}{% if section.total %} <span class="tab-count">{{ section.total }}</span>{% endif %}</h2>
+      {% if section.more_url and section.rows %}<a class="small" href="{{ section.more_url }}">{% if section.total %}See all {{ section.total }}{% else %}See the list{% endif %}</a>{% endif %}
+    </div>
+    {% if section.rows %}{% include section.template %}{% else %}<p class="muted">{{ section.empty }}</p>{% endif %}
+  </section>
+{% empty %}
+  <p class="muted">Every section is switched off. <a href="{% url 'core:home_customize' %}">Choose what to show</a>.</p>
+{% endfor %}
+</div>
 {% endblock %}

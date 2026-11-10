@@ -2,6 +2,7 @@
 # paginate decorator, which resolves string annotations against Ninja's own
 # module, where JobStatus does not exist, and the OpenAPI schema then fails.
 import datetime as dt
+from typing import Literal
 from uuid import UUID
 
 from ninja import ModelSchema, Router, Schema, Status
@@ -11,14 +12,17 @@ from trammel.core import access, audit
 from trammel.customers.models import Customer
 
 from . import services
-from .models import Job
+from .models import Job, Priority
 from .models import Status as JobStatus
 
 router = Router(tags=["jobs"])
 
+PriorityName = Literal["low", "normal", "high", "rush"]
+
 
 class JobOut(ModelSchema):
     customer_name: str
+    priority: PriorityName
 
     class Meta:
         model = Job
@@ -45,11 +49,16 @@ class JobOut(ModelSchema):
     def resolve_customer_name(obj):
         return obj.customer.name
 
+    @staticmethod
+    def resolve_priority(obj):
+        return obj.priority_key
+
 
 class JobIn(Schema):
     title: str
     description: str = ""
     customer: UUID | None = None
+    priority: PriorityName = "normal"
     tags: list[str] = []
     target_completion: dt.date | None = None
     due_date: dt.date | None = None
@@ -62,6 +71,7 @@ class JobPatch(Schema):
     title: str | None = None
     description: str | None = None
     customer: UUID | None = None
+    priority: PriorityName | None = None
     tags: list[str] | None = None
     target_completion: dt.date | None = None
     due_date: dt.date | None = None
@@ -100,8 +110,15 @@ def _job(request, perm, job_id):
 
 @router.get("/", response=list[JobOut])
 @paginate(LimitOffsetPagination)
-def list_jobs(request, status: JobStatus | None = None, customer: UUID | None = None):
+def list_jobs(
+    request,
+    status: JobStatus | None = None,
+    customer: UUID | None = None,
+    priority: PriorityName | None = None,
+):
     qs = Job.objects.select_related("customer")
+    if priority:
+        qs = qs.filter(priority=Priority[priority.upper()])
     if status:
         qs = qs.filter(status=status)
     if customer:
@@ -119,6 +136,7 @@ def create_job(request, payload: JobIn):
     access.require(request.actor, "jobs.create")
     data = payload.dict()
     data["customer"] = _customer(request, data.pop("customer"))
+    data["priority"] = Priority[data["priority"].upper()]
     return Status(201, services.create_job(Job(**data)))
 
 
@@ -129,6 +147,10 @@ def update_job(request, job_id: UUID, payload: JobPatch):
     data = payload.dict(exclude_unset=True)
     if "customer" in data:
         data["customer"] = _customer(request, data["customer"]) or Customer.placeholder()
+    if data.get("priority"):
+        data["priority"] = Priority[data["priority"].upper()]
+    else:
+        data.pop("priority", None)
     for field, value in data.items():
         setattr(job, field, value)
     return services.update_job(job, before=before)

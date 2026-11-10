@@ -158,6 +158,8 @@ def add_line(request, revision_id: UUID, payload: QuoteLineIn):
     if form_class is None:
         raise ValidationError({"kind": [f"One of: {', '.join(LINE_FORMS)}"]})
     form = form_class(payload.data)
+    # New catalog products are added through the catalog API, not with a line.
+    getattr(form, "drop_new_product", lambda: None)()
     if not form.is_valid():
         raise _form_errors(form)
     services.save_line(form.build(revision))

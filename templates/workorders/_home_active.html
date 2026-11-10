@@ -1,0 +1,13 @@
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Work order</th><th scope="col">Job</th><th scope="col">Target</th><th scope="col">Status</th></tr></thead>
+  <tbody>
+  {% for wo in section.rows %}
+    <tr>
+      <td><a href="{{ wo.get_absolute_url }}"><strong>{{ wo.number }}</strong></a> {{ wo.title }}</td>
+      <td>{{ wo.job.number }} <span class="muted">{{ wo.job.customer.name }}</span></td>
+      <td>{{ wo.target_completion|d|default:"—" }}</td>
+      <td><span class="status status-{{ wo.status }}">{{ wo.get_status_display }}</span>{% if wo.status == "waiting" and wo.waiting_on %} <span class="muted small">on {{ wo.get_waiting_on_display|lower }}</span>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>

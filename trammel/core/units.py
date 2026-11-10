@@ -6,9 +6,9 @@ for comparison. Each unit belongs to one dimension and has an exact factor to
 that dimension's canonical unit. Conversions within a dimension are exact
 decimal arithmetic; conversions across dimensions raise.
 
-Count units such as "sheet" or "spool" convert to other dimensions only through
-item-specific data (a sheet's dimensions, a spool's weight). That is the job of
-the item, not of this table.
+Count units such as "sheet" or "spool" convert to other dimensions, and to each
+other, only through item-specific data (a sheet's dimensions, a spool's weight,
+how many are in a box). That is the job of the item, not of this table.
 """
 
 from __future__ import annotations
@@ -89,7 +89,15 @@ def get(code: str) -> Unit:
 
 
 def compatible(a: str, b: str) -> bool:
-    return get(a).dimension == get(b).dimension
+    """Whether a quantity in `a` converts to `b` with no item-specific data.
+
+    Two different count units never do: a box is not one each, and a spool is
+    not one sheet. How many each are in a box belongs to the item.
+    """
+    src, dst = get(a), get(b)
+    if src.dimension == "count":
+        return src.code == dst.code
+    return src.dimension == dst.dimension
 
 
 def _to_decimal(value: Fraction) -> Decimal:
@@ -98,7 +106,7 @@ def _to_decimal(value: Fraction) -> Decimal:
 
 def convert(value: Decimal | int | str, from_unit: str, to_unit: str) -> Decimal:
     src, dst = get(from_unit), get(to_unit)
-    if src.dimension != dst.dimension:
+    if not compatible(from_unit, to_unit):
         raise IncompatibleUnits(f"Cannot convert {src.label} to {dst.label}.")
     return _to_decimal(Fraction(Decimal(value)) * src.factor / dst.factor)
 

@@ -6,6 +6,7 @@ app_name = "core"
 
 urlpatterns = [
     path("", views.dashboard, name="dashboard"),
+    path("home/customize/", views.home_customize, name="home_customize"),
     path("setup/", views.setup, name="setup"),
     path("search/", views.search, name="search"),
     path("settings/", views.settings_index, name="settings"),

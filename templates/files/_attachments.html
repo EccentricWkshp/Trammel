@@ -2,8 +2,11 @@
 <section class="attachments" aria-label="{{ title }}">
   <h2>{{ title }}</h2>
   {% if links %}
+  {% regroup links by document.doc_type as groups %}
+  {% for group in groups %}
+  {% if groups|length > 1 %}<h3 class="file-group">{{ group.grouper|default:"Other files" }}</h3>{% endif %}
   <ul class="file-grid">
-    {% for link in links %}{% with doc=link.document rev=link.document.current %}
+    {% for link in group.list %}{% with doc=link.document rev=link.document.current %}
     <li class="file-card">
       {% if rev.blob.thumb_state == "ready" or rev.blob.kind == "svg" %}
         <a href="{% url 'files:download' rev.pk %}?inline=1"><img src="{% url 'files:thumbnail' doc.pk %}" alt="" loading="lazy"></a>
@@ -13,10 +16,12 @@
       <div>
         <a href="{% url 'files:download' rev.pk %}{% if rev.blob.is_previewable_inline %}?inline=1{% endif %}">{{ doc.title }}</a>
         <span class="muted">r{{ rev.number }} · {{ rev.blob.size|filesizeformat }}</span>
+        {% if doc.doc_type and groups|length == 1 %}<span class="badge">{{ doc.doc_type }}</span>{% endif %}
         {% if link.shared_with_customer %}<span class="badge">shared</span>{% endif %}
       </div>
       {% if can_upload %}
       <details class="file-actions"><summary>Manage</summary>
+        <p><a href="{% url 'files:edit' doc.pk %}?next={{ here|urlencode }}">Edit title, type and description</a></p>
         <form method="post" action="{% url 'files:new_revision' doc.pk %}" enctype="multipart/form-data">
           <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
           <input type="hidden" name="next" value="{{ here }}">
@@ -40,12 +45,19 @@
     </li>
     {% endwith %}{% endfor %}
   </ul>
+  {% endfor %}
   {% else %}<p class="muted">No files.</p>{% endif %}
   {% if can_upload %}
   <form method="post" action="{% url 'files:attach' label target.pk %}" enctype="multipart/form-data" class="upload-row">
     <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
     <input type="hidden" name="next" value="{{ here }}">
     <label>Add a file <input type="file" name="file" required></label>
+    {% if types %}<label>Type
+      <select name="doc_type">
+        <option value="">From the file name</option>
+        {% for t in types %}<option value="{{ t.pk }}">{{ t }}</option>{% endfor %}
+      </select>
+    </label>{% endif %}
     <button type="submit">Upload</button>
   </form>
   {% endif %}

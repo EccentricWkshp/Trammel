@@ -116,7 +116,39 @@ def _complete_setup(data) -> User:
 
 @login_required
 def dashboard(request):
-    return render(request, "core/dashboard.html")
+    from . import dashboard as home
+
+    return render(request, "core/dashboard.html", {"sections": home.for_user(request)})
+
+
+@login_required
+def home_customize(request):
+    """Choose which home screen sections to show, and in what order."""
+    from . import dashboard as home
+
+    arranged = home.arranged(request)
+    if request.method == "POST":
+        if "reset" in request.POST:
+            home.save_prefs(request.user, [], set())
+            messages.success(request, "Your home screen is back to the defaults.")
+        else:
+            keys = [d.key for d, _ in arranged]
+
+            def place(key):
+                try:
+                    return (int(request.POST.get(f"order-{key}", "")), keys.index(key))
+                except ValueError:
+                    return (len(keys) + 1, keys.index(key))
+
+            on = {k for k in keys if request.POST.get(f"on-{k}")}
+            home.save_prefs(request.user, sorted(keys, key=place), on)
+            messages.success(request, "Home screen saved.")
+        return redirect("core:dashboard")
+    return render(
+        request,
+        "core/home_customize.html",
+        {"sections": [(d, on, n) for n, (d, on) in enumerate(arranged, start=1)]},
+    )
 
 
 @login_required

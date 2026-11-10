@@ -6,6 +6,7 @@ app_name = "workorders"
 
 urlpatterns = [
     path("", views.wo_list, name="list"),
+    path("new/", views.wo_new, name="new"),
     path("new/<uuid:job_pk>/", views.wo_create, name="create"),
     path("<uuid:pk>/", views.wo_detail, name="detail"),
     path("<uuid:pk>/edit/", views.wo_edit, name="edit"),

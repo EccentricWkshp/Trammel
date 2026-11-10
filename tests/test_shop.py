@@ -52,6 +52,28 @@ def test_sheet_cost_prices_by_area(setup_done):
 
 
 @pytest.mark.django_db
+def test_count_units_are_not_interchangeable(setup_done):
+    # A box of 100 screws at $6 must not price one screw at $6.
+    screws = Material(name="Screws", unit="box", unit_cost=Decimal("6.00"))
+    assert screws.cost_per("box") == Decimal("6.00")
+    with pytest.raises(units.IncompatibleUnits):
+        screws.cost_per("each")
+    assert not units.compatible("box", "each") and units.compatible("each", "each")
+    with pytest.raises(units.IncompatibleUnits):
+        units.convert(1, "spool", "sheet")
+
+
+@pytest.mark.django_db
+def test_count_unit_mismatch_is_refused_on_a_quote_line(setup_done):
+    from trammel.quotes.forms import MaterialLineForm
+
+    screws = Material.objects.create(name="Screws", unit="box", unit_cost=Decimal("6.00"))
+    form = MaterialLineForm(data={"material": screws.pk, "quantity": "50", "unit": "each"})
+    assert not form.is_valid()
+    assert "cannot price it per each" in form.errors["unit"][0]
+
+
+@pytest.mark.django_db
 def test_sheet_size_needs_both_dimensions_and_a_unit(setup_done):
     m = Material(name="Odd", unit="sheet", unit_cost=1, sheet_width=Decimal("12"))
     with pytest.raises(ValidationError):

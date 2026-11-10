@@ -18,4 +18,5 @@
       <td class="num">{{ i.total|money }}</td><td class="num">{{ i.balance|money }}</td></tr>
   {% endfor %}</tbody>
 </table></div>
+{% elif ctx.internal %}<p class="muted">Internal shop work is not invoiced.</p>
 {% else %}<p class="muted">No invoices yet.</p>{% endif %}

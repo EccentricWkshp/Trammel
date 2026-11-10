@@ -18,9 +18,26 @@ router = Router(tags=["work orders"])
 
 
 class OperationOut(ModelSchema):
+    #: "1.2.3": its place in the list, sub-operations under their parent.
+    number: str
+    parent: UUID | None
+
     class Meta:
         model = Operation
-        fields = ["id", "position", "name", "description", "machine", "status", "completed_at"]
+        fields = [
+            "id",
+            "position",
+            "depth",
+            "name",
+            "description",
+            "machine",
+            "status",
+            "completed_at",
+        ]
+
+    @staticmethod
+    def resolve_parent(obj):
+        return obj.parent_id
 
 
 class WorkOrderOut(ModelSchema):
@@ -43,7 +60,7 @@ class WorkOrderOut(ModelSchema):
 
     @staticmethod
     def resolve_operations(obj):
-        return list(obj.operations.all())
+        return services.operation_tree(obj)
 
 
 class WorkOrderCreateIn(Schema):
@@ -60,6 +77,14 @@ class WorkOrderTransitionIn(Schema):
 
 class OperationIn(Schema):
     state: str
+
+
+class OperationCreateIn(Schema):
+    name: str
+    description: str = ""
+    machine: UUID | None = None
+    #: An operation on the same work order to add this under (up to four levels).
+    parent: UUID | None = None
 
 
 class NoteIn(Schema):
@@ -118,6 +143,36 @@ def transition(request, wo_id: UUID, payload: WorkOrderTransitionIn):
     )
     wo.refresh_from_db()
     return wo
+
+
+@router.post("/{wo_id}/operations", response={201: WorkOrderOut})
+def add_operation(request, wo_id: UUID, payload: OperationCreateIn):
+    from django.core.exceptions import ValidationError
+
+    from trammel.shop.models import Machine
+
+    wo = _wo(request, "workorders.edit", wo_id)
+    parent = None
+    if payload.parent is not None:
+        parent = wo.operations.filter(pk=payload.parent).first()
+        if parent is None:
+            raise ValidationError({"parent": ["Not an operation on this work order."]})
+    machine = None
+    if payload.machine is not None:
+        machine = Machine.objects.filter(pk=payload.machine).first()
+        if machine is None:
+            raise ValidationError({"machine": ["Unknown machine."]})
+    if not payload.name.strip():
+        raise ValidationError({"name": ["Name the operation."]})
+    services.add_operation(
+        wo,
+        name=payload.name.strip(),
+        description=payload.description,
+        machine=machine,
+        parent=parent,
+    )
+    wo.refresh_from_db()
+    return Status(201, wo)
 
 
 @router.post("/{wo_id}/operations/{op_id}", response=WorkOrderOut)

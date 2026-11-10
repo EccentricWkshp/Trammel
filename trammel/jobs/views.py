@@ -17,7 +17,7 @@ from trammel.core.web import csv_response, paginate, permission_required
 
 from . import services
 from .forms import JobForm, TransitionForm
-from .models import OPEN_STATES, TERMINAL, Job, Status
+from .models import OPEN_STATES, TERMINAL, Job, Priority, Status
 
 # ---------------------------------------------------------------------------
 # Lists and calendar (FR-JOB-9)
@@ -40,7 +40,16 @@ def _filtered(request):
         )
     if tag := request.GET.get("tag", "").strip().lower():
         qs = qs.filter(tags__contains=[tag])
-    qs = qs.order_by(F("due_date").asc(nulls_last=True), "-created_at")
+    priority = request.GET.get("priority", "")
+    if priority == "high":
+        qs = qs.filter(priority__gte=Priority.HIGH)
+    elif priority.isdigit() and int(priority) in Priority.values:
+        qs = qs.filter(priority=int(priority))
+    by_due = (F("due_date").asc(nulls_last=True), "-created_at")
+    if request.GET.get("sort") == "priority":
+        qs = qs.order_by("-priority", *by_due)
+    else:
+        qs = qs.order_by(*by_due)
     return access.scoped(request.actor, "jobs.view", qs), status
 
 
@@ -62,6 +71,9 @@ def job_list(request):
             "statuses": Status.choices,
             "q": request.GET.get("q", ""),
             "tag": request.GET.get("tag", ""),
+            "priority": request.GET.get("priority", ""),
+            "priorities": [(str(v), label) for v, label in Priority.choices],
+            "sort": request.GET.get("sort", ""),
             "query": params.urlencode(),
         },
     )
@@ -77,6 +89,7 @@ def job_csv(request):
             j.title,
             j.customer.name,
             j.get_status_display(),
+            j.get_priority_display(),
             ",".join(j.tags),
             j.target_completion,
             j.due_date,
@@ -94,6 +107,7 @@ def job_csv(request):
             "title",
             "customer",
             "status",
+            "priority",
             "tags",
             "target_completion",
             "due",

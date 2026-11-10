@@ -13,7 +13,7 @@ from django.db import IntegrityError, models, transaction
 from trammel.core import audit, tasks
 
 from . import sniff
-from .models import Attachment, Blob, Document, DocumentRevision
+from .models import Attachment, Blob, Document, DocumentRevision, DocumentType
 
 _SNIFF_BYTES = 64 * 1024
 
@@ -116,13 +116,21 @@ def upload(
     document: Document | None = None,
     attach_to: models.Model | None = None,
     note: str = "",
+    doc_type: DocumentType | None = None,
     user=None,
 ) -> DocumentRevision:
-    """Store an upload as a new document, or as the next revision of `document`."""
+    """Store an upload as a new document, or as the next revision of `document`.
+
+    A new document without a type gets the one its file name suggests.
+    """
     blob = _store(_spool(upload), name)
     creating = document is None
     if creating:
-        document = Document.objects.create(title=title or name, created_by=user)
+        document = Document.objects.create(
+            title=title or name,
+            doc_type=doc_type or DocumentType.suggest(name),
+            created_by=user,
+        )
         number = 1
     else:
         number = (document.revisions.aggregate(models.Max("number"))["number__max"] or 0) + 1
@@ -145,6 +153,30 @@ def upload(
     if attach_to is not None:
         attach(document, attach_to, user=user)
     return revision
+
+
+@transaction.atomic
+def update_document(document: Document, *, title: str, description: str, doc_type) -> Document:
+    from trammel.core.services import save_audited
+
+    before = audit.snapshot(document)
+    document.title, document.description, document.doc_type = title, description, doc_type
+    return save_audited(document, before=before)
+
+
+@transaction.atomic
+def save_type(doc_type: DocumentType, *, before: dict | None = None) -> DocumentType:
+    from django.utils.text import slugify
+
+    from trammel.core.services import save_audited
+
+    if not doc_type.slug:
+        base = slugify(doc_type.name)[:34] or "type"
+        slug, n = base, 2
+        while DocumentType.objects.filter(slug=slug).exists():
+            slug, n = f"{base}-{n}", n + 1
+        doc_type.slug = slug
+    return save_audited(doc_type, before=before)
 
 
 def attach(document: Document, target: models.Model, *, user=None) -> Attachment:
@@ -171,8 +203,12 @@ def attachments_for(obj: models.Model):
     ct = ContentType.objects.get_for_model(obj)
     return (
         Attachment.objects.filter(content_type=ct, object_id=obj.pk, document__deleted_at=None)
-        .select_related("document__current__blob")
-        .order_by("created_at")
+        .select_related("document__current__blob", "document__doc_type")
+        .order_by(
+            models.F("document__doc_type__position").asc(nulls_last=True),
+            "document__doc_type__name",
+            "created_at",
+        )
     )
 
 

@@ -4,10 +4,11 @@
 {% block content %}
 <header class="record-header">
   <div class="record-title">
-    <p class="breadcrumb"><a href="{% url 'jobs:list' %}">Jobs</a> · <a href="{{ job.customer.get_absolute_url }}">{{ job.customer.name }}</a>{% if job.customer.is_placeholder %} <span class="badge">placeholder</span>{% endif %}</p>
+    <p class="breadcrumb"><a href="{% url 'jobs:list' %}">Jobs</a> · <a href="{{ job.customer.get_absolute_url }}">{{ job.customer.name }}</a>{% if job.customer.is_placeholder %} <span class="badge">placeholder</span>{% endif %}{% if job.customer.is_internal %} <span class="badge">internal job</span>{% endif %}</p>
     <h1>{{ job.number }} · {{ job.title }}</h1>
     <p class="status-line">
       <span class="status status-{{ job.status }}">{{ job.get_status_display }}</span>
+      {% include "jobs/_priority.html" %}
       {% if job.status == "on_hold" and job.held_from %}<span class="muted">(from {{ job.held_from_label|lower }})</span>{% endif %}
       {% if job.force_closed_at %}<span class="badge warn">force-closed {{ job.force_closed_at|d }}</span>{% endif %}
       {% for level, message in flags %}<span class="flag flag-{{ level }}">{{ message }}</span>{% endfor %}

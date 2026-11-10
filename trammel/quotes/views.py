@@ -15,7 +15,8 @@ from trammel.core import access, audit, modules, panels, placeholders, templatin
 from trammel.core.lifecycle import TransitionError
 from trammel.core.services import save_audited
 from trammel.core.web import document_response, document_view, paginate, permission_required
-from trammel.jobs.models import Job
+from trammel.jobs import services as jobs
+from trammel.jobs.models import TERMINAL, Job
 
 from . import services
 from .estimators import ESTIMATORS
@@ -23,8 +24,10 @@ from .forms import (
     LINE_FORMS,
     ApprovalForm,
     ManualPriceFields,
+    QuoteForJobForm,
     QuoteSettingsForm,
     QuoteTemplateForm,
+    QuoteWithNewJobForm,
     RevisionForm,
 )
 from .models import QuoteLine, QuoteRevision, QuoteSettings, QuoteTemplate, Status
@@ -90,6 +93,49 @@ def quote_list(request):
             "q": request.GET.get("q", ""),
             "query": params.urlencode(),
         },
+    )
+
+
+@permission_required("quotes.create")
+def quote_new(request):
+    """Start a quote from the quotes page: for an open job, or with a new job."""
+    actor = request.actor
+    open_jobs = access.scoped(
+        actor, "jobs.view", Job.objects.exclude(status__in=TERMINAL).select_related("customer")
+    ).order_by("-created_at")
+    can_create_job = access.has_perm(actor, "jobs.create")
+    mode = request.POST.get("mode") if request.method == "POST" else None
+    existing = QuoteForJobForm(
+        request.POST if mode == "existing" else None,
+        jobs=open_jobs,
+        initial={"job": request.GET.get("job")},
+    )
+    fresh = (
+        QuoteWithNewJobForm(request.POST if mode == "new" else None, prefix="new")
+        if can_create_job
+        else None
+    )
+    revision = None
+    try:
+        if mode == "existing" and existing.is_valid():
+            d = existing.cleaned_data
+            revision = services.create_quote(d["job"], title=d["title"])
+        elif mode == "new" and fresh is not None and fresh.is_valid():
+            d = fresh.cleaned_data
+            with transaction.atomic():
+                job = jobs.create_job(
+                    Job(title=d["title"], customer=d["customer"], due_date=d["due_date"])
+                )
+                revision = services.create_quote(job)
+    except ValidationError as exc:
+        messages.error(request, " ".join(exc.messages))
+    if revision is not None:
+        messages.success(request, f"Quote {revision.quote.number} created.")
+        return redirect(revision)
+    return render(
+        request,
+        "quotes/new.html",
+        {"existing": existing, "fresh": fresh, "has_jobs": open_jobs.exists()},
     )
 
 
@@ -208,10 +254,21 @@ def line_edit(request, pk, kind=None, line_pk=None):
     can_catalog = modules.is_enabled("catalog") and access.has_perm(request.actor, "catalog.edit")
     if not can_catalog:
         form.fields.pop("save_to_catalog", None)
+    if not can_catalog or line is not None:
+        getattr(form, "drop_new_product", lambda: None)()
     if request.method == "POST" and form.is_valid():
-        built = form.build(revision, line)
+        note = ""
         try:
             with transaction.atomic():
+                if getattr(form, "wants_new_product", False):
+                    try:
+                        product = catalog.create_product(**form.new_product())
+                    except ValidationError as exc:
+                        # The product's own field names are not this form's.
+                        raise ValidationError(exc.messages) from exc
+                    form.cleaned_data["product"] = product
+                    note = f"Added “{product}” to the catalog."
+                built = form.build(revision, line)
                 services.save_line(built)
                 if form.cleaned_data.get("save_to_catalog"):
                     product, created = catalog.save_adhoc(
@@ -221,15 +278,16 @@ def line_edit(request, pk, kind=None, line_pk=None):
                         unit=built.unit,
                         tax_category=built.tax_category,
                     )
-                    messages.success(
-                        request,
+                    note = (
                         f"Added “{product}” to the catalog."
                         if created
-                        else f"“{product}” is already in the catalog.",
+                        else f"“{product}” is already in the catalog."
                     )
         except ValidationError as exc:
             form.add_error(None, exc)
         else:
+            if note:
+                messages.success(request, note)
             return redirect(revision)
     title = f"{'Edit' if line else 'Add'} {QuoteLine.Kind(kind).label.lower()} — {revision}"
     return render(

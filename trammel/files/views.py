@@ -1,18 +1,20 @@
 from __future__ import annotations
 
+from django import forms
 from django.apps import apps
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.db.models import Count, Q
 from django.http import FileResponse, Http404
-from django.shortcuts import get_object_or_404, redirect
+from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
-from trammel.core import access
+from trammel.core import access, audit
 from trammel.core.web import permission_required
 
 from . import services
-from .models import Attachment, Document, DocumentRevision
+from .models import Attachment, Document, DocumentRevision, DocumentType
 
 
 def _back(request, fallback="/"):
@@ -61,6 +63,7 @@ def attach_upload(request, label, object_id):
                 name=upload.name,
                 title=request.POST.get("title", ""),
                 attach_to=target,
+                doc_type=_chosen_type(request.POST.get("doc_type")),
                 user=request.user,
             )
         except ValidationError as exc:
@@ -166,3 +169,92 @@ def thumbnail(request, pk):
         filename="thumbnail.webp",
         inline=True,
     )
+
+
+def _chosen_type(value) -> DocumentType | None:
+    """A type picked on an upload form; blank means suggest one from the file name."""
+    if not value:
+        return None
+    try:
+        return DocumentType.objects.filter(pk=value, is_active=True).first()
+    except ValidationError:
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Editing a document's title, description and type
+# ---------------------------------------------------------------------------
+
+
+class DocumentForm(forms.ModelForm):
+    class Meta:
+        model = Document
+        fields = ["title", "doc_type", "description"]
+        widgets = {"description": forms.Textarea(attrs={"rows": 3})}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # A type switched off stays selectable on the files that already use it.
+        current = self.instance.doc_type_id
+        self.fields["doc_type"].queryset = DocumentType.objects.filter(
+            Q(is_active=True) | Q(pk=current)
+        )
+        self.fields["doc_type"].empty_label = "No type"
+
+
+@permission_required("files.upload")
+def document_edit(request, pk):
+    document = get_object_or_404(Document, pk=pk)
+    if not _may_see(request, document):
+        raise Http404
+    back = _back(request)
+    form = DocumentForm(request.POST or None, instance=document)
+    if request.method == "POST" and form.is_valid():
+        d = form.cleaned_data
+        services.update_document(
+            document, title=d["title"], description=d["description"], doc_type=d["doc_type"]
+        )
+        messages.success(request, f"{document} saved.")
+        return redirect(back)
+    return render(
+        request, "files/document_form.html", {"form": form, "document": document, "back": back}
+    )
+
+
+# ---------------------------------------------------------------------------
+# Document types (Settings)
+# ---------------------------------------------------------------------------
+
+
+class DocumentTypeForm(forms.ModelForm):
+    class Meta:
+        model = DocumentType
+        fields = ["name", "description", "extensions", "show_on_traveler", "position", "is_active"]
+
+    def clean_name(self):
+        # The database rule covers live types only, which the form cannot check itself.
+        name = self.cleaned_data["name"].strip()
+        if DocumentType.objects.filter(name__iexact=name).exclude(pk=self.instance.pk).exists():
+            raise ValidationError("There is already a type with this name.")
+        return name
+
+
+@permission_required("files.manage_types")
+def type_list(request):
+    types = DocumentType.objects.annotate(
+        file_count=Count("documents", filter=Q(documents__deleted_at=None))
+    )
+    return render(request, "files/types.html", {"types": types})
+
+
+@permission_required("files.manage_types")
+def type_edit(request, pk=None):
+    doc_type = get_object_or_404(DocumentType, pk=pk) if pk else DocumentType()
+    before = audit.snapshot(doc_type) if pk else None
+    form = DocumentTypeForm(request.POST or None, instance=doc_type)
+    if request.method == "POST" and form.is_valid():
+        services.save_type(form.save(commit=False), before=before)
+        messages.success(request, f"{doc_type} saved.")
+        return redirect("files:types")
+    title = f"Edit {doc_type}" if pk else "Add document type"
+    return render(request, "files/type_form.html", {"form": form, "title": title})

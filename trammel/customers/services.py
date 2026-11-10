@@ -28,6 +28,8 @@ def save_customer(customer: Customer, *, before: dict | None, actor=None) -> Cus
 def delete_customer(customer: Customer, *, reason: str = "") -> None:
     if customer.is_placeholder:
         raise ValidationError("The walk-in placeholder customer cannot be deleted.")
+    if customer.is_internal:
+        raise ValidationError("The shop's internal customer cannot be deleted.")
     customer.delete()
     audit.record_delete(customer, reason=reason)
 

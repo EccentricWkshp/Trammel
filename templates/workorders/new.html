@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}New work order{% endblock %}
+{% block main_class %}page narrow{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{% url 'workorders:list' %}">Work orders</a></p>
+<h1>New work order</h1>
+<p class="lede">A work order belongs to an approved job. It can carry the operations and materials of an approved quote, or start blank.</p>
+{% if not jobs %}
+<p class="callout">No job is ready for a work order. A job needs an approved quote (or to be an internal shop job) and, where required, an accepted or waived agreement.</p>
+{% else %}
+<form method="get" class="stack">
+  <div class="field">
+    <label for="id_job">Job</label>
+    <select name="job" id="id_job" required>
+      <option value="">Choose a job</option>
+      {% for j in jobs %}<option value="{{ j.pk }}"{% if job and j.pk == job.pk %} selected{% endif %}>{{ j.number }} {{ j.title }} — {{ j.customer.name }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="actions"><button type="submit"{% if not job %} class="primary"{% endif %}>{% if job %}Change job{% else %}Next{% endif %}</button></div>
+</form>
+{% if job %}
+<form method="post" action="{% url 'workorders:create' job.pk %}" class="stack">
+  {% csrf_token %}
+  <div class="field">
+    <label for="id_revision">From quote</label>
+    <select name="revision" id="id_revision">
+      <option value="">Blank work order</option>
+      {% for r in approved %}<option value="{{ r.pk }}"{% if forloop.first %} selected{% endif %}>{{ r }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="id_title">Title</label>
+    <div class="helptext">Leave blank to use the job's title.</div>
+    <input type="text" name="title" id="id_title" maxlength="200">
+  </div>
+  <div class="actions">
+    <button type="submit" class="primary">Create work order</button>
+  </div>
+</form>
+{% endif %}
+{% endif %}
+{% endblock %}

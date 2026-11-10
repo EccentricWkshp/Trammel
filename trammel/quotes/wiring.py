@@ -1,4 +1,10 @@
-from trammel.core import access, panels
+import datetime as dt
+
+from django.db.models import F
+from django.urls import reverse
+from django.utils import timezone
+
+from trammel.core import access, dashboard, panels
 from trammel.jobs import hooks
 
 from .models import QuoteRevision, Status
@@ -80,4 +86,30 @@ def customer_quotes(request, customer):
         order=20,
         tab="quotes",
         count=len(revisions),
+    )
+
+
+@dashboard.register(
+    "quotes.awaiting",
+    "Quotes awaiting approval",
+    order=30,
+    permission="quotes.view",
+    description="Sent quotes, those closest to expiring first.",
+)
+def quotes_awaiting(request):
+    today = timezone.localdate()
+    qs = access.scoped(
+        request.actor, "quotes.view", QuoteRevision.objects.filter(status=Status.SENT)
+    )
+    ordered = qs.select_related("quote__job__customer").order_by(
+        F("valid_until").asc(nulls_last=True), "created_at"
+    )
+    rows = list(ordered[: dashboard.LIMIT])
+    return dashboard.Section(
+        template="quotes/_home_awaiting.html",
+        rows=rows,
+        total=qs.count() if len(rows) == dashboard.LIMIT else None,
+        more_url=reverse("quotes:list") + "?status=sent",
+        empty="No quotes are waiting on a customer.",
+        context={"today": today, "soon": today + dt.timedelta(days=7)},
     )

@@ -1,4 +1,7 @@
-from trammel.core import access, panels
+from django.urls import reverse
+from django.utils import timezone
+
+from trammel.core import access, dashboard, panels
 from trammel.jobs import hooks
 from trammel.quotes import services as quotes
 
@@ -60,7 +63,9 @@ def job_invoices(request, job):
         "billing/_job_panel.html",
         {
             "invoices": invoices,
-            "can_create": access.has_perm(request.actor, "billing.create", job),
+            "can_create": access.has_perm(request.actor, "billing.create", job)
+            and not job.customer.is_internal,
+            "internal": job.customer.is_internal,
         },
         order=30,
         tab="invoices",
@@ -90,4 +95,48 @@ def customer_invoices(request, customer):
         order=30,
         tab="invoices",
         count=len(invoices),
+    )
+
+
+@dashboard.register(
+    "billing.overdue",
+    "Overdue invoices",
+    order=50,
+    permission="billing.view",
+    description="Issued invoices past their due date, oldest first.",
+)
+def overdue_invoices(request):
+    qs = access.scoped(
+        request.actor,
+        "billing.view",
+        Invoice.objects.filter(status__in=OPEN, due_date__lt=timezone.localdate()).exclude(
+            kind=Invoice.Kind.CREDIT_NOTE
+        ),
+    )
+    rows = list(qs.select_related("customer").order_by("due_date")[: dashboard.LIMIT])
+    return dashboard.Section(
+        template="billing/_home_invoices.html",
+        rows=rows,
+        total=qs.count() if len(rows) == dashboard.LIMIT else None,
+        more_url=reverse("billing:list") + "?status=overdue",
+        empty="Nothing is overdue.",
+    )
+
+
+@dashboard.register(
+    "billing.drafts",
+    "Unissued invoices",
+    order=60,
+    permission="billing.view",
+    description="Draft invoices that have not been issued.",
+)
+def draft_invoices(request):
+    qs = access.scoped(request.actor, "billing.view", Invoice.objects.filter(status=Status.DRAFT))
+    rows = list(qs.select_related("customer").order_by("created_at")[: dashboard.LIMIT])
+    return dashboard.Section(
+        template="billing/_home_invoices.html",
+        rows=rows,
+        total=qs.count() if len(rows) == dashboard.LIMIT else None,
+        more_url=reverse("billing:list") + "?status=draft",
+        empty="No draft invoices.",
     )

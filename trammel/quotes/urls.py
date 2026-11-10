@@ -10,6 +10,7 @@ urlpatterns = [
     path("templates/new/", views.template_edit, name="template_create"),
     path("templates/<uuid:pk>/", views.template_edit, name="template_edit"),
     path("settings/", views.settings_edit, name="settings"),
+    path("new/", views.quote_new, name="new"),
     path("new/<uuid:job_pk>/", views.quote_create, name="create"),
     path("r/<uuid:pk>/", views.revision_detail, name="revision"),
     path("r/<uuid:pk>/update/", views.revision_update, name="revision_update"),

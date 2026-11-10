@@ -42,6 +42,8 @@
   table.grid .qty { width: 0.9in; text-align: right; white-space: nowrap; }
   .box { display: inline-block; width: 12pt; height: 12pt; border: 1.5pt solid #000; vertical-align: middle; text-align: center; line-height: 10pt; font-size: 10pt; font-weight: bold; }
   .op-name { font-weight: bold; }
+  .op-name.d1, .op-name.d2, .op-name.d3 { font-weight: normal; }
+  .op-name.d1 { padding-left: 10pt; } .op-name.d2 { padding-left: 20pt; } .op-name.d3 { padding-left: 30pt; }
   .op-desc { font-size: 9pt; color: #222; margin-top: 2pt; white-space: pre-wrap; }
   .machine { font-size: 9pt; }
   .done-by { font-size: 8pt; color: #333; }
@@ -95,9 +97,9 @@
   <tbody>
   {% for op in operations %}
     <tr class="{{ op.status }}">
-      <td class="num">{{ forloop.counter }}</td>
+      <td class="num">{{ op.number }}</td>
       <td>
-        <div class="op-name">{{ op.name }}</div>
+        <div class="op-name d{{ op.depth }}">{{ op.name }}</div>
         {% if op.machine %}<div class="machine">Machine: {{ op.machine }}</div>{% endif %}
         {% if op.description %}<div class="op-desc">{{ op.description }}</div>{% endif %}
       </td>
@@ -142,6 +144,14 @@
     <td><div class="line"></div><div class="k">Date</div></td>
   </tr>
 </table>
+
+{% if files %}
+<h2>Files</h2>
+<table>
+  <thead><tr><th>File</th><th>Type</th><th>Name and revision</th></tr></thead>
+  <tbody>{% for f in files %}<tr><td>{{ f.title }}</td><td>{{ f.type|default:"—" }}</td><td>{{ f.name }} · r{{ f.revision }}</td></tr>{% endfor %}</tbody>
+</table>
+{% endif %}
 
 {% if images %}
 <h2>Drawings and photos</h2>

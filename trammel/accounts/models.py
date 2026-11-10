@@ -98,6 +98,9 @@ class User(AbstractBaseUser):
     totp_confirmed_at = models.DateTimeField(null=True, blank=True, editable=False)
     totp_last_step = models.BigIntegerField(default=0, editable=False)
     recovery_codes = models.JSONField(default=list, blank=True, editable=False)
+    #: The home screen as this user arranged it: [{"key": ..., "on": bool}, ...]
+    #: in display order (core/dashboard.py). Empty means the defaults.
+    home_sections = models.JSONField(default=list, blank=True, editable=False)
     date_joined = models.DateTimeField(default=now, editable=False)
     deactivated_at = models.DateTimeField(null=True, blank=True, editable=False)
 

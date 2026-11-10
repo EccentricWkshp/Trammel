@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}New quote{% endblock %}
+{% block main_class %}page narrow{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{% url 'quotes:list' %}">Quotes</a></p>
+<h1>New quote</h1>
+<p class="lede">Every quote belongs to a job. Quote a job that is already open, or start a new job with its quote.</p>
+
+<section class="card" aria-labelledby="existing-heading">
+  <h2 id="existing-heading">For an open job</h2>
+  {% if has_jobs %}
+  <form method="post" class="stack" novalidate>
+    {% csrf_token %}
+    <input type="hidden" name="mode" value="existing">
+    {% include "partials/form_body.html" with form=existing %}
+    <div class="actions"><button type="submit" class="primary">Create quote</button></div>
+  </form>
+  {% else %}
+  <p class="muted">There are no open jobs.</p>
+  {% endif %}
+</section>
+
+{% if fresh %}
+<section class="card panel" aria-labelledby="new-heading">
+  <h2 id="new-heading">With a new job</h2>
+  <form method="post" class="stack" novalidate>
+    {% csrf_token %}
+    <input type="hidden" name="mode" value="new">
+    {% include "partials/form_body.html" with form=fresh %}
+    <div class="actions"><button type="submit" class="primary">Create job and quote</button></div>
+  </form>
+</section>
+{% endif %}
+{% endblock %}

@@ -120,7 +120,9 @@ def profitability(start: dt.date, end: dt.date):
         at__date__lte=end,
     ).values_list("entity_id", flat=True)
     rows = []
-    for job in Job.objects.filter(pk__in=set(ids)).select_related("customer"):
+    # Internal shop work earns nothing, so it has no margin to report.
+    jobs = Job.objects.filter(pk__in=set(ids)).exclude(customer__is_internal=True)
+    for job in jobs.select_related("customer"):
         c = job_costing(job)
         rows.append(
             {

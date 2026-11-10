@@ -114,21 +114,107 @@ def _require_editable(wo: WorkOrder) -> None:
         raise ValidationError(f"{wo.number} is {wo.get_status_display().lower()}. Reopen it first.")
 
 
+# ---------------------------------------------------------------------------
+# Operations and sub-operations (FR-WO-2)
+# ---------------------------------------------------------------------------
+
+P = Operation.State
+
+
+def operation_tree(wo: WorkOrder) -> list[Operation]:
+    """Every operation in reading order, each with `number` ("1.2.3"),
+    `has_children`, and `is_first` / `is_last` among its siblings."""
+    ops = list(wo.operations.select_related("machine", "completed_by"))
+    children: dict = {}
+    for op in ops:
+        children.setdefault(op.parent_id, []).append(op)
+    out: list[Operation] = []
+
+    def walk(parent_id, prefix: str) -> None:
+        siblings = children.get(parent_id, [])
+        for n, op in enumerate(siblings, start=1):
+            op.number = f"{prefix}{n}"
+            op.has_children = op.pk in children
+            op.is_first, op.is_last = n == 1, n == len(siblings)
+            out.append(op)
+            walk(op.pk, f"{op.number}.")
+
+    walk(None, "")
+    return out
+
+
+def _descendants(op: Operation) -> list[Operation]:
+    found, frontier = [], [op.pk]
+    while frontier:
+        level = list(Operation.objects.filter(parent_id__in=frontier))
+        found += level
+        frontier = [o.pk for o in level]
+    return found
+
+
+def _height(op: Operation, below: list[Operation] | None = None) -> int:
+    """How many levels sit below `op` (0 when it has no sub-operations)."""
+    below = _descendants(op) if below is None else below
+    return max((o.depth for o in below), default=op.depth) - op.depth
+
+
+def _too_deep() -> ValidationError:
+    return ValidationError(f"Sub-operations go at most {Operation.MAX_DEPTH + 1} levels deep.")
+
+
+def _roll_up(op: Operation | None, user) -> None:
+    """A parent follows its sub-operations: done once none is left to do (skipped
+    if every one was skipped), and back to do when one is reopened or added."""
+    while op is not None:
+        states = set(op.children.values_list("status", flat=True))
+        if not states:
+            return
+        if P.PENDING in states:
+            state = P.PENDING
+        elif states == {P.SKIPPED}:
+            state = P.SKIPPED
+        else:
+            state = P.DONE
+        if state == op.status:
+            return
+        op.status = state
+        op.completed_at = timezone.now() if state != P.PENDING else None
+        op.completed_by = user if state != P.PENDING else None
+        op.save(update_fields=["status", "completed_at", "completed_by"])
+        op = op.parent
+
+
 @transaction.atomic
 def set_operation(op: Operation, state: str, *, user) -> Operation:
-    """Mark an operation done, skipped, or back to do (FR-WO-2, FR-WO-8)."""
+    """Mark an operation done, skipped, or back to do (FR-WO-2, FR-WO-8).
+
+    An operation with sub-operations is done when they are, so it cannot be
+    marked done while one is still to do. Skipping it skips those still to do.
+    """
     _require_editable(op.work_order)
-    if state not in Operation.State.values:
+    if state not in P.values:
         raise ValidationError("Unknown operation state.")
+    pending_below = [o for o in _descendants(op) if o.status == P.PENDING]
+    if state == P.DONE and pending_below:
+        raise ValidationError(
+            f"Finish or skip the sub-operations of “{op.name}” first "
+            f"({len(pending_below)} still to do)."
+        )
     before = op.status
-    if state != Operation.State.PENDING:
+    if state != P.PENDING:
         ensure_started(op.work_order)
+    now = timezone.now()
+    if state == P.SKIPPED:
+        for child in pending_below:
+            child.status, child.completed_at, child.completed_by = P.SKIPPED, now, user
+            child.save(update_fields=["status", "completed_at", "completed_by"])
     op.status = state
-    op.completed_at = timezone.now() if state != Operation.State.PENDING else None
-    op.completed_by = user if state != Operation.State.PENDING else None
+    op.completed_at = now if state != P.PENDING else None
+    op.completed_by = user if state != P.PENDING else None
     op.save()
+    _roll_up(op.parent, user)
     audit.record(
-        "operation.reopen" if state == Operation.State.PENDING else f"operation.{state}",
+        "operation.reopen" if state == P.PENDING else f"operation.{state}",
         op.work_order,
         summary=f"{op.work_order.number}: “{op.name}” {before} → {state}",
     )
@@ -136,13 +222,82 @@ def set_operation(op: Operation, state: str, *, user) -> Operation:
 
 
 @transaction.atomic
-def add_operation(wo: WorkOrder, *, name: str, description: str = "", machine=None) -> Operation:
+def add_operation(
+    wo: WorkOrder,
+    *,
+    name: str,
+    description: str = "",
+    machine=None,
+    parent: Operation | None = None,
+) -> Operation:
     _require_editable(wo)
-    last = wo.operations.aggregate(m=models.Max("position"))["m"] or 0
+    if parent is not None:
+        if parent.work_order_id != wo.pk:
+            raise ValidationError("That operation belongs to another work order.")
+        if parent.depth + 1 > Operation.MAX_DEPTH:
+            raise _too_deep()
+    last = wo.operations.filter(parent=parent).aggregate(m=models.Max("position"))["m"] or 0
     op = Operation.objects.create(
-        work_order=wo, position=last + 10, name=name, description=description, machine=machine
+        work_order=wo,
+        parent=parent,
+        depth=parent.depth + 1 if parent else 0,
+        position=last + 10,
+        name=name,
+        description=description,
+        machine=machine,
     )
-    audit.record("operation.add", wo, summary=f"Added operation “{name}” to {wo.number}")
+    _roll_up(parent, None)
+    where = f" under “{parent.name}”" if parent else ""
+    audit.record("operation.add", wo, summary=f"Added operation “{name}”{where} to {wo.number}")
+    return op
+
+
+def parent_options(tree: list[Operation]) -> dict:
+    """For each operation in `tree`, the ones it could be moved under: not itself,
+    not one of its own sub-operations, and not so deep that its sub-operations
+    would pass the limit. Worked out from the tree, without more queries."""
+    kids: dict = {}
+    for o in tree:
+        kids.setdefault(o.parent_id, []).append(o)
+    out = {}
+    for op in tree:
+        below, stack = [], [op]
+        while stack:
+            for child in kids.get(stack.pop().pk, []):
+                below.append(child)
+                stack.append(child)
+        excluded = {op.pk, *(o.pk for o in below)}
+        room = Operation.MAX_DEPTH - _height(op, below) - 1
+        out[op.pk] = [o for o in tree if o.pk not in excluded and o.depth <= room]
+    return out
+
+
+@transaction.atomic
+def reparent_operation(op: Operation, parent: Operation | None, *, user=None) -> Operation:
+    """Move an operation, with its sub-operations, under another or to the top level."""
+    wo = op.work_order
+    _require_editable(wo)
+    if parent is not None and parent.work_order_id != wo.pk:
+        raise ValidationError("That operation belongs to another work order.")
+    if op.parent_id == (parent.pk if parent else None):
+        return op
+    below = _descendants(op)
+    if parent is not None and parent.pk in {op.pk, *(o.pk for o in below)}:
+        raise ValidationError("An operation cannot go under itself or its own sub-operations.")
+    new_depth = parent.depth + 1 if parent else 0
+    if new_depth + _height(op, below) > Operation.MAX_DEPTH:
+        raise _too_deep()
+    old_parent, shift = op.parent, new_depth - op.depth
+    last = wo.operations.filter(parent=parent).aggregate(m=models.Max("position"))["m"] or 0
+    op.parent, op.depth, op.position = parent, new_depth, last + 10
+    op.save(update_fields=["parent", "depth", "position"])
+    for o in below:
+        o.depth += shift
+        o.save(update_fields=["depth"])
+    _roll_up(old_parent, user)
+    _roll_up(parent, user)
+    where = f"under “{parent.name}”" if parent else "to the top level"
+    audit.record("operation.move", wo, summary=f"{wo.number}: moved “{op.name}” {where}")
     return op
 
 
@@ -167,22 +322,28 @@ def update_operation(op: Operation, *, name: str, description: str = "", machine
 
 @transaction.atomic
 def delete_operation(op: Operation) -> int:
-    """Remove an operation. Time logged against it stays on the work order."""
+    """Remove an operation and its sub-operations. Time logged against them
+    stays on the work order; returns how many time entries that is."""
     wo = op.work_order
     _require_editable(wo)
-    detached = op.time_entries.count()
-    name = op.name
+    below = _descendants(op)
+    detached = sum(o.time_entries.count() for o in [op, *below])
+    name, parent = op.name, op.parent
     op.delete()
-    audit.record("operation.delete", wo, summary=f"{wo.number}: deleted operation “{name}”")
+    _roll_up(parent, None)
+    extra = f" and {len(below)} sub-operation{'s' if len(below) != 1 else ''}" if below else ""
+    audit.record("operation.delete", wo, summary=f"{wo.number}: deleted operation “{name}”{extra}")
     return detached
 
 
 @transaction.atomic
 def move_operation(op: Operation, direction: int) -> None:
-    """Swap an operation with its neighbor above (-1) or below (+1)."""
+    """Swap an operation with its neighbor above (-1) or below (+1) among its siblings."""
     wo = op.work_order
     _require_editable(wo)
-    ops = list(wo.operations.select_for_update().order_by("position", "id"))
+    ops = list(
+        wo.operations.select_for_update().filter(parent_id=op.parent_id).order_by("position", "id")
+    )
     i = next(n for n, o in enumerate(ops) if o.pk == op.pk)
     j = i + direction
     if not 0 <= j < len(ops):

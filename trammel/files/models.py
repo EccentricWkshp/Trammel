@@ -42,9 +42,82 @@ class Blob(models.Model):
         return self.kind in ("image", "pdf", "svg")
 
 
+class DocumentType(BaseModel):
+    """What a file is for: a customer sketch, a laser file, a receipt.
+
+    Types are the shop's own list. The defaults are created once (files/seed.py)
+    and are then the admin's to rename, reorder or switch off.
+    """
+
+    name = models.CharField(max_length=80)
+    #: Stable key for the defaults, so seeding never adds a second copy.
+    slug = models.SlugField(max_length=40, editable=False)
+    description = models.CharField(max_length=200, blank=True)
+    extensions = models.CharField(
+        max_length=200,
+        blank=True,
+        help_text="File extensions that suggest this type on upload, comma-separated "
+        "(for example: dxf, svg, lbrn2).",
+    )
+    show_on_traveler = models.BooleanField(
+        "show on travelers",
+        default=False,
+        help_text="List files of this type on printed work order travelers.",
+    )
+    position = models.PositiveSmallIntegerField(
+        default=100, help_text="Lower numbers are listed first."
+    )
+    is_active = models.BooleanField(
+        "in use", default=True, help_text="Switched off, it is no longer offered for new files."
+    )
+
+    class Meta:
+        ordering = ["position", "name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["slug"], condition=models.Q(deleted_at=None), name="document_type_slug"
+            ),
+            models.UniqueConstraint(
+                models.functions.Lower("name"),
+                condition=models.Q(deleted_at=None),
+                name="document_type_name",
+                violation_error_message="There is already a type with this name.",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return self.name
+
+    def get_absolute_url(self) -> str:
+        from django.urls import reverse
+
+        return reverse("files:type_edit", args=[self.pk])
+
+    def extension_list(self) -> list[str]:
+        return [e.strip().lstrip(".").lower() for e in self.extensions.split(",") if e.strip()]
+
+    @classmethod
+    def suggest(cls, filename: str) -> DocumentType | None:
+        """The first type in use whose extensions include the file's."""
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+        if not ext:
+            return None
+        return next(
+            (t for t in cls.objects.filter(is_active=True) if ext in t.extension_list()), None
+        )
+
+
 class Document(BaseModel):
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
+    doc_type = models.ForeignKey(
+        DocumentType,
+        verbose_name="type",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="documents",
+    )
     current = models.ForeignKey(
         "DocumentRevision", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )

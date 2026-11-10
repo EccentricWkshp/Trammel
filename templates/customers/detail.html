@@ -5,7 +5,7 @@
 <header class="record-header">
   <div class="record-title">
     <p class="breadcrumb"><a href="{% url 'customers:list' %}">Customers</a></p>
-    <h1>{{ customer.name }}{% if customer.is_placeholder %} <span class="badge">placeholder</span>{% endif %}{% if customer.tax_exempt %} <span class="badge">tax exempt</span>{% endif %}</h1>
+    <h1>{{ customer.name }}{% if customer.is_placeholder %} <span class="badge">placeholder</span>{% endif %}{% if customer.is_internal %} <span class="badge">internal</span>{% endif %}{% if customer.tax_exempt %} <span class="badge">tax exempt</span>{% endif %}</h1>
     <dl class="facts-inline">
       {% if customer.company and customer.company != customer.name %}<div><dt>Company</dt><dd>{{ customer.company }}</dd></div>{% endif %}
       {% if customer.email %}<div><dt>Email</dt><dd><a href="mailto:{{ customer.email }}">{{ customer.email }}</a></dd></div>{% endif %}

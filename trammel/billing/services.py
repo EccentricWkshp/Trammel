@@ -45,6 +45,8 @@ on_payment: list[Callable] = []
 
 @transaction.atomic
 def create(customer, *, kind: str = Invoice.Kind.FINAL, job=None, **fields) -> Invoice:
+    if customer.is_internal:
+        raise ValidationError("Internal shop work is not invoiced.")
     business = BusinessProfile.load()
     invoice = Invoice(
         customer=customer,
@@ -706,9 +708,9 @@ def write_off(
 @transaction.atomic
 def create_deposit_invoice(revision, approval=None) -> Invoice | None:
     amount = revision.deposit_amount
-    if not amount:
-        return None
     job = revision.quote.job
+    if not amount or job.customer.is_internal:
+        return None
     invoice = create(job.customer, kind=Invoice.Kind.DEPOSIT, job=job, source_revision=revision)
     label = (
         f"{revision.deposit_value.normalize():f}% deposit"

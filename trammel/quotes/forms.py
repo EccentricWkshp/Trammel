@@ -143,9 +143,96 @@ class _LineForm(ManualPriceFields):
 
 
 class ProductLineForm(_LineForm):
-    product = forms.ModelChoiceField(Product.objects.filter(is_active=True))
+    product = forms.ModelChoiceField(
+        Product.objects.filter(is_active=True), required=False, empty_label="Choose a product"
+    )
+    # A product not in the catalog yet, added to it with the line. The view
+    # removes these for anyone who may not edit the catalog.
+    new_name = forms.CharField(label="Name", max_length=200, required=False)
+    new_sku = forms.CharField(label="SKU", max_length=64, required=False)
+    new_kind = forms.ChoiceField(
+        label="Kind", choices=Product.Kind.choices, initial="made", required=False
+    )
+    new_price = MoneyInput(
+        label="Price", max_digits=12, decimal_places=2, min_value=0, required=False
+    )
+    new_cost = MoneyInput(
+        label="Cost",
+        max_digits=14,
+        decimal_places=4,
+        min_value=0,
+        required=False,
+        help_text="What one unit costs you, for margins.",
+    )
+    new_unit = forms.ChoiceField(
+        label="Unit", choices=units.UNIT_CHOICES, initial="each", required=False
+    )
+    new_tax_category = forms.ModelChoiceField(
+        TaxCategory.objects.all(),
+        label="Tax category",
+        required=False,
+        help_text="Leave blank for the default category.",
+    )
     quantity = _qty()
     description = forms.CharField(required=False, help_text="Leave blank for the product name.")
+
+    NEW_FIELDS = (
+        "new_name",
+        "new_sku",
+        "new_kind",
+        "new_price",
+        "new_cost",
+        "new_unit",
+        "new_tax_category",
+    )
+
+    def drop_new_product(self) -> None:
+        for name in self.NEW_FIELDS:
+            self.fields.pop(name, None)
+
+    @property
+    def offers_new_product(self) -> bool:
+        return "new_name" in self.fields
+
+    @property
+    def new_product_fields(self):
+        return [self[name] for name in self.NEW_FIELDS if name in self.fields]
+
+    @property
+    def new_product_open(self) -> bool:
+        return bool(self.data.get("new_name")) or any(f.errors for f in self.new_product_fields)
+
+    @property
+    def wants_new_product(self) -> bool:
+        return self.offers_new_product and not self.cleaned_data.get("product")
+
+    def clean(self):
+        data = super().clean()
+        if data.get("product"):
+            if data.get("new_name"):
+                raise forms.ValidationError(
+                    "Choose a product from the catalog or add a new one, not both."
+                )
+        elif not self.offers_new_product:
+            self.add_error("product", "Choose a product.")
+        elif not data.get("new_name"):
+            raise forms.ValidationError("Choose a product, or add a new one below.")
+        elif data.get("new_price") is None:
+            self.add_error("new_price", "A new product needs a price.")
+        return data
+
+    def new_product(self) -> dict:
+        """The new product's fields, for catalog.services.create_product."""
+        d = self.cleaned_data
+        return {
+            "name": d["new_name"],
+            "sku": d["new_sku"],
+            "kind": d["new_kind"] or Product.Kind.MADE,
+            "price": d["new_price"],
+            "cost": d["new_cost"] or ZERO,
+            "unit": d["new_unit"] or "each",
+            "tax_category": d["new_tax_category"],
+        }
 
     def make(self, revision, line=None):
         d = self.cleaned_data
@@ -307,3 +394,48 @@ class QuoteSettingsForm(forms.ModelForm):
     class Meta:
         model = QuoteSettings
         fields = ["validity_days"]
+
+
+# ---------------------------------------------------------------------------
+# Starting a quote from the quotes page
+# ---------------------------------------------------------------------------
+
+
+class QuoteForJobForm(forms.Form):
+    """A quote for a job that already exists."""
+
+    job = forms.ModelChoiceField(queryset=None, empty_label="Choose a job")
+    title = forms.CharField(
+        label="Quote title",
+        max_length=200,
+        required=False,
+        help_text="Leave blank to use the job's title.",
+    )
+
+    def __init__(self, *args, jobs, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["job"].queryset = jobs
+        self.fields["job"].label_from_instance = lambda j: (
+            f"{j.number} {j.title} — {j.customer.name}"
+        )
+
+
+class QuoteWithNewJobForm(forms.Form):
+    """A new job and its first quote, in one step."""
+
+    title = forms.CharField(label="Job title", max_length=200)
+    customer = forms.ModelChoiceField(
+        queryset=None,
+        required=False,
+        empty_label="Walk-in / not known yet",
+        help_text="A walk-in placeholder can be replaced with the real customer later.",
+    )
+    due_date = forms.DateField(label="Due", required=False, widget=DATE)
+
+    def __init__(self, *args, **kwargs):
+        from trammel.customers.models import Customer
+
+        super().__init__(*args, **kwargs)
+        self.fields["customer"].queryset = Customer.objects.filter(
+            is_placeholder=False, is_internal=False
+        ).order_by("name")

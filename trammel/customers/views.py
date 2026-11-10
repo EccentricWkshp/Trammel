@@ -81,7 +81,7 @@ def customer_detail(request, pk):
             "terms": customer.effective_payment_terms(request.business),
             "can_edit": access.has_perm(request.actor, "customers.edit", customer),
             "can_delete": access.has_perm(request.actor, "customers.delete", customer)
-            and not customer.is_placeholder,
+            and not (customer.is_placeholder or customer.is_internal),
             **panels.tabbed(
                 request, panels.for_object(request, customer), last=(("files", "Files"),)
             ),

@@ -1,0 +1,14 @@
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Job</th><th scope="col">Customer</th><th scope="col">Due</th><th scope="col">Status</th></tr></thead>
+  <tbody>
+  {% for job, flags in section.rows %}
+    <tr>
+      <td><a href="{{ job.get_absolute_url }}"><strong>{{ job.number }}</strong></a> {{ job.title }} {% include "jobs/_priority.html" %}</td>
+      <td>{{ job.customer.name }}</td>
+      <td>{{ job.due_date|d|default:"—" }}</td>
+      <td><span class="status status-{{ job.status }}">{{ job.get_status_display }}</span>{% if job.status == "on_hold" and job.held_from %} <span class="muted small">from {{ job.held_from_label|lower }}</span>{% endif %}
+        {% for level, message in flags %}<span class="flag flag-{{ level }}">{{ message }}</span>{% endfor %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>

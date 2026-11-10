@@ -1,0 +1,14 @@
+{% extends "settings_base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block settings_content %}
+<p class="breadcrumb"><a href="{% url 'files:types' %}">Document types</a></p>
+<h1>{{ title }}</h1>
+<form method="post" class="stack" novalidate>
+  {% csrf_token %}
+  {% include "partials/form_body.html" %}
+  <div class="actions">
+    <button type="submit" class="primary">Save</button>
+    <a href="{% url 'files:types' %}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

@@ -14,7 +14,20 @@
       {% for value, label in statuses %}<option value="{{ value }}"{% if status == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
     </select>
   </label>
+  <label>Priority
+    <select name="priority">
+      <option value="">Any</option>
+      <option value="high"{% if priority == "high" %} selected{% endif %}>High or rush</option>
+      {% for value, label in priorities %}<option value="{{ value }}"{% if priority == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </label>
   <label>Tag <input type="text" name="tag" value="{{ tag }}"></label>
+  <label>Sort by
+    <select name="sort">
+      <option value="">Due date</option>
+      <option value="priority"{% if sort == "priority" %} selected{% endif %}>Priority, then due date</option>
+    </select>
+  </label>
   <button type="submit">Filter</button>
   <a href="{% url 'jobs:csv' %}?{{ query }}">Export CSV</a>
 </form>
@@ -25,8 +38,9 @@
   {% for job, flags in rows %}
     <tr>
       <td><a href="{{ job.get_absolute_url }}"><strong>{{ job.number }}</strong></a> {{ job.title }}
+        {% include "jobs/_priority.html" %}
         {% for t in job.tags %}<span class="badge">{{ t }}</span>{% endfor %}</td>
-      <td>{{ job.customer.name }}{% if job.customer.is_placeholder %} <span class="badge">placeholder</span>{% endif %}</td>
+      <td>{{ job.customer.name }}{% if job.customer.is_placeholder %} <span class="badge">placeholder</span>{% endif %}{% if job.customer.is_internal %} <span class="badge">internal</span>{% endif %}</td>
       <td><span class="status status-{{ job.status }}">{{ job.get_status_display }}</span>{% if job.force_closed_at %} <span class="badge warn">force-closed</span>{% endif %}</td>
       <td>{{ job.due_date|d|default:"—" }}</td>
       <td>{% for level, message in flags %}<span class="flag flag-{{ level }}">{{ message }}</span>{% endfor %}</td>

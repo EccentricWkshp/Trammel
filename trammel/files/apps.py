@@ -1,4 +1,4 @@
-from trammel.core.modules import ModuleConfig, ModuleManifest, Permission
+from trammel.core.modules import MenuEntry, ModuleConfig, ModuleManifest, Permission
 
 
 class FilesConfig(ModuleConfig):
@@ -17,5 +17,8 @@ class FilesConfig(ModuleConfig):
         permissions=(
             Permission("files.view", "View and download files", read=True, portal=True),
             Permission("files.upload", "Upload, attach and detach files"),
+            Permission("files.manage_types", "Manage document types"),
         ),
+        menu=(MenuEntry("Document types", "files:types", "files.manage_types", "admin", 32),),
+        seed="trammel.files.seed.seed",
     )

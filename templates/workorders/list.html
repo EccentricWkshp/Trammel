@@ -1,7 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Work orders{% endblock %}
 {% block content %}
-<h1>Work orders</h1>
+<div class="heading-row">
+  <h1>Work orders</h1>
+  {% if perms.workorders.create %}<a class="button" href="{% url 'workorders:new' %}">New work order</a>{% endif %}
+</div>
 <form method="get" class="filters">
   <label>Status
     <select name="status">

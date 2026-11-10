@@ -19,7 +19,7 @@
       <td><a href="{{ c.get_absolute_url }}">{{ c.name }}</a>{% if c.company and c.company != c.name %}<br><span class="muted">{{ c.company }}</span>{% endif %}</td>
       <td>{{ c.email }}</td>
       <td>{{ c.phone }}</td>
-      <td>{% if c.is_placeholder %}<span class="badge">placeholder</span>{% endif %}{% if c.tax_exempt %}<span class="badge">tax exempt</span>{% endif %}</td>
+      <td>{% if c.is_placeholder %}<span class="badge">placeholder</span>{% endif %}{% if c.is_internal %}<span class="badge">internal</span>{% endif %}{% if c.tax_exempt %}<span class="badge">tax exempt</span>{% endif %}</td>
     </tr>
   {% empty %}
     <tr><td colspan="4" class="muted">{% if q %}No customers match “{{ q }}”.{% else %}No customers yet.{% endif %}</td></tr>

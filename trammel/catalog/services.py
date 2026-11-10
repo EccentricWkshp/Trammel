@@ -10,6 +10,12 @@ from trammel.core.services import save_audited
 from .models import Product
 
 
+def create_product(**fields) -> Product:
+    """A new catalog product, validated and audited (from a quote line, say)."""
+    fields["price"] = round_money(fields.get("price") or Decimal("0"))
+    return save_audited(Product(**fields))
+
+
 def save_adhoc(
     *,
     description: str,

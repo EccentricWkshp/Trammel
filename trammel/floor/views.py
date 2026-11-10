@@ -12,6 +12,7 @@ from django.views.decorators.cache import cache_control
 
 from trammel.core import access
 from trammel.core.web import permission_required
+from trammel.workorders import services as wo_services
 from trammel.workorders.models import WorkOrder
 from trammel.workorders.views import MaterialUseForm
 
@@ -78,7 +79,7 @@ def work_order(request, pk):
         {
             "wo": wo,
             "job": wo.job,
-            "operations": wo.operations.select_related("machine"),
+            "operations": wo_services.operation_tree(wo),
             "actions": [
                 t
                 for t in WorkOrder.lifecycle.available(wo, request.actor)

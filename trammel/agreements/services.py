@@ -146,7 +146,7 @@ def accepted(job) -> CustomerAgreement | None:
 
 def satisfied(job) -> bool:
     """Work may start: accepted, waived, or not required (FR-AGR-4)."""
-    if not AgreementSettings.load().required:
+    if job.customer.is_internal or not AgreementSettings.load().required:
         return True
     return accepted(job) is not None or AgreementWaiver.objects.filter(job=job).exists()
 

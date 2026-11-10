@@ -432,7 +432,7 @@ class Builder:
         self.say("6 customers with addresses and contacts")
 
     # ------------------------------------------------------------------
-    def _job(self, customer, title, scope, *, due, promised=None, tags=()):
+    def _job(self, customer, title, scope, *, due, promised=None, tags=(), priority=1):
         from trammel.jobs import services as jobs
         from trammel.jobs.models import Job
 
@@ -446,6 +446,7 @@ class Builder:
                 due_date=today + dt.timedelta(days=due),
                 promised_date=today + dt.timedelta(days=promised) if promised is not None else None,
                 target_completion=today + dt.timedelta(days=due - 2),
+                priority=priority,
             )
         )
 
@@ -600,6 +601,7 @@ class Builder:
             due=14,
             promised=14,
             tags=["laser", "3d-print"],
+            priority=2,
         )
         rev = self._quote(
             j,
@@ -637,6 +639,7 @@ class Builder:
             due=4,
             promised=6,
             tags=["furniture"],
+            priority=3,
         )
         rev = self._quote(
             j,
@@ -758,9 +761,31 @@ class Builder:
             send=False,
         )
         jobs.transition(j, "on_hold", actor=self.admin, reason="Waiting on final logo artwork")
+
+        # 8. Internal: a shop improvement, no quote or invoice, with sub-operations.
+        from trammel.customers.models import Customer
+
+        j = self._job(
+            Customer.internal(),
+            "Outfeed table for the table saw",
+            "Mobile outfeed table at saw height, with storage for jigs underneath.",
+            due=20,
+            tags=["shop"],
+            priority=0,
+        )
+        jobs.transition(j, "approved", actor=self.admin)
+        wo = wos.create(j, title="Build the outfeed table")
+        case = wos.add_operation(wo, name="Case")
+        cut = wos.add_operation(wo, name="Cut the plywood panels", parent=case)
+        wos.add_operation(wo, name="Assemble and square the case", parent=case)
+        top = wos.add_operation(wo, name="Top")
+        wos.add_operation(wo, name="Laminate the top", parent=top)
+        wos.add_operation(wo, name="Rout the miter slots", parent=top)
+        wos.add_operation(wo, name="Casters and finish")
+        wos.set_operation(cut, "done", user=self.hand)
         self.say(
-            "7 jobs across the lifecycle, with quotes, work orders, time, materials, "
-            "deposits and invoices"
+            "8 jobs across the lifecycle, with quotes, work orders, time, materials, "
+            "deposits and invoices, and one internal shop job"
         )
 
     def direct_sale(self):

@@ -13,7 +13,7 @@ from django.http import Http404
 from ninja import NinjaAPI, Schema
 from ninja.throttling import AnonRateThrottle, AuthRateThrottle
 
-from trammel.core import access
+from trammel.core import access, units
 from trammel.core.lifecycle import TransitionError
 from trammel.core.navigation import mount_api_routers
 
@@ -50,6 +50,11 @@ def _transition(request, exc):
 def _invalid(request, exc):
     detail = exc.message_dict if hasattr(exc, "error_dict") else exc.messages
     return api.create_response(request, {"detail": detail}, status=422)
+
+
+@api.exception_handler(units.IncompatibleUnits)
+def _units(request, exc):
+    return api.create_response(request, {"detail": {"unit": [str(exc)]}}, status=422)
 
 
 class MeOut(Schema):

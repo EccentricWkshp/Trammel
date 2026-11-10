@@ -2,8 +2,11 @@
 {% load trammel %}
 {% block title %}Quotes{% endblock %}
 {% block content %}
-<h1>Quotes</h1>
-<p class="lede">Quotes are created from a job. Each row is the latest revision of a quote.</p>
+<div class="heading-row">
+  <h1>Quotes</h1>
+  {% if perms.quotes.create %}<a class="button" href="{% url 'quotes:new' %}">New quote</a>{% endif %}
+</div>
+<p class="lede">Each row is the latest revision of a quote. Every quote belongs to a job.</p>
 <form method="get" class="filters" role="search">
   <label>Search <input type="search" name="q" value="{{ q }}" placeholder="Number, title or customer"></label>
   <label>Status

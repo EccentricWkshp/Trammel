@@ -54,6 +54,7 @@ class CustomerOut(ModelSchema):
             "tax_exempt_number",
             "tax_exempt_expires",
             "is_placeholder",
+            "is_internal",
             "created_at",
             "updated_at",
         ]

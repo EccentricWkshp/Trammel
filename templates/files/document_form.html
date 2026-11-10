@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Edit {{ document }}{% endblock %}
+{% block main_class %}page narrow{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{{ back }}">Back</a></p>
+<h1>Edit {{ document }}</h1>
+{% if document.current %}<p class="muted">{{ document.current.original_name }} · revision {{ document.current.number }}</p>{% endif %}
+<form method="post" class="stack" novalidate>
+  {% csrf_token %}
+  <input type="hidden" name="next" value="{{ back }}">
+  {% include "partials/form_body.html" %}
+  <div class="actions">
+    <button type="submit" class="primary">Save</button>
+    <a href="{{ back }}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

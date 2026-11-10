@@ -1,0 +1,14 @@
+{% load trammel %}
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Invoice</th><th scope="col">Customer</th><th scope="col">Due</th><th scope="col" class="num">Balance</th></tr></thead>
+  <tbody>
+  {% for i in section.rows %}
+    <tr>
+      <td><a href="{{ i.get_absolute_url }}">{{ i }}</a> <span class="muted">{{ i.get_kind_display }}</span></td>
+      <td>{{ i.customer.name }}</td>
+      <td>{{ i.due_date|d|default:"—" }}{% if i.is_overdue %} <span class="flag flag-late">overdue</span>{% endif %}</td>
+      <td class="num">{% if i.status == "draft" %}{{ i.total|money }}{% else %}{{ i.balance|money }}{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>

@@ -27,11 +27,12 @@
 <h2>Operations</h2>
 <ol class="floor-ops">
 {% for op in operations %}
-  <li class="op-{{ op.status }}">
-    <span>{{ op.name }}{% if op.machine %} <span class="badge">{{ op.machine }}</span>{% endif %}</span>
+  <li class="op-{{ op.status }} op-depth-{{ op.depth }}">
+    <span><span class="op-number">{{ op.number }}</span> {{ op.name }}{% if op.machine %} <span class="badge">{{ op.machine }}</span>{% endif %}</span>
     {% if can_edit %}
     <form method="post" action="{% url 'workorders:op_set' wo.pk op.pk %}">{% csrf_token %}<input type="hidden" name="next" value="{{ next }}">
-      {% if op.status == "pending" %}<input type="hidden" name="state" value="done"><button type="submit" class="primary">Done</button>
+      {% if op.status == "pending" and op.has_children %}<span class="muted">Done when its steps are</span>
+      {% elif op.status == "pending" %}<input type="hidden" name="state" value="done"><button type="submit" class="primary">Done</button>
       {% else %}<input type="hidden" name="state" value="pending"><button type="submit">{{ op.get_status_display }} ↺</button>{% endif %}
     </form>
     {% else %}<span class="muted">{{ op.get_status_display }}</span>{% endif %}
