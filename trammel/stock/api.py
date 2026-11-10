@@ -246,3 +246,79 @@ def lot_action(request, lot_id: UUID, action: str, payload: LotActionIn):
         )
         return {"lot": str(lot.pk), "number": lot.number}
     raise Http404
+
+
+# ---------------------------------------------------------------------------
+# Bills of materials (FR-STK-6)
+# ---------------------------------------------------------------------------
+
+
+class BOMLineOut(Schema):
+    id: UUID
+    material: UUID
+    material_name: str
+    quantity: Decimal
+    unit: str
+    note: str
+    position: int
+
+    @staticmethod
+    def resolve_material(obj):
+        return obj.material_id
+
+    @staticmethod
+    def resolve_material_name(obj):
+        return str(obj.material)
+
+
+class BOMLineIn(Schema):
+    material: UUID
+    quantity: Decimal
+    unit: str = ""
+    note: str = ""
+
+
+def _product(request, perm, pk):
+    from trammel.catalog.models import Product
+
+    return access.get_or_404(request.actor, perm, Product.objects.all(), pk=pk)
+
+
+def _bom_line(request, line_id):
+    from .models import BOMLine
+
+    line = get_object_or_404(BOMLine.objects.select_related("product"), pk=line_id)
+    _product(request, "catalog.edit", line.product_id)
+    return line
+
+
+def _fill(line, payload: BOMLineIn):
+    line.material = get_object_or_404(Material, pk=payload.material)
+    line.quantity = payload.quantity
+    line.unit = payload.unit or line.material.unit
+    line.note = payload.note[:200]
+    return line
+
+
+@router.get("/products/{product_id}/bom", response=list[BOMLineOut])
+def list_bom(request, product_id: UUID):
+    return _product(request, "catalog.view", product_id).bom_lines.select_related("material")
+
+
+@router.post("/products/{product_id}/bom", response={201: BOMLineOut})
+def add_bom_line(request, product_id: UUID, payload: BOMLineIn):
+    from .models import BOMLine
+
+    product = _product(request, "catalog.edit", product_id)
+    return Status(201, services.save_bom_line(_fill(BOMLine(product=product), payload)))
+
+
+@router.put("/bom/{line_id}", response=BOMLineOut)
+def update_bom_line(request, line_id: UUID, payload: BOMLineIn):
+    return services.save_bom_line(_fill(_bom_line(request, line_id), payload))
+
+
+@router.delete("/bom/{line_id}", response={204: None})
+def delete_bom_line(request, line_id: UUID):
+    services.delete_bom_line(_bom_line(request, line_id))
+    return Status(204, None)

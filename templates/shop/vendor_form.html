@@ -2,7 +2,11 @@
 {% load files %}
 {% block title %}{{ title }}{% endblock %}
 {% block content %}
-<h1>{{ title }}</h1>
+<div class="heading-row">
+  <h1>{{ title }}{% if obj.pk and not obj.is_active %} <span class="badge">Archived</span>{% endif %}</h1>
+  {% if obj.pk %}<div class="actions">{% include "partials/archive_actions.html" %}</div>{% endif %}
+</div>
+{% if obj.pk %}{% include "partials/archived_note.html" %}{% endif %}
 <form method="post" class="stack" novalidate>
   {% csrf_token %}
   {% include "partials/form_body.html" %}

@@ -39,6 +39,7 @@
   </li>
 {% empty %}<li class="muted">No operations.</li>{% endfor %}
 </ol>
+{% include "workorders/_planned_prompt.html" %}
 
 {% if drawings %}
 <h2>Drawings and files</h2>

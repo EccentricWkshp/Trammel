@@ -1,0 +1,7 @@
+{% comment %}Archive / bring back, and Delete, for a record page's header.
+Needs: obj, archive_url; delete_url when the user may delete.{% endcomment %}
+<form method="post" action="{{ archive_url }}" class="inline">{% csrf_token %}
+  {% if obj.is_active %}<input type="hidden" name="archived" value="1"><button type="submit">Archive</button>
+  {% else %}<input type="hidden" name="archived" value="0"><button type="submit">Bring back</button>{% endif %}
+</form>
+{% if delete_url %}<a href="{{ delete_url }}">Delete</a>{% endif %}

@@ -85,19 +85,6 @@ def _repath_children(location: Location) -> None:
         _repath_children(child)
 
 
-@transaction.atomic
-def delete_location(location: Location) -> None:
-    if StockLot.objects.filter(location=location, qty_on_hand__gt=0).exists():
-        raise ValidationError(f"{location} still holds stock. Move it first.")
-    if Location.objects.filter(parent=location).exists():
-        raise ValidationError(f"{location} has locations inside it. Move or delete them first.")
-    if StockItem.objects.filter(default_location=location).exists():
-        raise ValidationError(f"{location} is the default location of some materials.")
-    from trammel.core.services import delete_audited
-
-    delete_audited(location)
-
-
 # ---------------------------------------------------------------------------
 # Tracking
 # ---------------------------------------------------------------------------
@@ -1083,6 +1070,54 @@ def save_bom_line(line) -> object:
         f"{line.quantity} {line.unit} {line.material}",
     )
     return line
+
+
+def bom_cost(product) -> tuple[list, Decimal]:
+    """The product's bill of materials, each line with its `cost` at current
+    material costs (None if its unit doesn't convert), and their total for one."""
+    lines = list(product.bom_lines.select_related("material"))
+    total = ZERO
+    for line in lines:
+        try:
+            line.cost = line.material.cost_per(line.unit) * line.quantity
+        except units.IncompatibleUnits:
+            line.cost = None
+        total += line.cost or ZERO
+    return lines, total.quantize(Q4)
+
+
+def bom_other_cost(product, materials: Decimal) -> tuple[Decimal, object]:
+    """What the product's cost holds besides its materials (labor, machine
+    time): as recorded when the cost was last set from the bill of materials,
+    else whatever the cost is above the materials now. Returns (other, costing)."""
+    from .models import ProductCosting
+
+    costing = ProductCosting.objects.filter(product=product).first()
+    if costing is not None:
+        return costing.other, costing
+    return max(product.cost - materials, ZERO), None
+
+
+@transaction.atomic
+def set_cost_from_bom(product, *, other: Decimal) -> Decimal:
+    """Set the product's cost to its materials at current cost plus `other`."""
+    from .models import ProductCosting
+
+    if other < 0:
+        raise ValidationError("Other costs can't be negative.")
+    _, materials = bom_cost(product)
+    before = audit.snapshot(product)
+    product.cost = materials + other
+    save_audited(
+        product,
+        before=before,
+        summary=f"Cost set from the bill of materials: {materials} materials + {other} other",
+    )
+    ProductCosting.objects.update_or_create(
+        product=product,
+        defaults={"materials": materials, "other": other, "set_at": timezone.now()},
+    )
+    return product.cost
 
 
 @transaction.atomic

@@ -32,6 +32,24 @@
 {% else %}
 <p class="muted">No materials listed yet.</p>
 {% endif %}
+{% if ctx.can_costs and ctx.lines %}
+<section class="card bom-cost" aria-labelledby="bom-cost-heading">
+  <h3 id="bom-cost-heading">The product's cost</h3>
+  {% if ctx.in_step %}
+  <p>{{ ctx.product.cost|money }}: its materials at {{ ctx.cost|money }} plus {{ ctx.other|money }} of other costs.</p>
+  {% else %}
+  <p class="callout warn">The product's cost is {{ ctx.product.cost|money }}, but its materials now cost {{ ctx.cost|money }}{% if ctx.other %} and its other costs are {{ ctx.other|money }}{% endif %}.</p>
+  {% endif %}
+  {% if ctx.costing %}<p class="muted small">Last set from the bill of materials on {{ ctx.costing.set_at|d }}: {{ ctx.costing.materials|money }} of materials plus {{ ctx.costing.other|money }} other.</p>{% endif %}
+  {% if ctx.can_edit %}
+  <form method="post" action="{% url 'stock:bom_cost' ctx.product.pk %}" class="filters">
+    {% csrf_token %}
+    <label>Other costs per one <span class="muted small">labor, machine time</span> <input type="text" inputmode="decimal" name="other" size="8" value="{{ ctx.other|floatformat:2 }}"></label>
+    <button type="submit"{% if not ctx.in_step %} class="primary"{% endif %}>Set the cost to materials plus other costs</button>
+  </form>
+  {% endif %}
+</section>
+{% endif %}
 {% if ctx.can_edit and not ctx.editing %}
 <form method="post" action="{% url 'stock:bom_add' ctx.product.pk %}" class="filters" aria-label="Add a material to the bill of materials">
   {% csrf_token %}

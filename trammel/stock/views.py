@@ -12,10 +12,12 @@ from django.db.models.functions import Coalesce
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
+from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme, urlencode
 from django.views.decorators.http import require_POST
 
-from trammel.core import access, audit, templating
+from trammel.core import access, archive, audit, templating
+from trammel.core.money import format_money
 from trammel.core.services import save_audited
 from trammel.core.web import (
     csv_response,
@@ -130,7 +132,7 @@ def stock_list(request):
             "can_costs": can_costs,
             "total_value": total or Decimal("0"),
             "can_manage": access.has_perm(actor, "stock.manage"),
-            "can_add_material": access.has_perm(actor, "shop.edit"),
+            "can_add_material": access.has_perm(actor, "shop.manage_materials"),
         },
     )
 
@@ -314,29 +316,36 @@ def location_detail(request, pk):
 
 
 @permission_required("stock.manage")
+@require_POST
+def location_archive(request, pk):
+    return archive.archive_view(request, get_object_or_404(Location, pk=pk))
+
+
+@permission_required("stock.manage")
+def location_delete(request, pk):
+    return archive.delete_view(
+        request,
+        get_object_or_404(Location, pk=pk),
+        archive_url=reverse("stock:location_archive", args=[pk]),
+        done_url=reverse("stock:locations"),
+    )
+
+
+@permission_required("stock.manage")
 def location_edit(request, pk=None):
     location = get_object_or_404(Location, pk=pk) if pk else Location()
     before = audit.snapshot(location) if pk else None
     initial = {"parent": request.GET.get("parent")} if not pk else None
     form = LocationForm(request.POST or None, instance=location, initial=initial)
-    if request.method == "POST":
-        if "delete" in request.POST and pk:
-            try:
-                services.delete_location(location)
-            except ValidationError as exc:
-                _errors(request, exc)
-                return redirect(location)
-            messages.success(request, f"Deleted {location}.")
-            return redirect("stock:locations")
-        if form.is_valid():
-            try:
-                location = services.save_location(form.save(commit=False), before=before)
-            except ValidationError as exc:
-                for field, errs in exc.message_dict.items():
-                    form.add_error(field if field in form.fields else None, errs)
-            else:
-                messages.success(request, f"{location} saved.")
-                return redirect(location)
+    if request.method == "POST" and form.is_valid():
+        try:
+            location = services.save_location(form.save(commit=False), before=before)
+        except ValidationError as exc:
+            for field, errs in exc.message_dict.items():
+                form.add_error(field if field in form.fields else None, errs)
+        else:
+            messages.success(request, f"{location} saved.")
+            return redirect(location)
     return render(
         request,
         "stock/location_form.html",
@@ -376,7 +385,7 @@ def lot_detail(request, pk):
 # ---------------------------------------------------------------------------
 
 
-@permission_required("shop.edit")
+@permission_required("shop.manage_materials")
 def add_material(request):
     """Add a material and, in the same form, keep it in stock: where it is kept,
     when to restock it, and what is on hand. Replaces the plain material form
@@ -952,6 +961,27 @@ def bom_edit(request, pk):
         _errors(request, exc)
         return redirect(f"{url}&edit={line.pk}")
     return redirect(url)
+
+
+@permission_required("catalog.edit")
+@require_POST
+def bom_cost(request, product_pk):
+    """Set the product's cost from its bill of materials plus other costs."""
+    from trammel.catalog.models import Product
+
+    access.require(request.actor, "core.see_costs")
+    product = access.get_or_404(request.actor, "catalog.edit", Product.objects.all(), pk=product_pk)
+    try:
+        try:
+            other = Decimal(request.POST.get("other", "").strip() or "0")
+        except ArithmeticError:
+            raise ValidationError("Enter the other costs as an amount.") from None
+        cost = services.set_cost_from_bom(product, other=other)
+    except ValidationError as exc:
+        _errors(request, exc)
+    else:
+        messages.success(request, f"{product}'s cost is now {format_money(cost)}.")
+    return redirect(f"{product.get_absolute_url()}?tab=bom")
 
 
 @permission_required("catalog.edit")

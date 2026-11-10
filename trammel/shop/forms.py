@@ -25,7 +25,6 @@ class MachineForm(forms.ModelForm):
             "name",
             "kind",
             "hourly_rate",
-            "is_active",
             "notes",
             "purchase_cost",
             "salvage_value",
@@ -45,7 +44,7 @@ class MachineForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields["hourly_rate"].label = "Hourly rate charged"
         for name in self.Meta.fields:
-            if name not in ("name", "kind", "is_active", "notes"):
+            if name not in ("name", "kind", "notes"):
                 self.fields[name].widget.attrs.update({"inputmode": "decimal", "data-rate": name})
         self.fields["kind"].widget.attrs["data-rate"] = "kind"
         parts = list(self.instance.wear_parts or [])
@@ -115,7 +114,6 @@ class MaterialForm(forms.ModelForm):
             "sheet_width",
             "sheet_length",
             "sheet_dimension_unit",
-            "is_active",
             "notes",
         ]
         widgets = {"notes": forms.Textarea(attrs={"rows": 3})}
@@ -194,7 +192,6 @@ class VendorForm(forms.ModelForm):
             "payment_terms",
             "lead_time_days",
             "address",
-            "is_active",
             "notes",
         ]
         widgets = {

@@ -3,6 +3,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 from django import forms
+from django.db.models import Q
 
 from trammel.catalog.models import Product
 from trammel.core import units
@@ -57,6 +58,12 @@ class RevisionForm(forms.ModelForm):
             "customer_notes": forms.Textarea(attrs={"rows": 3}),
             "internal_notes": forms.Textarea(attrs={"rows": 2}),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["template"].queryset = QuoteTemplate.objects.filter(
+            Q(is_active=True) | Q(pk=self.instance.template_id)
+        )
 
     def clean(self):
         data = super().clean()

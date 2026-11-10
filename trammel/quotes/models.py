@@ -34,6 +34,7 @@ class QuoteTemplate(BaseModel):
     name = models.CharField(max_length=100, unique=True)
     body = models.TextField()
     is_default = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
 
     class Meta:
         ordering = ["-is_default", "name"]
@@ -43,7 +44,7 @@ class QuoteTemplate(BaseModel):
 
     @classmethod
     def default(cls) -> QuoteTemplate | None:
-        return cls.objects.order_by("-is_default", "name").first()
+        return cls.objects.filter(is_active=True).order_by("-is_default", "name").first()
 
 
 class Quote(BaseModel):

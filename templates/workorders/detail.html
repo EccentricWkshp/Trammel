@@ -79,17 +79,7 @@
   {% endif %}
 
 {% elif tab == "materials" %}
-  {% if ready_to_record %}
-  <form method="post" action="{% url 'workorders:planned_use' wo.pk %}" class="card stack" aria-labelledby="planned-heading">
-    {% csrf_token %}
-    <h2 id="planned-heading">Record the planned materials?</h2>
-    <p class="muted">These operations are done. Record what was planned for them as used, or untick what was not.</p>
-    {% for p in ready_to_record %}
-    <label class="check"><input type="checkbox" name="planned" value="{{ p.pk }}" checked><span>{{ p.quantity|floatformat:"-4" }} {{ p.unit }} {{ p.description }} <span class="muted small">· {{ p.operation.name }}</span></span></label>
-    {% endfor %}
-    <div class="actions"><button type="submit" class="primary">Record as used</button></div>
-  </form>
-  {% endif %}
+  {% include "workorders/_planned_prompt.html" %}
   <div class="overview-grid">
     <div class="column">
     <section class="card">

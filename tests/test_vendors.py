@@ -71,7 +71,9 @@ def test_inactive_vendors_are_not_offered_for_new_materials(admin_client, vendor
 def test_vendor_api(admin, client):
     from trammel.accounts.models import ApiKey
 
-    _key, token = ApiKey.issue(admin, "t", ["shop.view", "shop.edit"])
+    _key, token = ApiKey.issue(
+        admin, "t", ["shop.view", "shop.manage_vendors", "shop.manage_materials"]
+    )
     headers = {"HTTP_AUTHORIZATION": f"Bearer {token}"}
     response = client.post(
         "/api/v1/shop/vendors",

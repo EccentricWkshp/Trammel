@@ -6,14 +6,16 @@ from django import forms
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
+from django.db.models import Q
 from django.http import Http404, HttpResponse
-from django.shortcuts import redirect, render
+from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from trammel.catalog import services as catalog
 from trammel.catalog.models import Product
-from trammel.core import access, audit, modules, panels, placeholders, templating, units
+from trammel.core import access, archive, audit, modules, panels, placeholders, templating, units
 from trammel.core.lifecycle import TransitionError
 from trammel.core.money import MoneyInput
 from trammel.core.services import save_audited
@@ -59,6 +61,9 @@ class InvoiceForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["ship_to"].queryset = self.instance.customer.addresses.all()
+        self.fields["template"].queryset = InvoiceTemplate.objects.filter(
+            Q(is_active=True) | Q(pk=self.instance.template_id)
+        )
 
 
 class LineForm(forms.Form):
@@ -629,5 +634,45 @@ def template_edit(request, pk=None):
             "back": "billing:templates",
             "back_label": "Invoice templates",
             **placeholders.editor_context("invoice"),
+            **(
+                {
+                    "obj": obj,
+                    "archive_url": reverse("billing:template_archive", args=[pk]),
+                    "delete_url": reverse("billing:template_delete", args=[pk]),
+                }
+                if pk
+                else {}
+            ),
         },
+    )
+
+
+def _template_refusal(template) -> str:
+    if template.is_default:
+        return "This is the default template. Make another template the default first."
+    return ""
+
+
+@permission_required("billing.manage_templates")
+@require_POST
+def template_archive(request, pk):
+    template = get_object_or_404(InvoiceTemplate, pk=pk)
+    return archive.archive_view(
+        request,
+        template,
+        back=reverse("billing:template_edit", args=[pk]),
+        refuse=_template_refusal(template),
+    )
+
+
+@permission_required("billing.manage_templates")
+def template_delete(request, pk):
+    template = get_object_or_404(InvoiceTemplate, pk=pk)
+    return archive.delete_view(
+        request,
+        template,
+        archive_url=reverse("billing:template_archive", args=[pk]),
+        done_url=reverse("billing:templates"),
+        back=reverse("billing:template_edit", args=[pk]),
+        refuse=_template_refusal(template),
     )

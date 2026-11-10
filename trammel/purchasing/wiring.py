@@ -6,7 +6,7 @@ from django.db.models import F
 from django.urls import reverse
 from django.utils import timezone
 
-from trammel.core import access, agenda, dashboard, panels, report_cards
+from trammel.core import access, agenda, dashboard, modules, panels, report_cards, search
 from trammel.stock import hooks as stock_hooks
 
 from . import services
@@ -123,6 +123,25 @@ def deliveries(request, start, end):
             )
         )
     return out
+
+
+@search.register("Purchase orders")
+def purchase_orders(actor, term):
+    if not (modules.is_enabled("purchasing") and access.has_perm(actor, "purchasing.view")):
+        return
+    qs = search.matching(
+        PurchaseOrder.objects.select_related("vendor"),
+        term,
+        ("number", "vendor_reference", "vendor__name"),
+        ("notes",),
+    )
+    for po in qs.order_by("-created_at")[:10]:
+        yield search.Hit(
+            "Purchase order",
+            f"{po.number or 'Draft'} {po.vendor}",
+            po.get_absolute_url(),
+            po.get_status_display(),
+        )
 
 
 for title, description, url_name, order in (

@@ -27,4 +27,6 @@ urlpatterns = [
     path("vendors/", views.vendor_list, name="vendors"),
     path("vendors/new/", views.edit, {"kind": "vendor"}, name="vendor_create"),
     path("vendors/<uuid:pk>/", views.edit, {"kind": "vendor"}, name="vendor_edit"),
+    path("<str:kind>/<uuid:pk>/archive/", views.archive_record, name="archive"),
+    path("<str:kind>/<uuid:pk>/delete/", views.delete_record, name="delete"),
 ]

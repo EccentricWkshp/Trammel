@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load files %}
+{% load files trammel %}
 {% block title %}{% if product %}{{ product }}{% else %}New product{% endif %}{% endblock %}
 {% block main_class %}{% if product %}page{% else %}page narrow{% endif %}{% endblock %}
 {% block content %}
@@ -18,25 +18,35 @@
     <h1>{{ product }}</h1>
     <p class="status-line">{{ product.get_kind_display }}{% if not product.is_active %} <span class="badge">Archived</span>{% endif %}</p>
   </div>
+  {% if can_edit %}
   <div class="actions">
-    <form method="post" action="{% url 'catalog:archive' product.pk %}" class="inline">{% csrf_token %}
-      {% if product.is_active %}<input type="hidden" name="archived" value="1"><button type="submit">Archive</button>
-      {% else %}<input type="hidden" name="archived" value="0"><button type="submit">Restore to the catalog</button>{% endif %}
-    </form>
-    {% if can_delete %}<a href="{% url 'catalog:delete' product.pk %}">Delete</a>{% endif %}
+    {% url 'catalog:archive' product.pk as archive_url %}{% url 'catalog:delete' product.pk as delete_url %}
+    {% include "partials/archive_actions.html" with obj=product %}
   </div>
+  {% endif %}
 </header>
 
 {% include "partials/tabs.html" %}
 
 <div class="tab-body">
 {% if tab == "details" %}
-  {% if not product.is_active %}<aside class="callout">Archived: it stays on the quotes and invoices it is already on, but can't be picked for new ones.</aside>{% endif %}
+  {% include "partials/archived_note.html" with obj=product %}
+  {% if form %}
   <form method="post" action="{{ product.get_absolute_url }}" class="stack form-narrow" novalidate>
     {% csrf_token %}
     {% include "partials/form_body.html" %}
     <div class="actions"><button type="submit" class="primary">Save</button> <a href="{% url 'catalog:list' %}">Cancel</a></div>
   </form>
+  {% else %}
+  <dl class="facts form-narrow">
+    <dt>SKU</dt><dd>{{ product.sku|default:"—" }}</dd>
+    <dt>Type</dt><dd>{{ product.get_kind_display }}</dd>
+    <dt>Price</dt><dd>{{ product.price|money }} / {{ product.get_unit_display }}</dd>
+    {% if can_costs %}<dt>Cost</dt><dd>{{ product.cost|money }}</dd>{% endif %}
+    <dt>Tax category</dt><dd>{{ product.tax_category|default:"Default" }}</dd>
+    {% if product.description %}<dt>Description</dt><dd class="prewrap">{{ product.description }}</dd>{% endif %}
+  </dl>
+  {% endif %}
 {% elif tab == "files" %}
   {% attachments product "Images and files" %}
 {% else %}

@@ -12,6 +12,7 @@ from django.views.decorators.cache import cache_control
 
 from trammel.core import access
 from trammel.core.web import permission_required
+from trammel.workorders import hooks as wo_hooks
 from trammel.workorders import services as wo_services
 from trammel.workorders.models import WorkOrder
 from trammel.workorders.views import MaterialUseForm
@@ -76,6 +77,7 @@ def work_order(request, pk):
     from trammel.timetracking.models import TimeEntry
 
     here = request.get_full_path()
+    can_edit = access.has_perm(request.actor, "workorders.edit", wo) and wo.is_editable
     # Stock pages offer this work order first for “Use on work order”.
     request.session["floor_work_order"] = str(wo.pk)
     return render(
@@ -103,7 +105,11 @@ def work_order(request, pk):
             "drawings": [*attachments_for(wo.job), *attachments_for(wo)],
             "notes": wo.notes.select_related("author", "document")[:20],
             "material_form": MaterialUseForm(),
-            "can_edit": access.has_perm(request.actor, "workorders.edit", wo) and wo.is_editable,
+            "can_edit": can_edit,
+            # Operations done here: offer to record their planned materials.
+            "ready_to_record": list(wo_services.ready_to_record(wo))
+            if can_edit and wo_hooks.planned_use_mode() != "off"
+            else [],
             "can_track": access.has_perm(request.actor, "time.track", wo) and wo.is_active,
             "next": here,
         },

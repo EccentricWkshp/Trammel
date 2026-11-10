@@ -1,11 +1,15 @@
-from django.db.models import Case, F, IntegerField, Value, When
+from django.db.models import Case, Count, F, IntegerField, Q, Value, When
 from django.urls import reverse
 
 from trammel.core import access, dashboard, panels
 from trammel.core.access import SYSTEM
 from trammel.jobs import hooks
 
+from . import hooks as hooks_wo
 from .models import ACTIVE, ChangeOrder, Status, WorkOrder
+from .models import Operation as _Op
+
+OpStatus = _Op.State
 
 
 @hooks.check("completed")
@@ -114,4 +118,35 @@ def active_work_orders(request):
         total=qs.count() if len(rows) == dashboard.LIMIT else None,
         more_url=reverse("workorders:list"),
         empty="No open work orders.",
+    )
+
+
+@dashboard.register(
+    "workorders.to_record",
+    "Materials waiting to be recorded",
+    order=45,
+    permission="workorders.edit",
+    description="Work orders with operations done whose planned materials aren't recorded yet.",
+)
+def materials_to_record(request):
+    if hooks_wo.planned_use_mode() == "off":
+        return None
+    waiting = Q(
+        planned_materials__used_at__isnull=True,
+        planned_materials__operation__status=OpStatus.DONE,
+        planned_materials__material__isnull=False,
+        planned_materials__quantity__isnull=False,
+    )
+    qs = (
+        access.scoped(request.actor, "workorders.edit", WorkOrder.objects.filter(status__in=ACTIVE))
+        .annotate(waiting=Count("planned_materials", filter=waiting))
+        .filter(waiting__gt=0)
+    )
+    rows = list(qs.select_related("job__customer").order_by("number")[: dashboard.LIMIT])
+    return dashboard.Section(
+        template="workorders/_home_to_record.html",
+        rows=rows,
+        total=qs.count() if len(rows) == dashboard.LIMIT else None,
+        more_url=reverse("workorders:list"),
+        empty="Every done operation's materials are recorded.",
     )

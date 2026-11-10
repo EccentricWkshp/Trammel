@@ -147,9 +147,36 @@ def test_api_flow_and_every_get_endpoint(api):
         expect=201,
     )
     assert received["value"] == "162.00" and received["lot"] is None
+    # A late freight bill once everything is here.
+    change = api(
+        "POST",
+        f"/purchasing/orders/{po['id']}/adjustments",
+        {"amount": "8.00", "reason": "Freight bill"},
+        expect=201,
+    )
+    assert change["amount"] == "8.00"
+
+    # A product with a bill of materials, edited, then archived.
+    product = api("POST", "/catalog/", {"name": "Serving board", "price": "60"}, expect=201)
+    bom = api(
+        "POST",
+        f"/stock/products/{product['id']}/bom",
+        {"material": material["id"], "quantity": "2", "unit": "board_ft"},
+        expect=201,
+    )
+    bom = api(
+        "PUT",
+        f"/stock/bom/{bom['id']}",
+        {"material": material["id"], "quantity": "2.5", "unit": "board_ft", "note": "thick"},
+        expect=200,
+    )
+    assert bom["quantity"] == "2.5" and bom["note"] == "thick"
+    archived = api("POST", f"/catalog/{product['id']}/archive", {"archived": True}, expect=200)
+    assert archived["is_active"] is False
 
     ids = {
         "po_id": po["id"],
+        "product_id": product["id"],
         "customer_id": customer["id"],
         "job_id": job["id"],
         "revision_id": revision["id"],

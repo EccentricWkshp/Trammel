@@ -10,11 +10,4 @@
     <a href="{% if editing %}{{ location.get_absolute_url }}{% else %}{% url 'stock:locations' %}{% endif %}">Cancel</a>
   </div>
 </form>
-{% if editing %}
-<form method="post" class="danger-zone">
-  {% csrf_token %}
-  <p class="muted">A location can be deleted once it holds no stock and has nothing inside it.</p>
-  <button type="submit" name="delete" value="1" class="danger">Delete location</button>
-</form>
-{% endif %}
 {% endblock %}

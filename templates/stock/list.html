@@ -29,7 +29,7 @@
   {% if can_stock %}<label>Show
     <select name="show">{% for value, label in shows %}<option value="{{ value }}"{% if value == show %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
   </label>{% endif %}
-  <label class="choice"><input type="checkbox" name="inactive" value="1"{% if inactive %} checked{% endif %}> Include inactive</label>
+  <label class="choice"><input type="checkbox" name="inactive" value="1"{% if inactive %} checked{% endif %}> Include archived</label>
   <button type="submit">Filter</button>
 </form>
 

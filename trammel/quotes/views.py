@@ -6,12 +6,13 @@ from django.contrib import messages
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.http import Http404, HttpResponse
-from django.shortcuts import redirect, render
+from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from trammel.catalog import services as catalog
-from trammel.core import access, audit, modules, panels, placeholders, templating
+from trammel.core import access, archive, audit, modules, panels, placeholders, templating
 from trammel.core.lifecycle import TransitionError
 from trammel.core.services import save_audited
 from trammel.core.web import document_response, document_view, paginate, permission_required
@@ -507,6 +508,15 @@ def template_edit(request, pk=None):
             "back": "quotes:templates",
             "back_label": "Quote templates",
             **placeholders.editor_context("quote"),
+            **(
+                {
+                    "obj": obj,
+                    "archive_url": reverse("quotes:template_archive", args=[pk]),
+                    "delete_url": reverse("quotes:template_delete", args=[pk]),
+                }
+                if pk
+                else {}
+            ),
         },
     )
 
@@ -523,4 +533,35 @@ def settings_edit(request):
         request,
         "core/settings_form.html",
         {"form": form, "title": "Quote settings", "back": "quotes:templates"},
+    )
+
+
+def _template_refusal(template) -> str:
+    if template.is_default:
+        return "This is the default template. Make another template the default first."
+    return ""
+
+
+@permission_required("quotes.manage_templates")
+@require_POST
+def template_archive(request, pk):
+    template = get_object_or_404(QuoteTemplate, pk=pk)
+    return archive.archive_view(
+        request,
+        template,
+        back=reverse("quotes:template_edit", args=[pk]),
+        refuse=_template_refusal(template),
+    )
+
+
+@permission_required("quotes.manage_templates")
+def template_delete(request, pk):
+    template = get_object_or_404(QuoteTemplate, pk=pk)
+    return archive.delete_view(
+        request,
+        template,
+        archive_url=reverse("quotes:template_archive", args=[pk]),
+        done_url=reverse("quotes:templates"),
+        back=reverse("quotes:template_edit", args=[pk]),
+        refuse=_template_refusal(template),
     )

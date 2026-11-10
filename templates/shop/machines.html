@@ -14,7 +14,7 @@
       <td>{{ m.get_kind_display }}</td>
       <td class="num">{% with cost=m.calculated_cost %}{% if cost is None %}<span class="muted">—</span>{% else %}{{ cost|money }}{% endif %}{% endwith %}</td>
       <td class="num">{{ m.hourly_rate|money }}</td>
-      <td>{{ m.is_active|yesno:"Active,Inactive" }}</td>
+      <td>{{ m.is_active|yesno:"In use,Archived" }}</td>
     </tr>
   {% empty %}
     <tr><td colspan="5" class="muted">No machines yet.</td></tr>

@@ -11,7 +11,7 @@ from ninja import Router, Schema, Status
 
 from trammel.core import access
 from trammel.shop.models import Material, Vendor
-from trammel.stock.models import Location
+from trammel.stock.models import Location, StockLot
 from trammel.workorders.models import WorkOrder
 
 from . import services
@@ -182,4 +182,84 @@ def receive(request, po_id: UUID, payload: DeliveryIn):
             "value": str(receipt.value),
             "lot": str(receipt.lot_id) if receipt.lot_id else None,
         },
+    )
+
+
+class ReturnIn(Schema):
+    quantity: Decimal
+    refund: Decimal = Decimal("0")
+    reason: str
+    lot: UUID | None = None
+    returned_on: dt.date | None = None
+
+
+class ReturnOut(Schema):
+    id: UUID
+    line: UUID
+    lot: UUID | None
+    quantity: Decimal
+    value: Decimal
+    refund: Decimal
+    loss: Decimal
+    reason: str
+    returned_on: dt.date
+
+    @staticmethod
+    def resolve_line(obj):
+        return obj.line_id
+
+    @staticmethod
+    def resolve_lot(obj):
+        return obj.lot_id
+
+
+class AdjustmentIn(Schema):
+    amount: Decimal
+    reason: str
+
+
+class AdjustmentOut(Schema):
+    id: UUID
+    amount: Decimal
+    reason: str
+    created_at: dt.datetime
+
+
+@router.get("/orders/{po_id}/returns", response=list[ReturnOut])
+def list_returns(request, po_id: UUID):
+    return _po(request, "purchasing.view", po_id).returns.all()
+
+
+@router.post("/orders/{po_id}/lines/{line_id}/returns", response={201: ReturnOut})
+def send_back(request, po_id: UUID, line_id: UUID, payload: ReturnIn):
+    """Send part of a line's delivery back to the vendor, with its refund."""
+    po = _po(request, "purchasing.receive", po_id)
+    line = get_object_or_404(POLine, pk=line_id, order=po)
+    lot = get_object_or_404(StockLot, pk=payload.lot) if payload.lot else None
+    back = services.return_to_vendor(
+        line,
+        quantity=payload.quantity,
+        refund=payload.refund,
+        reason=payload.reason,
+        lot=lot,
+        returned_on=payload.returned_on,
+        user=request.actor.user,
+    )
+    return Status(201, back)
+
+
+@router.get("/orders/{po_id}/adjustments", response=list[AdjustmentOut])
+def list_adjustments(request, po_id: UUID):
+    return _po(request, "purchasing.view", po_id).adjustments.all()
+
+
+@router.post("/orders/{po_id}/adjustments", response={201: AdjustmentOut})
+def adjust(request, po_id: UUID, payload: AdjustmentIn):
+    """Change the landed cost once everything has arrived (a late freight bill)."""
+    po = _po(request, "purchasing.receive", po_id)
+    return Status(
+        201,
+        services.adjust_landed_cost(
+            po, amount=payload.amount, reason=payload.reason, user=request.actor.user
+        ),
     )

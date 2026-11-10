@@ -11,6 +11,7 @@ from django.http import Http404, HttpResponse
 from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
 from django.urls import reverse
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.timezone import now
 from django.views.decorators.http import require_POST
 
@@ -435,6 +436,9 @@ def planned_use(request, pk):
         messages.success(
             request, f"Recorded {len(usages)} material use{'s' if len(usages) != 1 else ''}."
         )
+    back = request.POST.get("next", "")
+    if back and url_has_allowed_host_and_scheme(back, allowed_hosts={request.get_host()}):
+        return redirect(back)
     return redirect(f"{wo.get_absolute_url()}?tab=materials")
 
 

@@ -127,3 +127,16 @@ def materials(actor, term):
         if m.pk not in seen:
             seen.add(m.pk)
             yield Hit("Material", str(m), m.get_absolute_url(), m.get_category_display())
+
+
+@register("Vendors")
+def vendors(actor, term):
+    if not _installed("trammel.shop"):
+        return
+    from trammel.shop.models import Vendor
+
+    qs = matching(
+        Vendor.objects.all(), term, ("name", "contact_name", "email", "phone", "account_number")
+    )
+    for v in _scoped(actor, "shop.view", qs)[:10]:
+        yield Hit("Vendor", str(v), v.get_absolute_url(), "" if v.is_active else "archived")

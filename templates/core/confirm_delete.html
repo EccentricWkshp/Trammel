@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Delete {{ obj }}{% endblock %}
+{% block main_class %}page narrow{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{{ back }}">{{ obj }}</a></p>
+{% if used %}
+<h1>{{ obj }} can't be deleted</h1>
+{% if refuse %}<p>{{ refuse }}</p>
+{% else %}
+<p>This {{ noun }} is in use, and what uses it keeps pointing at it. Archive it instead: it stays where it is used but isn't offered for anything new, and it can be brought back at any time.</p>
+{% endif %}
+<div class="actions">
+  {% if obj.is_active and not refuse %}
+  <form method="post" action="{{ archive_url }}" class="inline">{% csrf_token %}<input type="hidden" name="archived" value="1"><button type="submit" class="primary">Archive it</button></form>
+  {% endif %}
+  <a href="{{ back }}">Back</a>
+</div>
+{% else %}
+<h1>Delete {{ obj }}?</h1>
+<p>Nothing uses this {{ noun }} yet. It goes to the trash{% if parts %} with {{ parts }}{% endif %}, where it can be restored for 30 days.</p>
+<form method="post" class="stack">
+  {% csrf_token %}
+  <div><label for="reason">Reason (optional)</label><textarea id="reason" name="reason" rows="2"></textarea></div>
+  <div class="actions">
+    <button type="submit" class="danger">Delete</button>
+    <a href="{{ back }}">Cancel</a>
+  </div>
+</form>
+{% endif %}
+{% endblock %}

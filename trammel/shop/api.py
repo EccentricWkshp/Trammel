@@ -100,11 +100,19 @@ class MaterialIn(Schema):
     notes: str = ""
 
 
+#: One permission per kind covers adding, editing, archiving and deleting it.
+PERMS = {
+    Machine: "shop.manage_machines",
+    Material: "shop.manage_materials",
+    Vendor: "shop.manage_vendors",
+}
+
+
 def _upsert(request, model, pk, payload):
     if pk is None:
-        access.require(request.actor, "shop.edit")
+        access.require(request.actor, PERMS[model])
         return save_audited(model(**payload.dict()))
-    obj = access.get_or_404(request.actor, "shop.edit", model.objects.all(), pk=pk)
+    obj = access.get_or_404(request.actor, PERMS[model], model.objects.all(), pk=pk)
     before = audit.snapshot(obj)
     for field, value in payload.dict().items():
         setattr(obj, field, value)

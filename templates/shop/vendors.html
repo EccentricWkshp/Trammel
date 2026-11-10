@@ -13,7 +13,7 @@
   <tbody>
   {% for v in vendors %}
     <tr{% if not v.is_active %} class="inactive"{% endif %}>
-      <td>{% if can_edit %}<a href="{{ v.get_absolute_url }}">{{ v }}</a>{% else %}{{ v }}{% endif %}{% if v.website %}<br><a class="small" href="{{ v.website }}" target="_blank" rel="noopener noreferrer">Website</a>{% endif %}</td>
+      <td>{% if can_edit %}<a href="{{ v.get_absolute_url }}">{{ v }}</a>{% else %}{{ v }}{% endif %}{% if not v.is_active %} <span class="badge">Archived</span>{% endif %}{% if v.website %}<br><a class="small" href="{{ v.website }}" target="_blank" rel="noopener noreferrer">Website</a>{% endif %}</td>
       <td>{{ v.contact_name }}{% if v.phone %}<br><span class="muted">{{ v.phone }}</span>{% endif %}{% if v.email %}<br><a class="small" href="mailto:{{ v.email }}">{{ v.email }}</a>{% endif %}</td>
       <td>{{ v.account_number }}</td>
       <td>{{ v.payment_terms }}</td>

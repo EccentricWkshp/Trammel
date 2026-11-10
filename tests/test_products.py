@@ -55,7 +55,7 @@ def test_archived_product_leaves_the_pickers_and_comes_back(admin_client, produc
     admin_client.get("/products/")  # shows the message
     assert product.get_absolute_url() not in admin_client.get("/products/").content.decode()
     page = admin_client.get(product.get_absolute_url()).content.decode()
-    assert "Archived" in page and "Restore to the catalog" in page
+    assert "Archived" in page and "Bring back" in page
     admin_client.post(f"/products/{product.pk}/archive/", {"archived": "0"})
     product.refresh_from_db()
     assert product.is_active
@@ -64,7 +64,8 @@ def test_archived_product_leaves_the_pickers_and_comes_back(admin_client, produc
 @pytest.mark.django_db
 def test_unused_product_goes_to_the_trash(admin_client, product):
     assert (
-        "Nothing has used" in admin_client.get(f"/products/{product.pk}/delete/").content.decode()
+        "Nothing uses this product"
+        in admin_client.get(f"/products/{product.pk}/delete/").content.decode()
     )
     response = admin_client.post(f"/products/{product.pk}/delete/", {"reason": "Typo"})
     assert response["Location"] == "/products/"
@@ -84,10 +85,17 @@ def test_product_on_a_quote_is_archived_not_deleted(admin_client, product):
 
 
 @pytest.mark.django_db
-def test_deleting_needs_its_own_permission(client, product):
-    user = make_user("editor@example.com", "catalog.view", "catalog.edit")
-    client.force_login(user)
+def test_editing_products_includes_archiving_and_deleting(client, product):
+    client.force_login(make_user("editor@example.com", "catalog.view", "catalog.edit"))
     page = client.get(product.get_absolute_url()).content.decode()
-    assert "Archive" in page and f"/products/{product.pk}/delete/" not in page
+    assert "Archive" in page and f"/products/{product.pk}/delete/" in page
+    client.post(f"/products/{product.pk}/delete/")
+    assert not Product.objects.filter(pk=product.pk).exists()
+
+
+@pytest.mark.django_db
+def test_viewing_products_alone_cannot_delete_them(client, product):
+    client.force_login(make_user("viewer@example.com", "catalog.view"))
     assert client.post(f"/products/{product.pk}/delete/").status_code == 403
-    assert Product.objects.filter(pk=product.pk).exists()
+    assert client.post(f"/products/{product.pk}/archive/", {"archived": "1"}).status_code == 403
+    assert Product.objects.filter(pk=product.pk, is_active=True).exists()

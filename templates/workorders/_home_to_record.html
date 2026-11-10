@@ -1,0 +1,12 @@
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Work order</th><th scope="col">Job</th><th scope="col" class="num">Waiting</th></tr></thead>
+  <tbody>
+  {% for wo in section.rows %}
+    <tr>
+      <td><a href="{{ wo.get_absolute_url }}?tab=materials"><strong>{{ wo.number }}</strong></a> {{ wo.title }}</td>
+      <td>{{ wo.job.number }} <span class="muted">{{ wo.job.customer.name }}</span></td>
+      <td class="num">{{ wo.waiting }} material{{ wo.waiting|pluralize }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>

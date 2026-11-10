@@ -1,18 +1,28 @@
 from __future__ import annotations
 
 from django.contrib import messages
+from django.contrib.auth.decorators import login_required
 from django.db.models import Count, Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.views.decorators.http import require_POST
 
-from trammel.core import access, audit, panels
+from trammel.core import access, archive, audit, panels
 from trammel.core.services import save_audited
 from trammel.core.web import permission_required
 
 from . import hooks
 from .forms import MachineForm, MaterialBarcodeForm, MaterialForm, MaterialUnitForm, VendorForm
 from .models import Machine, Material, MaterialBarcode, MaterialUnit, Vendor
+
+#: One permission per kind covers adding, editing, archiving and deleting it:
+#: machines may be the shop's call, materials staff's, vendors an admin's.
+PERMS = {
+    "machine": "shop.manage_machines",
+    "material": "shop.manage_materials",
+    "vendor": "shop.manage_vendors",
+}
 
 KINDS = {
     "machine": (Machine, MachineForm, "shop:machines"),
@@ -28,7 +38,7 @@ def machine_list(request):
         "shop/machines.html",
         {
             "machines": Machine.objects.all(),
-            "can_edit": access.has_perm(request.actor, "shop.edit"),
+            "can_edit": access.has_perm(request.actor, PERMS["machine"]),
         },
     )
 
@@ -57,7 +67,7 @@ def material_list(request):
             "categories": Material.Category.choices,
             "category": category,
             "q": term,
-            "can_edit": access.has_perm(request.actor, "shop.edit"),
+            "can_edit": access.has_perm(request.actor, PERMS["material"]),
         },
     )
 
@@ -72,7 +82,7 @@ def vendor_list(request):
     return render(
         request,
         "shop/vendors.html",
-        {"vendors": qs, "q": term, "can_edit": access.has_perm(request.actor, "shop.edit")},
+        {"vendors": qs, "q": term, "can_edit": access.has_perm(request.actor, PERMS["vendor"])},
     )
 
 
@@ -84,8 +94,9 @@ def material_detail(request, pk):
         Material.objects.select_related("vendor").prefetch_related("conversions", "barcodes"),
         pk=pk,
     )
-    can_edit = access.has_perm(request.actor, "shop.edit")
+    can_edit = access.has_perm(request.actor, PERMS["material"])
     context = {
+        **_archive_urls(request, "material", material),
         "material": material,
         "can_edit": can_edit,
         "can_costs": access.has_perm(request.actor, "core.see_costs"),
@@ -103,10 +114,10 @@ def _material_tab(material) -> str:
     return f"{material.get_absolute_url()}#conversions"
 
 
-@permission_required("shop.edit")
+@permission_required("shop.manage_materials")
 @require_POST
 def conversion_add(request, pk):
-    material = access.get_or_404(request.actor, "shop.edit", Material.objects.all(), pk=pk)
+    material = access.get_or_404(request.actor, PERMS["material"], Material.objects.all(), pk=pk)
     form = MaterialUnitForm(request.POST, material=material)
     if form.is_valid():
         row = form.save()
@@ -117,10 +128,10 @@ def conversion_add(request, pk):
     return redirect(_material_tab(material))
 
 
-@permission_required("shop.edit")
+@permission_required("shop.manage_materials")
 @require_POST
 def conversion_delete(request, pk, row_pk):
-    material = access.get_or_404(request.actor, "shop.edit", Material.objects.all(), pk=pk)
+    material = access.get_or_404(request.actor, PERMS["material"], Material.objects.all(), pk=pk)
     row = get_object_or_404(MaterialUnit, pk=row_pk, material=material)
     label = str(row)
     row.delete()
@@ -129,10 +140,10 @@ def conversion_delete(request, pk, row_pk):
     return redirect(_material_tab(material))
 
 
-@permission_required("shop.edit")
+@permission_required("shop.manage_materials")
 @require_POST
 def barcode_add(request, pk):
-    material = access.get_or_404(request.actor, "shop.edit", Material.objects.all(), pk=pk)
+    material = access.get_or_404(request.actor, PERMS["material"], Material.objects.all(), pk=pk)
     form = MaterialBarcodeForm(request.POST, material=material)
     if form.is_valid():
         row = form.save()
@@ -143,10 +154,10 @@ def barcode_add(request, pk):
     return redirect(_material_tab(material))
 
 
-@permission_required("shop.edit")
+@permission_required("shop.manage_materials")
 @require_POST
 def barcode_delete(request, pk, row_pk):
-    material = access.get_or_404(request.actor, "shop.edit", Material.objects.all(), pk=pk)
+    material = access.get_or_404(request.actor, PERMS["material"], Material.objects.all(), pk=pk)
     row = get_object_or_404(MaterialBarcode, pk=row_pk, material=material)
     code = row.code
     row.delete()
@@ -155,10 +166,11 @@ def barcode_delete(request, pk, row_pk):
     return redirect(_material_tab(material))
 
 
-@permission_required("shop.edit")
+@login_required
 def edit(request, kind, pk=None):
     if kind not in KINDS:
         raise Http404
+    access.require(request.actor, PERMS[kind])
     model, form_class, back = KINDS[kind]
     if model is Material and pk is None and request.method == "GET":
         # While stock is on, a new material is added with its stock details.
@@ -167,7 +179,7 @@ def edit(request, kind, pk=None):
             query = request.GET.urlencode()
             return redirect(f"{target}?{query}" if query else target)
     obj = (
-        access.get_or_404(request.actor, "shop.edit", model.objects.all(), pk=pk) if pk else model()
+        access.get_or_404(request.actor, PERMS[kind], model.objects.all(), pk=pk) if pk else model()
     )
     before = audit.snapshot(obj) if pk else None
     initial = {"vendor": request.GET.get("vendor")} if kind == "material" and not pk else None
@@ -185,7 +197,13 @@ def edit(request, kind, pk=None):
         messages.success(request, f"{obj} saved.")
         return redirect(obj if model is Material else back)
     noun = model._meta.verbose_name
-    context = {"form": form, "title": f"Edit {obj}" if pk else f"Add {noun}", "back": back}
+    context = {
+        "form": form,
+        "title": f"Edit {obj}" if pk else f"Add {noun}",
+        "back": back,
+        "obj": obj,
+        **(_archive_urls(request, kind, obj) if pk else {}),
+    }
     if model is Material:
         context["back_url"] = obj.get_absolute_url() if pk else hooks.materials_home()
     if model is Machine:
@@ -202,3 +220,45 @@ def edit(request, kind, pk=None):
     if model is Vendor and pk:
         context["materials"] = obj.materials.all()
     return render(request, f"shop/{kind}_form.html", context)
+
+
+def _archive_urls(request, kind, obj) -> dict:
+    return {
+        "archive_url": reverse("shop:archive", args=[kind, obj.pk]),
+        "delete_url": reverse("shop:delete", args=[kind, obj.pk])
+        if access.has_perm(request.actor, PERMS[kind])
+        else "",
+    }
+
+
+def _get(request, kind, pk, perm):
+    if kind not in KINDS:
+        raise Http404
+    return access.get_or_404(request.actor, perm, KINDS[kind][0].objects.all(), pk=pk)
+
+
+@login_required
+@require_POST
+def archive_record(request, kind, pk):
+    """Archive or bring back a machine, material or vendor."""
+    if kind not in KINDS:
+        raise Http404
+    access.require(request.actor, PERMS[kind])
+    return archive.archive_view(request, _get(request, kind, pk, PERMS[kind]))
+
+
+@login_required
+def delete_record(request, kind, pk):
+    if kind not in KINDS:
+        raise Http404
+    access.require(request.actor, PERMS[kind])
+    obj = _get(request, kind, pk, PERMS[kind])
+    done = hooks.materials_home() if kind == "material" else reverse(KINDS[kind][2])
+    parts = {"material": "its units, barcodes and stock settings"}.get(kind, "")
+    return archive.delete_view(
+        request,
+        obj,
+        archive_url=reverse("shop:archive", args=[kind, pk]),
+        done_url=done,
+        parts=parts,
+    )

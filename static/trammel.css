@@ -165,6 +165,8 @@ form.inline { display: inline; }
 /* A table row being edited in place: amount and unit side by side */
 .row-edit td { vertical-align: middle; }
 .row-actions.nowrap { flex-wrap: nowrap; }
+.bom-cost { margin-top: var(--space-4); }
+.bom-cost h3 { margin-top: 0; font-size: 1rem; }
 .row-edit .qty-unit { display: flex; gap: .4rem; justify-content: flex-end; }
 .row-edit .qty-unit input { width: 6rem; flex: none; text-align: right; }
 .row-edit .qty-unit select { width: auto; flex: none; }

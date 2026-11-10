@@ -5,7 +5,7 @@
 <header class="record-header">
   <div class="record-title">
     <p class="breadcrumb"><a href="{{ materials_home }}">Materials</a></p>
-    <h1>{{ material }}{% if not material.is_active %} <span class="badge">inactive</span>{% endif %}</h1>
+    <h1>{{ material }}{% if not material.is_active %} <span class="badge">Archived</span>{% endif %}</h1>
     <dl class="facts-inline">
       <div><dt>Category</dt><dd>{{ material.get_category_display }}</dd></div>
       <div><dt>Stock unit</dt><dd>{{ material.get_unit_display }}</dd></div>
@@ -15,10 +15,12 @@
     </dl>
   </div>
   <div class="actions">
-    {% if can_edit %}<a class="button" href="{% url 'shop:material_edit' material.pk %}">Edit</a>{% endif %}
+    {% if can_edit %}<a class="button" href="{% url 'shop:material_edit' material.pk %}">Edit</a>
+    {% include "partials/archive_actions.html" with obj=material %}{% endif %}
   </div>
 </header>
 
+{% include "partials/archived_note.html" with obj=material %}
 {% include "partials/tabs.html" %}
 
 <div class="tab-body">

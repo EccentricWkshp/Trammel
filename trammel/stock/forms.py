@@ -31,7 +31,7 @@ class _UnitMixin:
 class LocationForm(forms.ModelForm):
     class Meta:
         model = Location
-        fields = ["name", "parent", "is_active", "notes"]
+        fields = ["name", "parent", "notes"]
         widgets = {"notes": forms.Textarea(attrs={"rows": 3})}
         labels = {"parent": "Inside"}
 

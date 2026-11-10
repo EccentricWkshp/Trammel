@@ -2,7 +2,11 @@
 {% block title %}{{ title }}{% endblock %}
 {% block settings_content %}
 <p class="breadcrumb"><a href="{% url back %}">{{ back_label|default:"Templates" }}</a></p>
-<h1>{{ title }}</h1>
+<div class="heading-row">
+  <h1>{{ title }}{% if obj and not obj.is_active %} <span class="badge">Archived</span>{% endif %}</h1>
+  {% if archive_url %}<div class="actions">{% include "partials/archive_actions.html" %}</div>{% endif %}
+</div>
+{% if archive_url %}{% include "partials/archived_note.html" %}{% endif %}
 {% if intro %}<p class="lede">{{ intro }}</p>{% endif %}
 
 <div class="tabs" data-tabs hidden>

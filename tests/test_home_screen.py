@@ -25,6 +25,7 @@ def test_admin_sees_every_section_in_default_order(admin_client):
         "Jobs on hold",
         "Quotes awaiting approval",
         "Open work orders",
+        "Materials waiting to be recorded",
         "Low stock",
         "Deliveries expected",
         "Overdue invoices",

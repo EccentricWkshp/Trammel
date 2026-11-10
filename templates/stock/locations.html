@@ -9,7 +9,7 @@
   <tbody>
   {% for loc in locations %}
     <tr{% if not loc.is_active %} class="inactive"{% endif %}>
-      <td><a href="{{ loc.get_absolute_url }}">{{ loc.path }}</a>{% if not loc.is_active %} <span class="badge">not in use</span>{% endif %}</td>
+      <td><a href="{{ loc.get_absolute_url }}">{{ loc.path }}</a>{% if not loc.is_active %} <span class="badge">Archived</span>{% endif %}</td>
       <td class="num">{{ loc.lot_count }}</td>
     </tr>
   {% empty %}

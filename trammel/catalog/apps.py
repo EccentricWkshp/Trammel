@@ -18,8 +18,7 @@ class CatalogConfig(ModuleConfig):
         attachable=(("catalog.Product", "catalog.view"),),
         permissions=(
             Permission("catalog.view", "View products", read=True),
-            Permission("catalog.edit", "Add, edit and archive products"),
-            Permission("catalog.delete", "Delete products"),
+            Permission("catalog.edit", "Add, edit, archive and delete products"),
         ),
         menu=(MenuEntry("Products", "catalog:list", "catalog.view", "main", 60),),
     )

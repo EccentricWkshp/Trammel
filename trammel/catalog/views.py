@@ -2,15 +2,14 @@ from __future__ import annotations
 
 from django import forms
 from django.contrib import messages
-from django.core.exceptions import ValidationError
 from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.views.decorators.http import require_POST
 
-from trammel.core import access, audit, panels
+from trammel.core import access, archive, audit, panels
 from trammel.core.services import save_audited
 from trammel.core.web import csv_response, paginate, permission_required
 
-from . import services
 from .models import Product
 
 
@@ -85,31 +84,42 @@ def product_csv(request):
 
 
 @permission_required("catalog.edit")
-def product_edit(request, pk=None):
-    obj = (
-        access.get_or_404(request.actor, "catalog.edit", Product.objects.all(), pk=pk)
-        if pk
-        else Product()
-    )
-    before = audit.snapshot(obj) if pk else None
-    form = ProductForm(request.POST or None, instance=obj)
+def product_create(request):
+    form = ProductForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
-        save_audited(form.save(commit=False), before=before)
-        messages.success(request, f"{obj} saved.")
-        return redirect(obj)
-    if not pk:
-        return render(request, "catalog/form.html", {"form": form, "product": None})
+        product = save_audited(form.save(commit=False))
+        messages.success(request, f"{product} saved.")
+        return redirect(product)
+    return render(request, "catalog/form.html", {"form": form, "product": None})
+
+
+@permission_required("catalog.view")
+def product_detail(request, pk):
+    """The product page: its details (a form for those who can edit), then
+    other modules' tabs (stock adds the bill of materials) and files."""
+    product = access.get_or_404(request.actor, "catalog.view", Product.objects.all(), pk=pk)
+    can_edit = access.has_perm(request.actor, "catalog.edit", product)
+    form = None
+    if can_edit:
+        before = audit.snapshot(product)
+        form = ProductForm(request.POST or None, instance=product)
+        if request.method == "POST" and form.is_valid():
+            save_audited(form.save(commit=False), before=before)
+            messages.success(request, f"{product} saved.")
+            return redirect(product)
+    elif request.method == "POST":
+        access.require(request.actor, "catalog.edit")
     return render(
         request,
         "catalog/form.html",
         {
             "form": form,
-            "product": obj,
-            "can_delete": access.has_perm(request.actor, "catalog.delete", obj),
-            # Other modules' tabs: stock adds the bill of materials.
+            "product": product,
+            "can_edit": can_edit,
+            "can_costs": access.has_perm(request.actor, "core.see_costs"),
             **panels.tabbed(
                 request,
-                panels.for_object(request, obj),
+                panels.for_object(request, product),
                 first=(("details", "Details"),),
                 last=(("files", "Files"),),
             ),
@@ -121,25 +131,16 @@ def product_edit(request, pk=None):
 @require_POST
 def product_archive(request, pk):
     product = access.get_or_404(request.actor, "catalog.edit", Product.objects.all(), pk=pk)
-    archived = request.POST.get("archived") == "1"
-    services.set_archived(product, archived)
-    if archived:
-        messages.success(request, f"{product} archived. It can't be picked for new quotes.")
-    else:
-        messages.success(request, f"{product} is back in the catalog.")
-    return redirect(product)
+    return archive.archive_view(request, product)
 
 
-@permission_required("catalog.delete")
+@permission_required("catalog.edit")
 def product_delete(request, pk):
-    product = access.get_or_404(request.actor, "catalog.delete", Product.objects.all(), pk=pk)
-    used = services.in_use(product)
-    if request.method == "POST" and not used:
-        try:
-            services.delete_product(product, reason=request.POST.get("reason", ""))
-        except ValidationError as exc:
-            messages.error(request, " ".join(exc.messages))
-            return redirect(product)
-        messages.success(request, f"{product} moved to the trash. It can be restored for 30 days.")
-        return redirect("catalog:list")
-    return render(request, "catalog/confirm_delete.html", {"product": product, "used": used})
+    product = access.get_or_404(request.actor, "catalog.edit", Product.objects.all(), pk=pk)
+    return archive.delete_view(
+        request,
+        product,
+        archive_url=reverse("catalog:archive", args=[pk]),
+        done_url=reverse("catalog:list"),
+        parts="its bill of materials and files",
+    )

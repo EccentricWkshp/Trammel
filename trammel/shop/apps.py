@@ -21,7 +21,9 @@ class ShopConfig(ModuleConfig):
         ),
         permissions=(
             Permission("shop.view", "View machines, materials and vendors", read=True),
-            Permission("shop.edit", "Add and edit machines, materials and vendors"),
+            Permission("shop.manage_machines", "Add, edit, archive and delete machines"),
+            Permission("shop.manage_materials", "Add, edit, archive and delete materials"),
+            Permission("shop.manage_vendors", "Add, edit, archive and delete vendors"),
         ),
         menu=(
             MenuEntry("Machines", "shop:machines", "shop.view", "admin", 25),

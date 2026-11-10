@@ -6,5 +6,5 @@
   <div class="actions"><a class="button" href="{% url 'quotes:template_create' %}">New template</a> <a href="{% url 'quotes:settings' %}">Settings</a></div>
 </div>
 <p class="lede">How quotes look on screen and as PDFs. Templates are HTML; placeholders are filled in for each quote, for example {% verbatim %}<code>{{ quote.number }}</code>, <code>{% for line in quote.lines %}</code>, <code>{{ quote.total|money }}</code>, <code>{{ customer.name }}</code>, <code>{{ business.name }}</code>, <code>{{ agreement }}</code>{% endverbatim %}. Quotes are valid for {{ settings.validity_days }} days by default.</p>
-<ul>{% for t in templates %}<li><a href="{% url 'quotes:template_edit' t.pk %}">{{ t.name }}</a>{% if t.is_default %} <span class="badge">default</span>{% endif %}</li>{% empty %}<li class="muted">No templates.</li>{% endfor %}</ul>
+<ul>{% for t in templates %}<li><a href="{% url 'quotes:template_edit' t.pk %}">{{ t.name }}</a>{% if t.is_default %} <span class="badge">default</span>{% endif %}{% if not t.is_active %} <span class="badge">Archived</span>{% endif %}</li>{% empty %}<li class="muted">No templates.</li>{% endfor %}</ul>
 {% endblock %}

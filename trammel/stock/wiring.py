@@ -9,14 +9,24 @@ from django.db import transaction
 from django.urls import reverse
 from django.utils.http import urlencode
 
-from trammel.core import access, dashboard, modules, panels, report_cards, scan, search, units
+from trammel.core import (
+    access,
+    archive,
+    dashboard,
+    modules,
+    panels,
+    report_cards,
+    scan,
+    search,
+    units,
+)
 from trammel.shop import hooks as shop_hooks
 from trammel.shop.models import Material, MaterialBarcode
 from trammel.workorders import hooks as wo_hooks
 
 from . import services
 from .floor import LENGTH_UNITS
-from .models import Location, StockLot, StockMove
+from .models import Location, StockItem, StockLot, StockMove
 
 # The stock list shows every material, so it is where the materials menu leads, and a
 # material is added with its stock details.
@@ -59,7 +69,7 @@ BARCODE = re.compile(r"[0-9A-Za-z.\-]{4,64}")
 @scan.unknown
 def offer_new_material(request, code):
     """A barcode nobody knows yet: offer to add the material it belongs to."""
-    if BARCODE.fullmatch(code) and access.has_perm(request.actor, "shop.edit"):
+    if BARCODE.fullmatch(code) and access.has_perm(request.actor, "shop.manage_materials"):
         return (
             f"{reverse('stock:add')}?{urlencode({'barcode': code})}",
             f"No material has the barcode {code} yet. Add it here.",
@@ -278,6 +288,20 @@ def lots(actor, term):
         )
 
 
+@search.register("Stock locations")
+def locations(actor, term):
+    if not (modules.is_enabled("stock") and access.has_perm(actor, "stock.view")):
+        return
+    qs = search.matching(Location.objects.all(), term, ("name", "path"), ("notes",))
+    for loc in qs.order_by("path")[:10]:
+        yield search.Hit(
+            "Stock location",
+            loc.path,
+            loc.get_absolute_url(),
+            "" if loc.is_active else "archived",
+        )
+
+
 for title, description, url_name, order in (
     (
         "Stock valuation",
@@ -298,6 +322,13 @@ for title, description, url_name, order in (
     report_cards.register(title, description, url_name, permission="stock.view", order=order)
 
 
+@archive.on_delete("shop.material")
+def drop_unused_stock_record(material):
+    """A material going to the trash takes its stock settings with it. Nothing
+    has been stocked (or it couldn't be deleted), so no history is lost."""
+    StockItem.objects.filter(material=material).delete()
+
+
 @panels.register("catalog.product")
 def bill_of_materials(request, product):
     """What goes into one of the product (FR-STK-6)."""
@@ -305,16 +336,10 @@ def bill_of_materials(request, product):
         return None
     from trammel.shop.models import Material as M
 
-    lines = list(product.bom_lines.select_related("material"))
-    cost = services.ZERO
-    for line in lines:
-        try:
-            line.cost = line.material.cost_per(line.unit) * line.quantity
-        except units.IncompatibleUnits:
-            line.cost = None
-        cost += line.cost or services.ZERO
+    lines, cost = services.bom_cost(product)
     can_edit = access.has_perm(request.actor, "catalog.edit")
     editing = request.GET.get("edit", "") if can_edit else ""
+    other, costing = services.bom_other_cost(product, cost)
     return panels.Panel(
         "Bill of materials",
         "stock/_bom_panel.html",
@@ -322,6 +347,9 @@ def bill_of_materials(request, product):
             "product": product,
             "lines": lines,
             "cost": cost,
+            "other": other,
+            "costing": costing,
+            "in_step": product.cost == cost + other,
             "editing": next((line for line in lines if str(line.pk) == editing), None),
             "can_edit": can_edit,
             "can_costs": access.has_perm(request.actor, "core.see_costs"),

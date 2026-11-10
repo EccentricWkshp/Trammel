@@ -458,7 +458,7 @@ def test_keep_an_existing_material_in_stock(admin_client, shelf):
 
 @pytest.mark.django_db
 def test_add_material_without_stock_rights_has_no_stock_section(client, setup_done):
-    client.force_login(make_user("buyer@example.com", "shop.view", "shop.edit"))
+    client.force_login(make_user("buyer@example.com", "shop.view", "shop.manage_materials"))
     page = client.get("/stock/new/").content.decode()
     assert 'name="name"' in page and 'name="stock-keep"' not in page
     response = client.post("/stock/new/", MATERIAL)
