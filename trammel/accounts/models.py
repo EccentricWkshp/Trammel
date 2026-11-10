@@ -101,6 +101,9 @@ class User(AbstractBaseUser):
     #: The home screen as this user arranged it: [{"key": ..., "on": bool}, ...]
     #: in display order (core/dashboard.py). Empty means the defaults.
     home_sections = models.JSONField(default=list, blank=True, editable=False)
+    #: Small per-person choices that modules keep under their own key, such as
+    #: {"calendar": {"view": "week", "week": "work"}}.
+    preferences = models.JSONField(default=dict, blank=True, editable=False)
     date_joined = models.DateTimeField(default=now, editable=False)
     deactivated_at = models.DateTimeField(null=True, blank=True, editable=False)
 

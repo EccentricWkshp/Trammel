@@ -7,6 +7,7 @@ from django.contrib import messages
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import F, Q
 from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
@@ -120,17 +121,25 @@ def job_csv(request):
     )
 
 
-@permission_required("jobs.view")
-def job_calendar(request):
-    today = timezone.localdate()
-    try:
-        first = dt.date.fromisoformat(request.GET.get("month", "") + "-01")
-    except ValueError:
-        first = today.replace(day=1)
-    week_start = request.business.week_start
-    weeks = calendar.Calendar(firstweekday=week_start).monthdatescalendar(first.year, first.month)
-    start, end = weeks[0][0], weeks[-1][-1]
+VIEWS = (("month", "Month"), ("week", "Week"), ("day", "Day"))
+#: The week view shows Monday to Friday, or all seven days.
+WEEK_STYLES = (("work", "Work week"), ("full", "7 days"))
 
+
+def _anchor(request, today: dt.date) -> dt.date:
+    """The day the calendar is showing: ?date=, the older ?month=, or today."""
+    try:
+        return dt.date.fromisoformat(request.GET.get("date", ""))
+    except ValueError:
+        pass
+    try:
+        return dt.date.fromisoformat(request.GET.get("month", "") + "-01")
+    except ValueError:
+        return today
+
+
+def _calendar_entries(request, start: dt.date, end: dt.date, today: dt.date) -> list:
+    """Jobs' dates and other modules' entries between start and end."""
     date_fields = [name for name, _label in Job.DATE_FIELDS] + ["delivery_actual"]
     span = Q()
     for name in date_fields:
@@ -142,41 +151,155 @@ def job_calendar(request):
     ).select_related("customer")
 
     labels = dict(Job.DATE_FIELDS) | {"delivery_actual": "Delivered"}
-    by_day: dict[dt.date, list] = {}
+    out = []
     for job in jobs:
-        late = bool(job.schedule_flags(today))
+        finished = job.status in (Status.COMPLETED, Status.CLOSED)
         for name in date_fields:
             day = getattr(job, name)
             if day and start <= day <= end:
-                by_day.setdefault(day, []).append(
+                done = finished or name == "delivery_actual"
+                out.append(
                     agenda.Entry(
                         day=day,
                         label=labels[name],
                         text=f"{job.number} {job.title}",
                         url=job.get_absolute_url(),
-                        late=late,
+                        # Late once the day has passed, not on the day itself.
+                        late=job.is_open and not done and day < today,
                         kind="job",
+                        done=done,
                     )
                 )
     # Other modules' dates: deliveries expected on purchase orders, say.
-    for entry in agenda.entries(request, start, end):
-        by_day.setdefault(entry.day, []).append(entry)
+    out += agenda.entries(request, start, end)
+    return out
 
-    prev_month = (first - dt.timedelta(days=1)).replace(day=1)
-    next_month = (first + dt.timedelta(days=32)).replace(day=1)
-    return render(
-        request,
-        "jobs/calendar.html",
-        {
-            "month": first,
-            "today": today,
-            "weeks": [[(day, by_day.get(day, [])) for day in week] for week in weeks],
-            "prev": prev_month.strftime("%Y-%m"),
-            "next": next_month.strftime("%Y-%m"),
-            "weekdays": [calendar.day_abbr[(week_start + i) % 7] for i in range(7)],
-            "has_others": agenda.any_for(request),
-        },
+
+def _pinned(user) -> dict:
+    """The calendar view this person made their default, if any."""
+    return (getattr(user, "preferences", None) or {}).get("calendar") or {}
+
+
+def _when(day: dt.date, today: dt.date) -> str:
+    days = (day - today).days
+    if days == 0:
+        return "today"
+    if days == 1:
+        return "tomorrow"
+    if days == -1:
+        return "yesterday"
+    return f"in {days} days" if days > 0 else f"{-days} days ago"
+
+
+@permission_required("jobs.view")
+def job_calendar(request):
+    """The calendar by month (the default), week or day, with its items listed
+    below as a task list, soonest first (FR-JOB-9)."""
+    today = timezone.localdate()
+    pinned = _pinned(request.user)
+    view = request.GET.get("view") or pinned.get("view", "month")
+    if view not in dict(VIEWS):
+        view = "month"
+    # The week style sticks for the session, so they needn't pick it each time.
+    style = (
+        request.GET.get("week")
+        or request.session.get("calendar_week")
+        or pinned.get("week", "full")
     )
+    if style not in dict(WEEK_STYLES):
+        style = "full"
+    request.session["calendar_week"] = style
+    anchor = _anchor(request, today)
+    week_start = request.business.week_start
+    weekdays = [calendar.day_abbr[(week_start + i) % 7] for i in range(7)]
+
+    if view == "month":
+        first = anchor.replace(day=1)
+        weeks = calendar.Calendar(firstweekday=week_start).monthdatescalendar(
+            first.year, first.month
+        )
+        days = [day for week in weeks for day in week]
+        prev = (first - dt.timedelta(days=1)).replace(day=1)
+        nxt = (first + dt.timedelta(days=32)).replace(day=1)
+    elif view == "week":
+        first = anchor - dt.timedelta(days=(anchor.weekday() - week_start) % 7)
+        if style == "work":
+            monday = first + dt.timedelta(days=(0 - week_start) % 7)
+            days = [monday + dt.timedelta(days=i) for i in range(5)]
+        else:
+            days = [first + dt.timedelta(days=i) for i in range(7)]
+        prev, nxt = anchor - dt.timedelta(days=7), anchor + dt.timedelta(days=7)
+    else:
+        days = [anchor]
+        prev, nxt = anchor - dt.timedelta(days=1), anchor + dt.timedelta(days=1)
+
+    start, end = days[0], days[-1]
+    entries = _calendar_entries(request, start, end, today)
+    by_day: dict[dt.date, list] = {}
+    for entry in entries:
+        by_day.setdefault(entry.day, []).append(entry)
+    # Soonest first; on one day, what is still to do before what is done.
+    tasks = sorted(entries, key=lambda e: (e.day, e.done, e.label, e.text))
+
+    def link(**changes) -> str:
+        params = {"view": view, "date": anchor.isoformat()} | changes
+        if params["view"] == "week":
+            params.setdefault("week", style)
+        return "?" + "&".join(f"{k}={v}" for k, v in params.items())
+
+    context = {
+        "view": view,
+        "views": [
+            {"key": k, "label": label, "url": link(view=k), "active": k == view}
+            for k, label in VIEWS
+        ],
+        "week_styles": [
+            {"key": k, "label": label, "url": link(week=k), "active": k == style}
+            for k, label in WEEK_STYLES
+        ],
+        "anchor": anchor,
+        "today": today,
+        "start": start,
+        "end": end,
+        "prev": link(date=prev.isoformat()),
+        "next": link(date=nxt.isoformat()),
+        "this": link(date=today.isoformat()),
+        "tasks": [(e, _when(e.day, today)) for e in tasks],
+        "has_others": agenda.any_for(request),
+        "week_style": style,
+        "is_default": pinned.get("view", "month") == view
+        and (view != "week" or pinned.get("week", "full") == style),
+    }
+    if view == "month":
+        context |= {
+            "month": first,
+            "weeks": [[(day, by_day.get(day, [])) for day in week] for week in weeks],
+            "weekdays": weekdays,
+        }
+    else:
+        context["days"] = [(day, by_day.get(day, [])) for day in days]
+    return render(request, "jobs/calendar.html", context)
+
+
+@require_POST
+@permission_required("jobs.view")
+def calendar_default(request):
+    """Make the calendar view being shown this person's default."""
+    view = request.POST.get("view", "")
+    style = request.POST.get("week", "full")
+    if view in dict(VIEWS) and style in dict(WEEK_STYLES):
+        user = request.user
+        user.preferences = (user.preferences or {}) | {"calendar": {"view": view, "week": style}}
+        user.save(update_fields=["preferences"])
+        request.session["calendar_week"] = style
+        messages.success(request, "The calendar will open in this view from now on.")
+    if view not in dict(VIEWS):
+        return redirect("jobs:calendar")
+    try:
+        date = dt.date.fromisoformat(request.POST.get("date", ""))
+    except ValueError:
+        date = timezone.localdate()
+    return redirect(f"{reverse('jobs:calendar')}?view={view}&week={style}&date={date.isoformat()}")
 
 
 # ---------------------------------------------------------------------------

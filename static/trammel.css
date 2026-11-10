@@ -266,6 +266,23 @@ table.calendar { table-layout: fixed; }
 .cal-entry.cal-delivery { background: var(--surface); border: 1px dashed var(--muted); border-left: 3px solid var(--accent); }
 .cal-entry.cal-delivery.late { background: var(--surface); border-color: var(--err-text); color: var(--err-text); }
 .cal-label { font-weight: 700; }
+.day-number { color: var(--text); text-decoration: none; }
+a.day-number:hover { text-decoration: underline; }
+.cal-entry.done { background: var(--bg); color: var(--muted); text-decoration: line-through; }
+/* Week view: one tall row, entries in full. */
+.calendar-week td { height: 14rem; }
+.calendar-week th a { color: inherit; text-decoration: none; }
+.calendar-week td.today { background: var(--accent-soft); }
+.calendar-bar { display: flex; flex-wrap: wrap; gap: .75rem; margin-bottom: .75rem; }
+.calendar-default { margin-left: auto; align-self: center; }
+/* A row of linked choices, the current one filled. */
+.segmented { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.segmented a { padding: .35rem .8rem; text-decoration: none; color: var(--text); border-right: 1px solid var(--border); }
+.segmented a:last-child { border-right: 0; }
+.segmented a[aria-current] { background: var(--accent); color: var(--accent-text); font-weight: 600; }
+.task-list { margin-top: 1.5rem; }
+.task-list tr.done td { color: var(--muted); }
+.task-list tr.late td:first-child { color: var(--err-text); }
 
 /* Files */
 .file-grid { list-style: none; padding: 0; margin: .5rem 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); gap: .75rem; }

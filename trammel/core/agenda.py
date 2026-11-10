@@ -29,6 +29,8 @@ class Entry:
     late: bool = False
     #: A CSS hook so kinds can look different (“job”, “delivery”).
     kind: str = ""
+    #: Already taken care of (a delivered job): shown, but not as a task to do.
+    done: bool = False
 
 
 def register(*, permission: str | None = None):

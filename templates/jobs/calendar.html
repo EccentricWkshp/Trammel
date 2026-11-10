@@ -1,15 +1,39 @@
 {% extends "base.html" %}
+{% load trammel %}
 {% block title %}Calendar{% endblock %}
 {% block content %}
 <div class="heading-row">
-  <h1>{{ month|date:"F Y" }}</h1>
-  <nav class="actions" aria-label="Month">
-    <a href="?month={{ prev }}" rel="prev">← Previous</a>
-    <a href="{% url 'jobs:calendar' %}">This month</a>
-    <a href="?month={{ next }}" rel="next">Next →</a>
+  <h1>{% if view == "month" %}{{ month|date:"F Y" }}{% elif view == "week" %}Week of {{ start|d }}{% else %}{{ anchor|date:"l" }}, {{ anchor|d }}{% endif %}</h1>
+  <nav class="actions" aria-label="Dates">
+    <a href="{{ prev }}" rel="prev">← Previous</a>
+    <a href="{{ this }}">Today</a>
+    <a href="{{ next }}" rel="next">Next →</a>
   </nav>
 </div>
+<div class="calendar-bar">
+  <nav class="segmented" aria-label="Calendar view">
+    {% for v in views %}<a href="{{ v.url }}"{% if v.active %} aria-current="true"{% endif %}>{{ v.label }}</a>{% endfor %}
+  </nav>
+  {% if view == "week" %}
+  <nav class="segmented" aria-label="Days shown">
+    {% for s in week_styles %}<a href="{{ s.url }}"{% if s.active %} aria-current="true"{% endif %}>{{ s.label }}</a>{% endfor %}
+  </nav>
+  {% endif %}
+  {% if is_default %}
+  <span class="muted calendar-default">Your default view</span>
+  {% else %}
+  <form method="post" action="{% url 'jobs:calendar_default' %}" class="calendar-default">
+    {% csrf_token %}
+    <input type="hidden" name="view" value="{{ view }}">
+    <input type="hidden" name="week" value="{{ week_style }}">
+    <input type="hidden" name="date" value="{{ anchor.isoformat }}">
+    <button type="submit" class="linklike">Make this my default view</button>
+  </form>
+  {% endif %}
+</div>
 <p class="lede">Target, due, promised and delivery dates of jobs. Late ones are marked.{% if has_others %} Purchase orders due to arrive are outlined.{% endif %}</p>
+
+{% if view == "month" %}
 <div class="table-wrap">
 <table class="calendar">
   <thead><tr>{% for d in weekdays %}<th scope="col">{{ d }}</th>{% endfor %}</tr></thead>
@@ -18,9 +42,9 @@
     <tr>
     {% for day, entries in week %}
       <td class="{% if day.month != month.month %}other-month{% endif %}{% if day == today %} today{% endif %}">
-        <span class="day-number">{{ day.day }}</span>
+        <a class="day-number" href="?view=day&amp;date={{ day.isoformat }}" aria-label="{{ day|date:'l' }}, {{ day|d }}">{{ day.day }}</a>
         {% for e in entries %}
-          <a class="cal-entry{% if e.late %} late{% endif %}{% if e.kind %} cal-{{ e.kind }}{% endif %}" href="{{ e.url }}">
+          <a class="cal-entry{% if e.late and not e.done %} late{% endif %}{% if e.done %} done{% endif %}{% if e.kind %} cal-{{ e.kind }}{% endif %}" href="{{ e.url }}">
             <span class="cal-label">{{ e.label }}</span> {{ e.text|truncatechars:34 }}
           </a>
         {% endfor %}
@@ -31,4 +55,45 @@
   </tbody>
 </table>
 </div>
+{% elif view == "week" %}
+<div class="table-wrap">
+<table class="calendar calendar-week">
+  <thead><tr>{% for day, entries in days %}<th scope="col"><a href="?view=day&amp;date={{ day.isoformat }}">{{ day|date:"D" }} {{ day|d }}</a></th>{% endfor %}</tr></thead>
+  <tbody><tr>
+    {% for day, entries in days %}
+    <td class="{% if day == today %}today{% endif %}">
+      {% for e in entries %}
+        <a class="cal-entry{% if e.late and not e.done %} late{% endif %}{% if e.done %} done{% endif %}{% if e.kind %} cal-{{ e.kind }}{% endif %}" href="{{ e.url }}">
+          <span class="cal-label">{{ e.label }}</span> {{ e.text }}
+        </a>
+      {% empty %}<span class="muted">Nothing</span>
+      {% endfor %}
+    </td>
+    {% endfor %}
+  </tr></tbody>
+</table>
+</div>
+{% endif %}
+
+<section class="panel task-list" aria-labelledby="tasks-heading">
+  <h2 id="tasks-heading">{% if view == "month" %}On the calendar this month{% elif view == "week" %}This week{% else %}This day{% endif %}</h2>
+  {% if tasks %}
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th scope="col">When</th><th scope="col">What</th><th scope="col">For</th></tr></thead>
+    <tbody>
+    {% for e, when in tasks %}
+      <tr class="{% if e.done %}done{% elif e.late %}late{% endif %}">
+        <td class="nowrap"><a href="?view=day&amp;date={{ e.day.isoformat }}">{{ e.day|date:"D" }} {{ e.day|d }}</a> <span class="muted">{{ when }}</span></td>
+        <td>{{ e.label }}{% if e.done %} <span class="badge">done</span>{% elif e.late %} <span class="flag flag-late">late</span>{% endif %}</td>
+        <td><a href="{{ e.url }}">{{ e.text }}</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="muted">Nothing on the calendar {% if view == "month" %}this month{% elif view == "week" %}this week{% else %}this day{% endif %}.</p>
+  {% endif %}
+</section>
 {% endblock %}

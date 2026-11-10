@@ -8,6 +8,7 @@ urlpatterns = [
     path("", views.job_list, name="list"),
     path("export.csv", views.job_csv, name="csv"),
     path("calendar/", views.job_calendar, name="calendar"),
+    path("calendar/default/", views.calendar_default, name="calendar_default"),
     path("new/", views.job_create, name="create"),
     path("<uuid:pk>/", views.job_detail, name="detail"),
     path("<uuid:pk>/edit/", views.job_edit, name="edit"),
