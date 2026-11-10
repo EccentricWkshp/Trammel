@@ -53,7 +53,7 @@ def test_currency_locks_once_a_financial_document_exists(admin_client):
     assert not modules.currency_locked()
     Widget.objects.create(name="first invoice stand-in")
     assert modules.currency_locked()
-    page = admin_client.get("/settings/business/").content.decode()
+    page = admin_client.get("/settings/business/?tab=region").content.decode()
     assert "Locked" in page
 
 

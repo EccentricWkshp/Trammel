@@ -98,3 +98,27 @@ def test_main_menu_follows_the_workflow(admin_client):
     ]
     calendar = admin_client.get("/jobs/calendar/").content.decode()
     assert calendar.count('aria-current="page"') == 1
+
+
+@pytest.mark.django_db
+def test_business_settings_tabs_save_on_their_own(admin_client):
+    from trammel.core.models import BusinessProfile
+
+    keys = walk(admin_client, "/settings/business/")
+    assert keys == ["details", "documents", "region", "tax"]
+    tax = admin_client.get("/settings/business/?tab=tax").content.decode()
+    assert "resale_certificate_number" in tax and "Resale certificate file" in tax
+    assert "Resale certificate file" not in admin_client.get("/settings/business/").content.decode()
+    before = BusinessProfile.load()
+    response = admin_client.post(
+        "/settings/business/?tab=tax", {"resale_certificate_number": "WA-RS-1188"}
+    )
+    assert response["Location"] == "/settings/business/?tab=tax"
+    after = BusinessProfile.load()
+    assert after.resale_certificate_number == "WA-RS-1188"
+    # The other tabs' settings are untouched, checkboxes included.
+    assert (after.name, after.timezone, after.show_logo) == (
+        before.name,
+        before.timezone,
+        before.show_logo,
+    )

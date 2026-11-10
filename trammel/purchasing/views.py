@@ -102,7 +102,6 @@ def order_new(request):
             expected_on=d["expected_on"],
             vendor_reference=d["vendor_reference"],
             tax_exempt=d["tax_exempt"],
-            exemption_number=d["exemption_number"],
             tax=d["tax"],
             shipping=d["shipping"],
             discount=d["discount"],
@@ -127,7 +126,6 @@ def order_edit(request, pk):
                 "expected_on",
                 "vendor_reference",
                 "tax_exempt",
-                "exemption_number",
                 "tax",
                 "shipping",
                 "discount",
@@ -203,8 +201,19 @@ def detail(request, pk):
             "actions": PurchaseOrder.lifecycle.available(po, actor),
             "locations": Location.objects.filter(is_active=True) if can_receive else [],
             "today": timezone.localdate(),
+            "certificate": _resale_certificate(po),
         },
     )
+
+
+def _resale_certificate(po):
+    """The shop's resale certificate file, for an exempt order's vendor."""
+    if not po.tax_exempt:
+        return None
+    from trammel.files.models import ShopDocument
+    from trammel.files.services import shop_document
+
+    return shop_document(ShopDocument.RESALE_CERTIFICATE)
 
 
 @permission_required("purchasing.create")

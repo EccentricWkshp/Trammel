@@ -78,8 +78,8 @@ class OrderIn(Schema):
     vendor: UUID
     expected_on: dt.date | None = None
     vendor_reference: str = ""
+    #: An exempt order uses the shop's resale certificate from business settings.
     tax_exempt: bool = False
-    exemption_number: str = ""
     tax: Decimal = Decimal("0")
     shipping: Decimal = Decimal("0")
     discount: Decimal = Decimal("0")

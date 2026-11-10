@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 from decimal import Decimal
 
 from django.conf import settings
@@ -143,6 +144,64 @@ def _kinds():
             _plain(
                 when="11/08/2026 1:00 AM",
                 error="pg_dump: error: connection to server failed",
+            ),
+        ),
+        "stock_low": (
+            (
+                ph.Group(
+                    "Low stock",
+                    (
+                        P(
+                            "items",
+                            "The materials, each with material, on_hand, restock_at and reorder",
+                        ),
+                        P("link", "The restock list"),
+                    ),
+                ),
+                ph.BUSINESS,
+            ),
+            _plain(
+                items=[
+                    {
+                        "material": "Walnut, 4/4",
+                        "on_hand": "3.5 board ft",
+                        "restock_at": "10 board ft",
+                        "reorder": "40 board ft",
+                    },
+                    {
+                        "material": "Danish oil",
+                        "on_hand": "0.2 l",
+                        "restock_at": "0.5 l",
+                        "reorder": "",
+                    },
+                ],
+                link=f"{settings.BASE_URL}/stock/restock/",
+            ),
+        ),
+        "delivery_overdue": (
+            (
+                ph.Group(
+                    "Purchase order",
+                    (
+                        P("po.number", "Its number"),
+                        P("po.vendor", "The vendor"),
+                        P("po.ordered_on", "When it was ordered"),
+                        P("po.expected_on", "When it was expected"),
+                        P("lines", "What is still to arrive"),
+                        P("link", "The purchase order"),
+                    ),
+                ),
+                ph.BUSINESS,
+            ),
+            _plain(
+                po={
+                    "number": "PO-2026-0042",
+                    "vendor": "Hardwood Haven",
+                    "ordered_on": timezone.localdate() - dt.timedelta(days=12),
+                    "expected_on": timezone.localdate() - dt.timedelta(days=2),
+                },
+                lines=["40 board ft Walnut, 4/4", "2 l Danish oil"],
+                link=f"{settings.BASE_URL}/purchasing/…",
             ),
         ),
         "update_available": (

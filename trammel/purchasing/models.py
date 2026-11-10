@@ -43,6 +43,16 @@ def _tax_has_a_taxable_line(po):
         yield "Tax is entered, but every line is tax exempt. Remove the tax or a line's exemption."
 
 
+def _exemption_on_file(po):
+    if po.tax_exempt:
+        from django.utils import timezone
+
+        from trammel.core.models import BusinessProfile
+
+        if problem := BusinessProfile.load().resale_certificate_problem(timezone.localdate()):
+            yield problem
+
+
 def _nothing_received(po):
     if po.receipts.exists():
         yield "Something has been received on this order; close it instead."
@@ -58,7 +68,7 @@ PO_LIFECYCLE = Lifecycle(
             Status.ORDERED,
             permission="purchasing.order",
             label="Place order",
-            guards=(_has_lines, _tax_has_a_taxable_line),
+            guards=(_has_lines, _tax_has_a_taxable_line, _exemption_on_file),
         ),
         Transition(Status.ORDERED, Status.CLOSED, permission="purchasing.order", label="Close"),
         Transition(

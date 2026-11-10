@@ -107,6 +107,31 @@ class BusinessProfileForm(forms.ModelForm):
         "default_payment_terms_days",
     )
     REGIONAL = ("timezone", "unit_system", "week_start", "date_format", "currency")
+    RESALE = ("resale_certificate_number", "resale_certificate_expires")
+    LOGO = ("logo_file", "remove_logo")
+
+    #: The settings page's tabs: (key, label, its titled groups of fields). Each tab
+    #: is a form of its own, so saving one leaves the others as they are.
+    TABS = (
+        ("details", "Details", (("Details", DETAILS),)),
+        (
+            "documents",
+            "Logo and printing",
+            (
+                ("Logo", LOGO),
+                (
+                    "Shown on quotes, invoices, agreements and emails",
+                    BusinessProfile.DOCUMENT_DETAILS,
+                ),
+            ),
+        ),
+        ("region", "Region and format", (("Region and format", REGIONAL),)),
+        ("tax", "Tax certificate", (("Resale certificate", RESALE),)),
+    )
+
+    @classmethod
+    def tab_keys(cls) -> list[str]:
+        return [key for key, _, _ in cls.TABS]
 
     class Meta:
         model = BusinessProfile
@@ -124,6 +149,8 @@ class BusinessProfileForm(forms.ModelForm):
             "country",
             "tax_registration_numbers",
             "default_payment_terms_days",
+            "resale_certificate_number",
+            "resale_certificate_expires",
             *BusinessProfile.DOCUMENT_DETAILS,
             "timezone",
             "unit_system",
@@ -131,29 +158,35 @@ class BusinessProfileForm(forms.ModelForm):
             "date_format",
             "currency",
         ]
-        widgets = {"tax_registration_numbers": forms.Textarea(attrs={"rows": 3})}
+        widgets = {
+            "tax_registration_numbers": forms.Textarea(attrs={"rows": 3}),
+            "resale_certificate_expires": forms.DateInput(attrs={"type": "date"}),
+        }
 
-    def __init__(self, *args, currency_locked: bool = False, **kwargs):
+    def __init__(self, *args, tab: str = "details", currency_locked: bool = False, **kwargs):
         super().__init__(*args, **kwargs)
         self._logo = None
-        self.fields["currency"].widget = forms.Select(choices=currency_choices())
-        if currency_locked:
-            self.fields["currency"].disabled = True
-            self.fields[
-                "currency"
-            ].help_text = "Locked: quotes or invoices already exist in this currency."
-        if not self.instance.logo:
+        self.tab = tab
+        self.groups = next(groups for key, _, groups in self.TABS if key == tab)
+        keep = {name for _, names in self.groups for name in names}
+        for name in list(self.fields):
+            if name not in keep:
+                del self.fields[name]
+        if "currency" in self.fields:
+            self.fields["currency"].widget = forms.Select(choices=currency_choices())
+            if currency_locked:
+                self.fields["currency"].disabled = True
+                self.fields[
+                    "currency"
+                ].help_text = "Locked: quotes or invoices already exist in this currency."
+        if "remove_logo" in self.fields and not self.instance.logo:
             del self.fields["remove_logo"]
 
     def sections(self):
-        """The fields in titled groups, for the business settings page."""
-        groups = [
-            ("Details", self.DETAILS),
-            ("Logo", ("logo_file", "remove_logo")),
-            ("Shown on quotes, invoices, agreements and emails", BusinessProfile.DOCUMENT_DETAILS),
-            ("Region and format", self.REGIONAL),
+        """This tab's fields in titled groups."""
+        return [
+            (title, [self[n] for n in names if n in self.fields]) for title, names in self.groups
         ]
-        return [(title, [self[n] for n in names if n in self.fields]) for title, names in groups]
 
     def clean_logo_file(self):
         from .logo import prepare

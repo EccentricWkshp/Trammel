@@ -86,6 +86,8 @@ class StockItem(models.Model):
         related_name="+",
         help_text="Where new stock goes unless you say otherwise.",
     )
+    #: When staff were told it reached its restock level; cleared once it is above it.
+    low_notified_at = models.DateTimeField(null=True, blank=True, editable=False)
     created_at = models.DateTimeField(default=timezone.now, editable=False)
     updated_at = models.DateTimeField(auto_now=True)
 

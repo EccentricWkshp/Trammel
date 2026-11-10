@@ -16,6 +16,8 @@ DEFAULT_TYPES = [
     ("gcode", "G-code", "gcode, nc, ngc, tap, cnc", True),
     ("photo", "Photo", "jpg, jpeg, png, heic, webp", False),
     ("receipt", "Receipt or confirmation", "", False),
+    # A customer's tax exemption certificate, and the shop's own resale certificate.
+    ("exemption", "Tax exemption certificate", "", False),
     ("other", "Other", "", False),
 ]
 

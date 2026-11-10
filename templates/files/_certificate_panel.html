@@ -1,0 +1,30 @@
+<h2 id="panel-{{ heading_id }}">Tax exemption certificate</h2>
+{% if ctx.link %}{% with doc=ctx.link.document rev=ctx.link.document.current %}
+<p><a href="{% url 'files:download' rev.pk %}{% if rev.blob.is_previewable_inline %}?inline=1{% endif %}">{{ doc.title }}</a>
+  <span class="muted">uploaded {{ rev.created_at|d }}{% if ctx.customer.tax_exempt_number %} · for {{ ctx.customer.tax_exempt_number }}{% endif %}</span></p>
+{% if not ctx.customer.tax_exempt %}<p class="muted">The customer isn't marked tax exempt, so invoices charge tax.</p>{% endif %}
+{% endwith %}{% else %}
+<p class="callout warn">No certificate on file. Keep a copy of the customer's certificate here so the exemption on their invoices is documented.</p>
+{% endif %}
+{% if ctx.can_upload %}
+<form method="post" action="{% url 'files:attach' 'customers.customer' ctx.customer.pk %}" enctype="multipart/form-data" class="upload-row">
+  {% csrf_token %}
+  <input type="hidden" name="next" value="{{ ctx.here }}">
+  {% if ctx.doc_type %}<input type="hidden" name="doc_type" value="{{ ctx.doc_type.pk }}">{% endif %}
+  <label>{% if ctx.link %}Upload a newer certificate{% else %}Upload the certificate{% endif %} <input type="file" name="file" required></label>
+  <button type="submit">Upload</button>
+</form>
+{% if ctx.others and ctx.doc_type %}
+<form method="post" action="{% url 'files:use_as_certificate' %}" class="upload-row">
+  {% csrf_token %}
+  <input type="hidden" name="next" value="{{ ctx.here }}">
+  <label>Or use a file already uploaded
+    <select name="link" required>
+      <option value="">Choose a file</option>
+      {% for a in ctx.others %}<option value="{{ a.pk }}">{{ a.document.title }}</option>{% endfor %}
+    </select>
+  </label>
+  <button type="submit">Use as the certificate</button>
+</form>
+{% endif %}
+{% endif %}

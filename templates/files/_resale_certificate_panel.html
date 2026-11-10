@@ -1,0 +1,15 @@
+<h2 id="panel-{{ heading_id }}">Resale certificate file</h2>
+{% if ctx.document %}{% with rev=ctx.document.current %}
+<p><a href="{% url 'files:download' rev.pk %}{% if rev.blob.is_previewable_inline %}?inline=1{% endif %}">{{ ctx.document.title }}</a>
+  <span class="muted">uploaded {{ rev.created_at|d }}{% if rev.number > 1 %} · copy {{ rev.number }}{% endif %}</span></p>
+{% endwith %}{% else %}
+<p class="muted">No file yet. Keep a copy of the certificate here, with its number above, to send vendors who ask for it.</p>
+{% endif %}
+{% if ctx.can_upload %}
+<form method="post" action="{% url 'files:shop_document' ctx.key %}" enctype="multipart/form-data" class="upload-row">
+  {% csrf_token %}
+  <input type="hidden" name="next" value="{{ ctx.here }}">
+  <label>{% if ctx.document %}Upload a new copy{% else %}Upload the certificate{% endif %} <input type="file" name="file" required></label>
+  <button type="submit">Upload</button>
+</form>
+{% endif %}

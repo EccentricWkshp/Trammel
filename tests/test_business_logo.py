@@ -39,7 +39,7 @@ def _jpeg_with_exif(size=(3000, 1000)) -> bytes:
 
 
 def _post(admin_client, business, **extra):
-    form = BusinessProfileForm(instance=business)
+    form = BusinessProfileForm(instance=business, tab="documents")
     data = {}
     for name in form.fields:
         if name in ("logo_file", "remove_logo"):
@@ -51,7 +51,7 @@ def _post(admin_client, business, **extra):
         elif value is not None:
             data[name] = value
     data.update(extra)
-    return admin_client.post("/settings/business/", data)
+    return admin_client.post("/settings/business/?tab=documents", data)
 
 
 @pytest.mark.django_db
@@ -67,7 +67,7 @@ def test_upload_png_logo(admin_client, setup_done):
     event = AuditEvent.objects.filter(entity_type="core.businessprofile").latest("at")
     assert "bytes, sha256" in json.dumps(event.after)
     # The settings page shows the current logo and offers to remove it.
-    page = admin_client.get("/settings/business/").content.decode()
+    page = admin_client.get("/settings/business/?tab=documents").content.decode()
     assert 'alt="Current logo"' in page and "Remove the logo" in page
 
 

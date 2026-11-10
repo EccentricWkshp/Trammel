@@ -2,23 +2,27 @@
 {% block title %}{{ title }}{% endblock %}
 {% block settings_content %}
 <h1>{{ title }}</h1>
-<form method="post" enctype="multipart/form-data" class="stack" novalidate>
+{% include "partials/tabs.html" %}
+<div class="tab-body">
+<form method="post" action="?tab={{ tab }}" enctype="multipart/form-data" class="stack" novalidate>
   {% csrf_token %}
   {% if form.non_field_errors %}
   <div class="form-errors" role="alert">{% for e in form.non_field_errors %}<p>{{ e }}</p>{% endfor %}</div>
   {% endif %}
   {% for section, fields in form.sections %}
-  <h2 class="form-section">{{ section }}</h2>
-  {% if forloop.counter == 2 %}
+  {% if form.sections|length > 1 %}<h2 class="form-section">{{ section }}</h2>{% endif %}
+  {% if section == "Logo" %}
     {% if form.instance.logo %}
     <div class="logo-preview"><img src="{{ form.instance.logo_data_uri }}" alt="Current logo"></div>
     {% else %}
     <p class="muted">No logo yet. Quotes, invoices and agreements show it at the top.</p>
     {% endif %}
-  {% elif forloop.counter == 3 %}
+  {% elif tab == "documents" %}
     <p class="muted">Turn off anything you don't want printed. Your business name always shows.</p>
+  {% elif tab == "tax" %}
+    <p class="muted">The shop's resale certificate, for buying materials tax free. Tax-exempt purchase orders use it instead of a number typed on each order.</p>
   {% endif %}
-  <div{% if forloop.counter == 3 %} class="check-grid"{% endif %}>
+  <div{% if tab == "documents" and section != "Logo" %} class="check-grid"{% endif %}>
   {% for field in fields %}
     <div class="field{% if field.widget_type == 'checkbox' %} field-check{% endif %}">{{ field.as_field_group }}</div>
   {% endfor %}
@@ -28,4 +32,6 @@
     <button type="submit" class="primary">Save</button>
   </div>
 </form>
+{% include "partials/panels.html" %}
+</div>
 {% endblock %}

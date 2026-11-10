@@ -11,7 +11,7 @@
       {% if po.ordered_on %}<div><dt>Ordered</dt><dd>{{ po.ordered_on|d }}</dd></div>{% endif %}
       {% if po.expected_on %}<div><dt>Expected</dt><dd>{{ po.expected_on|d }}{% if po.is_open and po.expected_on < today and state != "all" %} <span class="flag flag-late">late</span>{% endif %}</dd></div>{% endif %}
       {% if po.vendor_reference %}<div><dt>Their number</dt><dd>{{ po.vendor_reference }}</dd></div>{% endif %}
-      {% if po.tax_exempt %}<div><dt>Tax</dt><dd>Exempt{% if po.exemption_number %} · certificate {{ po.exemption_number }}{% endif %}</dd></div>{% endif %}
+      {% if po.tax_exempt %}<div><dt>Tax</dt><dd>Exempt{% if po.exemption_number %} · certificate {{ po.exemption_number }}{% endif %}{% if certificate %} (<a href="{% url 'files:download' certificate.current.pk %}{% if certificate.current.blob.is_previewable_inline %}?inline=1{% endif %}">copy</a>){% endif %}</dd></div>{% endif %}
       <div><dt>Total</dt><dd>{{ totals.total|money }}</dd></div>
     </dl>
   </div>

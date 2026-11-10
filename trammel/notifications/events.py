@@ -12,6 +12,8 @@ class Event:
     audience: str  # "customer", "staff", or "user" (the person it is about)
     subject: str
     body: str
+    #: The module whose records it is about; it is listed only while that is on.
+    module: str = ""
 
     @property
     def audience_short(self) -> str:
@@ -116,5 +118,35 @@ EVENTS: dict[str, Event] = {
             "Trammel {{ version }} has been released; this instance runs {{ current }}.\n"
             "{{ url }}\n",
         ),
+        Event(
+            "stock_low",
+            "Stock at its restock level",
+            "staff",
+            "Low stock: {{ items|length }} material{% if items|length != 1 %}s{% endif %}",
+            "These materials have reached their restock level:\n\n"
+            "{% for item in items %}- {{ item.material }}: {{ item.on_hand }} left "
+            "(restock at {{ item.restock_at }}"
+            "{% if item.reorder %}, reorder {{ item.reorder }}{% endif %})\n{% endfor %}\n"
+            "Nothing has been ordered. The restock list: {{ link }}\n",
+            module="stock",
+        ),
+        Event(
+            "delivery_overdue",
+            "Delivery past its expected date",
+            "staff",
+            "Late delivery: {{ po.number }} from {{ po.vendor }}",
+            "Purchase order {{ po.number }} from {{ po.vendor }} was expected on "
+            "{{ po.expected_on|date }}{% if po.ordered_on %} (ordered "
+            "{{ po.ordered_on|date }}){% endif %}. Still to arrive:\n\n"
+            "{% for line in lines %}- {{ line }}\n{% endfor %}\n{{ link }}\n",
+            module="purchasing",
+        ),
     ]
 }
+
+
+def listed() -> list[Event]:
+    """The events whose module is on."""
+    from trammel.core import modules
+
+    return [e for e in EVENTS.values() if not e.module or modules.is_enabled(e.module)]

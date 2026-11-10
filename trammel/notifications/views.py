@@ -12,7 +12,7 @@ from trammel.core.web import admin_required, paginate, permission_required
 from trammel.core.widgets import MultiSelectDropdown
 
 from . import services
-from .events import EVENTS
+from .events import EVENTS, listed
 from .models import EmailLog, EmailTemplate, SmtpSettings
 
 
@@ -106,7 +106,7 @@ def smtp(request):
         {
             "form": form,
             "password_set": secrets.is_set(services.PASSWORD_KEY),
-            "templates": [(EVENTS[k], services.template_for(k)) for k in EVENTS],
+            "templates": [(e, services.template_for(e.key)) for e in listed()],
         },
     )
 

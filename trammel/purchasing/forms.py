@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from django import forms
 from django.db.models import Q
+from django.utils import timezone
 
 from trammel.core import units
+from trammel.core.models import BusinessProfile
 from trammel.shop.models import Material, Vendor
 from trammel.workorders.models import ACTIVE, WorkOrder
 
@@ -24,7 +26,6 @@ class OrderForm(forms.ModelForm):
             "expected_on",
             "vendor_reference",
             "tax_exempt",
-            "exemption_number",
             "tax",
             "shipping",
             "discount",
@@ -45,6 +46,14 @@ class OrderForm(forms.ModelForm):
         self.fields["vendor"].queryset = Vendor.objects.filter(
             Q(is_active=True) | Q(pk=current)
         ).order_by("name")
+        business = BusinessProfile.load()
+        number = business.resale_certificate_number
+        self.fields["tax_exempt"].help_text = (
+            f"Bought for resale under the shop's resale certificate, {number}. Its tax is zero."
+            if number
+            else "Bought for resale. Its tax is zero. Set the shop's resale certificate in "
+            "Settings, Business first."
+        )
         if self.instance.pk and not self.instance._state.adding:
             # The vendor is fixed once lines are priced from them.
             self.fields["vendor"].disabled = True
@@ -53,6 +62,16 @@ class OrderForm(forms.ModelForm):
                     self.fields[name].disabled = True
                     self.fields[name].help_text = "Fixed once a delivery has arrived."
         _decimal_inputs(self)
+
+    def clean_tax_exempt(self):
+        exempt = self.cleaned_data.get("tax_exempt")
+        # A placed order keeps the certificate it went out with.
+        drafting = self.instance._state.adding or self.instance.status == "draft"
+        if exempt and drafting:
+            problem = BusinessProfile.load().resale_certificate_problem(timezone.localdate())
+            if problem:
+                raise forms.ValidationError(problem)
+        return exempt
 
 
 class LineForm(forms.ModelForm):

@@ -182,6 +182,50 @@ def _chosen_type(value) -> DocumentType | None:
 
 
 # ---------------------------------------------------------------------------
+# Certificates
+# ---------------------------------------------------------------------------
+
+
+@permission_required("files.upload")
+@require_POST
+def use_as_certificate(request):
+    """Mark a file already attached to a customer as their exemption certificate."""
+    try:
+        link = Attachment.objects.select_related("document").get(pk=request.POST.get("link"))
+    except Attachment.DoesNotExist, ValidationError:
+        raise Http404 from None
+    target = link.target
+    perm = services.target_permission(target) if target is not None else None
+    if perm is None or not access.has_perm(request.actor, perm, target):
+        raise Http404
+    try:
+        services.mark_certificate(link)
+    except ValidationError as exc:
+        messages.error(request, " ".join(exc.messages))
+    else:
+        messages.success(request, f"{link.document} is the tax exemption certificate.")
+    return redirect(_back(request, getattr(target, "get_absolute_url", lambda: "/")()))
+
+
+@permission_required("files.upload")
+@require_POST
+def shop_document_upload(request, key):
+    """A new copy of one of the shop's own documents, from business settings."""
+    access.require(request.actor, "core.manage_business")
+    file = request.FILES.get("file")
+    if not file:
+        messages.error(request, "Choose a file to upload.")
+    else:
+        try:
+            services.keep_shop_document(key, file, user=request.user)
+        except ValidationError as exc:
+            messages.error(request, " ".join(exc.messages))
+        else:
+            messages.success(request, f"{file.name} uploaded.")
+    return redirect(_back(request, "/settings/"))
+
+
+# ---------------------------------------------------------------------------
 # Editing a document's title, description and type
 # ---------------------------------------------------------------------------
 

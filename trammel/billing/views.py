@@ -274,6 +274,7 @@ def invoice_detail(request, pk):
             "allocations": invoice.allocations.select_related("payment", "credit_note"),
             "write_offs": invoice.write_offs.all(),
             "credit_notes": invoice.credit_notes.all(),
+            "panels": panels.for_object(request, invoice),
             "draft": draft,
             "form": InvoiceForm(instance=invoice) if draft else None,
             "line_form": LineForm(can_catalog=_can_catalog(request)) if draft else None,

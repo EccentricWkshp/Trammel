@@ -17,6 +17,7 @@ from django.db import models, transaction
 from django.utils import timezone
 
 from trammel.core import audit, numbering, units
+from trammel.core.models import BusinessProfile
 from trammel.core.money import round_money
 from trammel.core.services import save_audited
 from trammel.shop.models import Material
@@ -110,20 +111,31 @@ def _require_editable(po: PurchaseOrder) -> None:
         raise ValidationError(f"{po} has deliveries received, so its lines and charges are fixed.")
 
 
+def _shop_exemption(po: PurchaseOrder) -> None:
+    """An exempt order carries the shop's resale certificate number from business
+    settings, not one typed on the order. It is fixed once the order is placed."""
+    po.exemption_number = BusinessProfile.load().resale_certificate_number if po.tax_exempt else ""
+
+
 @transaction.atomic
 def create_order(vendor, **fields) -> PurchaseOrder:
+    fields.pop("exemption_number", None)
     po = PurchaseOrder(vendor=vendor, **fields)
+    _shop_exemption(po)
     return save_audited(po, summary=f"Drafted a purchase order to {vendor}")
 
 
 @transaction.atomic
 def update_order(po: PurchaseOrder, **fields) -> PurchaseOrder:
+    fields.pop("exemption_number", None)
     charges = {"tax", "shipping", "discount", "tax_exempt"}
     if charges & {k for k, v in fields.items() if getattr(po, k) != v}:
         _require_editable(po)
     before = audit.snapshot(po)
     for key, value in fields.items():
         setattr(po, key, value)
+    if po.status == Status.DRAFT:
+        _shop_exemption(po)
     return save_audited(po, before=before)
 
 
@@ -183,7 +195,10 @@ def place(po: PurchaseOrder, *, actor, ordered_on: dt.date | None = None) -> Pur
     if not po.number:
         po.number = numbering.next_number("purchase_order")
     po.ordered_on = ordered_on or timezone.localdate()
-    PurchaseOrder.objects.filter(pk=po.pk).update(number=po.number, ordered_on=po.ordered_on)
+    _shop_exemption(po)  # the certificate as it stands when the order goes out
+    PurchaseOrder.objects.filter(pk=po.pk).update(
+        number=po.number, ordered_on=po.ordered_on, exemption_number=po.exemption_number
+    )
     for line in po.lines.exclude(material=None):
         VendorItem.objects.update_or_create(
             vendor=po.vendor,
@@ -687,6 +702,54 @@ def spend(start: dt.date, end: dt.date, group: str = "vendor") -> tuple[list[dic
     else:
         out = sorted(rows.values(), key=lambda r: -r["total"])
     return out, {f: sum((r[f] for r in out), ZERO) for f in fields}
+
+
+def notify_late_deliveries() -> int:
+    """Email staff about placed orders still not all here after their expected date.
+
+    Once per order and expected date: moving the date and missing it again tells
+    them again. Returns how many orders were mentioned.
+    """
+    from django.conf import settings
+
+    from trammel.core.templatetags.trammel import qty
+    from trammel.notifications.models import EmailLog
+    from trammel.notifications.services import notify
+
+    sent = 0
+    today = timezone.localdate()
+    late = PurchaseOrder.objects.filter(
+        status=Status.ORDERED, expected_on__lt=today
+    ).select_related("vendor")
+    for po in late:
+        told = EmailLog.objects.filter(
+            event="delivery_overdue", entity_id=str(po.pk), at__date__gt=po.expected_on
+        ).exists()
+        if told:
+            continue
+        waiting = []
+        for line in po.lines.all():
+            got, _ = received(line)
+            if got < line.quantity:
+                waiting.append(f"{qty(line.quantity - got)} {line.get_unit_display()} {line}")
+        if not waiting:
+            continue
+        notify(
+            "delivery_overdue",
+            context={
+                "po": {
+                    "number": po.number,
+                    "vendor": str(po.vendor),
+                    "ordered_on": po.ordered_on,
+                    "expected_on": po.expected_on,
+                },
+                "lines": waiting,
+                "link": f"{settings.BASE_URL}{po.get_absolute_url()}",
+            },
+            entity=po,
+        )
+        sent += 1
+    return sent
 
 
 def open_orders() -> list[PurchaseOrder]:

@@ -1,0 +1,2 @@
+<h2 id="panel-{{ heading_id }}" class="visually-hidden">Tax exemption certificate</h2>
+<p class="callout warn">{% if ctx.invoice.exemption_number %}This invoice is tax exempt{% else %}This invoice will be tax exempt{% endif %}, but there is no exemption certificate on file for {{ ctx.customer.name }}. <a href="{{ ctx.customer.get_absolute_url }}">Add it on the customer's page.</a></p>

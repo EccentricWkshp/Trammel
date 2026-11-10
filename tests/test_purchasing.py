@@ -298,7 +298,10 @@ def test_tax_exempt_lines_take_no_tax(vendor, ply, screws, admin):
 
 @pytest.mark.django_db
 def test_a_tax_exempt_order_has_no_tax(admin_client, vendor, ply):
-    po = purchasing.create_order(vendor, tax_exempt=True, exemption_number="WA-RS-1188")
+    from trammel.core.models import BusinessProfile
+
+    BusinessProfile.objects.filter(pk=1).update(resale_certificate_number="WA-RS-1188")
+    po = purchasing.create_order(vendor, tax_exempt=True)
     with pytest.raises(ValidationError, match="tax exempt"):
         purchasing.update_order(po, tax=D("3.00"))
     purchasing.save_line(

@@ -153,6 +153,22 @@ class DocumentRevision(AppendOnlyModel):
         return f"{self.document} r{self.number}"
 
 
+class ShopDocument(models.Model):
+    """One of the shop's own documents, kept in a named slot: its resale certificate.
+
+    A new copy is the slot document's next revision, so earlier ones stay on record.
+    """
+
+    RESALE_CERTIFICATE = "resale_certificate"
+
+    key = models.CharField(max_length=40, primary_key=True)
+    document = models.ForeignKey(Document, on_delete=models.PROTECT, related_name="+")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return self.key
+
+
 class Attachment(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     document = models.ForeignKey(Document, on_delete=models.CASCADE, related_name="attachments")

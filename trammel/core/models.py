@@ -265,6 +265,21 @@ class BusinessProfile(SingletonModel):
     default_payment_terms_days = models.PositiveSmallIntegerField(
         default=30, help_text="Days after the invoice date that payment is due."
     )
+    # The shop's own exemption, for buying materials tax free. Tax-exempt
+    # purchase orders print this number; the certificate file is kept with it.
+    resale_certificate_number = models.CharField(
+        "resale certificate number",
+        max_length=60,
+        blank=True,
+        help_text="Your resale certificate or reseller permit. Tax-exempt purchase orders "
+        "show it to the vendor.",
+    )
+    resale_certificate_expires = models.DateField(
+        "resale certificate expires",
+        null=True,
+        blank=True,
+        help_text="Leave blank if it doesn't expire.",
+    )
     timezone = models.CharField(max_length=64, default="UTC", validators=[validate_timezone])
 
     class Weekday(models.IntegerChoices):
@@ -334,6 +349,23 @@ class BusinessProfile(SingletonModel):
         from .logo import data_uri
 
         return data_uri(self)
+
+    def resale_certificate_problem(self, day) -> str:
+        """Why tax-exempt purchases can't use the shop's certificate on `day`; "" if they can."""
+        from .formats import show
+
+        if not self.resale_certificate_number:
+            return (
+                "The shop's resale certificate isn't set. Add its number in "
+                "Settings, Business, or order without the exemption."
+            )
+        expires = self.resale_certificate_expires
+        if expires and expires < day:
+            return (
+                f"The shop's resale certificate expired on {show(expires)}. "
+                "Renew it in Settings, Business, or order without the exemption."
+            )
+        return ""
 
 
 class ShopRates(SingletonModel):

@@ -13,7 +13,7 @@ from django.db import IntegrityError, models, transaction
 from trammel.core import audit, tasks
 
 from . import sniff
-from .models import Attachment, Blob, Document, DocumentRevision, DocumentType
+from .models import Attachment, Blob, Document, DocumentRevision, DocumentType, ShopDocument
 
 _SNIFF_BYTES = 64 * 1024
 
@@ -210,6 +210,67 @@ def attachments_for(obj: models.Model):
             "created_at",
         )
     )
+
+
+# ---------------------------------------------------------------------------
+# Certificates: a customer's tax exemption, the shop's resale certificate
+# ---------------------------------------------------------------------------
+
+#: The document type that marks a file as a tax exemption certificate.
+EXEMPTION = "exemption"
+
+
+def exemption_type() -> DocumentType | None:
+    return DocumentType.objects.filter(slug=EXEMPTION).first()
+
+
+def certificate_for(obj: models.Model) -> Attachment | None:
+    """The newest tax exemption certificate attached to `obj` (a customer)."""
+    return (
+        attachments_for(obj)
+        .filter(document__doc_type__slug=EXEMPTION)
+        .order_by("-document__current__created_at")
+        .first()
+    )
+
+
+@transaction.atomic
+def mark_certificate(link: Attachment) -> Document:
+    """Mark an attached file as the record's tax exemption certificate."""
+    doc_type = exemption_type()
+    if doc_type is None:
+        raise ValidationError("The Tax exemption certificate document type has been deleted.")
+    document = link.document
+    return update_document(
+        document, title=document.title, description=document.description, doc_type=doc_type
+    )
+
+
+def shop_document(key: str) -> Document | None:
+    slot = ShopDocument.objects.filter(key=key, document__deleted_at=None).first()
+    return slot.document if slot else None
+
+
+SHOP_DOCUMENT_TITLES = {ShopDocument.RESALE_CERTIFICATE: "Resale certificate"}
+
+
+@transaction.atomic
+def keep_shop_document(key: str, file, *, user=None) -> DocumentRevision:
+    """Store a new copy of one of the shop's own documents (its resale certificate)."""
+    if key not in SHOP_DOCUMENT_TITLES:
+        raise ValidationError(f"There is no shop document called {key!r}.")
+    current = shop_document(key)
+    if current is not None:
+        return upload(file, name=file.name, document=current, user=user)
+    revision = upload(
+        file,
+        name=file.name,
+        title=SHOP_DOCUMENT_TITLES[key],
+        doc_type=exemption_type(),
+        user=user,
+    )
+    ShopDocument.objects.update_or_create(key=key, defaults={"document": revision.document})
+    return revision
 
 
 def blob_path(blob: Blob) -> Path:

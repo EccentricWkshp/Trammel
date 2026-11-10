@@ -195,14 +195,39 @@ def _settings_form_view(
 
 @permission_required("core.manage_business")
 def business(request):
-    return _settings_form_view(
-        request,
-        form_class=BusinessProfileForm,
-        instance=BusinessProfile.load(),
-        template="core/business_form.html",
-        title="Business",
-        success="Business details saved.",
+    """Business settings, one tab (and one form) at a time."""
+    instance = BusinessProfile.load()
+    tab = request.GET.get("tab", "")
+    if tab not in BusinessProfileForm.tab_keys():
+        tab = BusinessProfileForm.tab_keys()[0]
+    before = audit.snapshot(instance)
+    form = BusinessProfileForm(
+        request.POST or None,
+        request.FILES or None,
+        instance=instance,
+        tab=tab,
         currency_locked=modules.currency_locked(),
+    )
+    if request.method == "POST" and form.is_valid():
+        with transaction.atomic():
+            form.save()
+            audit.record_update(instance, before, summary="Edited business")
+        messages.success(request, "Business details saved.")
+        return redirect(f"{request.path}?tab={tab}")
+    return render(
+        request,
+        "core/business_form.html",
+        {
+            "form": form,
+            "title": "Business",
+            "tab": tab,
+            "tabs": [
+                {"key": key, "label": label, "active": key == tab}
+                for key, label, _ in BusinessProfileForm.TABS
+            ],
+            # Modules add to a tab, such as the resale certificate's file on Tax.
+            "panels": [p for p in panels.for_object(request, instance) if p.tab == tab],
+        },
     )
 
 

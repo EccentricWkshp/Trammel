@@ -29,6 +29,7 @@
   </div>
 </header>
 {% if invoice.tax_flagged %}<aside class="callout warn">The tax rate was chosen by hand because the address could not be resolved ({{ invoice.tax_note }}). Review it before filing.</aside>{% endif %}
+{% include "partials/panels.html" %}
 
 {% if draft %}
 <section class="lifecycle" aria-label="Draft actions">

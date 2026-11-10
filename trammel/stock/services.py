@@ -953,6 +953,48 @@ def restock_list():
     )
 
 
+def notify_low_stock() -> int:
+    """Email staff about materials newly at or below their restock level.
+
+    Each material is mentioned once until it goes back above its level, so a
+    material that stays low isn't repeated every hour. Returns how many were new.
+    """
+    from django.conf import settings
+    from django.urls import reverse
+
+    from trammel.core.templatetags.trammel import qty
+    from trammel.notifications.services import notify
+
+    low = list(restock_list())
+    StockItem.objects.filter(low_notified_at__isnull=False).exclude(
+        pk__in=[i.pk for i in low]
+    ).update(low_notified_at=None)
+    new = [i for i in low if i.low_notified_at is None]
+    if not new:
+        return 0
+
+    def amount(value, item):
+        return f"{qty(value)} {item.material.get_unit_display()}" if value is not None else ""
+
+    notify(
+        "stock_low",
+        context={
+            "items": [
+                {
+                    "material": str(i.material),
+                    "on_hand": amount(i.on_hand, i),
+                    "restock_at": amount(i.min_quantity, i),
+                    "reorder": amount(i.reorder_quantity, i),
+                }
+                for i in new
+            ],
+            "link": f"{settings.BASE_URL}{reverse('stock:restock')}",
+        },
+    )
+    StockItem.objects.filter(pk__in=[i.pk for i in new]).update(low_notified_at=timezone.now())
+    return len(new)
+
+
 def check_ledger() -> list[str]:
     """Every lot's running totals equal the sum of its ledger moves."""
     problems = []
