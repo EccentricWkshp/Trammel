@@ -1,0 +1,17 @@
+{% load trammel %}
+<h2 id="panel-{{ heading_id }}">Bought for this work order</h2>
+{% if ctx.waiting %}<p class="flag flag-risk">Waiting on {{ ctx.waiting|length }} purchase{{ ctx.waiting|length|pluralize }}.</p>{% endif %}
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Order</th><th scope="col">Item</th><th scope="col" class="num">Quantity</th><th scope="col">Expected</th><th scope="col">Arrived</th></tr></thead>
+  <tbody>
+  {% for line in ctx.lines %}
+    <tr>
+      <td><a href="{{ line.order.get_absolute_url }}">{{ line.order.number|default:"Draft" }}</a><br><span class="muted small">{{ line.order.vendor }} · {{ line.order.get_status_display|lower }}</span></td>
+      <td>{{ line.description }}</td>
+      <td class="num">{{ line.quantity|qty }} {{ line.get_unit_display }}</td>
+      <td>{{ line.order.expected_on|d }}</td>
+      <td>{% if line.state == "all" %}Yes{% elif line.state == "part" %}Part{% else %}<span class="muted">Not yet</span>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>

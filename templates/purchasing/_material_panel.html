@@ -1,0 +1,16 @@
+{% load trammel %}
+<h2 id="panel-{{ heading_id }}">Purchasing</h2>
+{% if ctx.open_lines %}
+<p>On order:
+  {% for line in ctx.open_lines %}<a href="{{ line.order.get_absolute_url }}">{{ line.order.number }}</a> ({{ line.quantity|qty }} {{ line.get_unit_display }} from {{ line.order.vendor }}{% if line.order.expected_on %}, expected {{ line.order.expected_on|d }}{% endif %}{% if line.state == "part" %}, part arrived{% endif %}){% if not forloop.last %}; {% endif %}{% endfor %}</p>
+{% endif %}
+{% if ctx.items %}
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Vendor</th><th scope="col">Their SKU</th>{% if ctx.can_costs %}<th scope="col" class="num">Last price</th>{% endif %}<th scope="col">Last ordered</th></tr></thead>
+  <tbody>
+  {% for item in ctx.items %}
+    <tr><td>{{ item.vendor }}</td><td>{{ item.vendor_sku }}</td>{% if ctx.can_costs %}<td class="num">{% if item.last_price is not None %}{{ item.last_price|money }} / {{ item.last_unit }}{% endif %}</td>{% endif %}<td>{{ item.last_ordered_on|d }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% endif %}

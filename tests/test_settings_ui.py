@@ -1,5 +1,6 @@
 """Form layout, number display, units, wording, hidden modules and email settings."""
 
+import re
 from decimal import Decimal
 
 import pytest
@@ -58,7 +59,9 @@ def test_us_volumes():
 @pytest.mark.django_db
 def test_tax_settings_name_no_particular_state(admin_client):
     page = admin_client.get("/tax/settings/").content.decode()
-    assert "WA" not in page and "Washington" not in page and "B&amp;O" not in page
+    # As a word: the page's random CSRF token can contain the letters.
+    assert not re.search(r"WA", page)
+    assert "Washington" not in page and "B&amp;O" not in page
 
 
 @pytest.mark.django_db

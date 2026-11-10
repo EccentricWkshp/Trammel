@@ -35,7 +35,9 @@ def _wants_csv(request) -> bool:
 
 @permission_required("reports.view")
 def index(request):
-    return render(request, "reports/index.html")
+    from trammel.core import report_cards
+
+    return render(request, "reports/index.html", {"more": report_cards.for_actor(request.actor)})
 
 
 @permission_required("core.see_costs")
@@ -194,3 +196,44 @@ def force_closed(request):
             ),
         )
     return render(request, "reports/force_closed.html", {"rows": rows, "write_offs": write_offs})
+
+
+MATERIAL_GROUPS = (("material", "Material"), ("job", "Job"), ("work_order", "Work order"))
+
+
+@permission_required("reports.view")
+def materials(request):
+    from trammel.core import access
+
+    start, end = _period(request)
+    group = request.GET.get("group", "material")
+    if group not in dict(MATERIAL_GROUPS):
+        group = "material"
+    rows, totals = services.material_use(start, end, group)
+    costs = access.has_perm(request.actor, "core.see_costs")
+    if _wants_csv(request):
+        header = [group, "detail", "quantity"]
+        if costs:
+            header += ["cost", "from_stock", "from_price_list", "cost_entered"]
+
+        def lines():
+            for r in rows:
+                row = [r["name"], r["detail"], r["quantity"] if group == "material" else ""]
+                if costs:
+                    row += [r["cost"], r["stock"], r["price_list"], r["manual"]]
+                yield row
+
+        return _csv(request, f"material-use-by-{group}", header, lines())
+    return render(
+        request,
+        "reports/materials.html",
+        {
+            "rows": rows,
+            "totals": totals,
+            "start": start,
+            "end": end,
+            "group": group,
+            "groups": MATERIAL_GROUPS,
+            "costs": costs,
+        },
+    )

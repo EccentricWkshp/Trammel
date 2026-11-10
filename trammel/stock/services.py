@@ -19,7 +19,7 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import F, Sum
+from django.db.models import F, Q, Sum
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
@@ -350,6 +350,17 @@ def receive(
         summary=f"{material}: {fmt(qty, material.unit)} into {lot.location} ({lot.number})",
     )
     return lot
+
+
+@transaction.atomic
+def unreceive_lot(lot: StockLot, *, note: str = "", user=None) -> StockMove:
+    """Take a whole lot back out: its receipt was a mistake (FR-PUR-3). The caller
+    checks that the lot is untouched."""
+    _lock(lot.item)
+    lot = StockLot.objects.select_for_update().get(pk=lot.pk)
+    if lot.qty_on_hand <= 0:
+        raise ValidationError(f"{lot.number} is already empty.")
+    return _move(lot, Reason.UNRECEIVE, -lot.qty_on_hand, -lot.value_on_hand, user=user, note=note)
 
 
 @transaction.atomic
@@ -952,3 +963,59 @@ def check_ledger() -> list[str]:
                 f"{usage.total_cost}, the stock it drew was worth {-drawn[usage.pk]}."
             )
     return problems
+
+
+def valuation(as_of, group: str = "material") -> tuple[list[dict], dict]:
+    """What stock was on hand and worth at the end of `as_of`, rebuilt from the ledger
+    (moves count from when they were recorded). Grouped by material, category or
+    location; quantities are only added up within a material."""
+    moves = StockMove.objects.filter(created_at__date__lte=as_of)
+    if group == "location":
+        keys = ["location__path"]
+    elif group == "category":
+        keys = ["item__material__category"]
+    else:
+        keys = ["item__material__name", "item__material__unit", "item__material_id"]
+    rows = []
+    for row in moves.values(*keys).annotate(q=Sum("quantity"), v=Sum("value")).order_by(*keys):
+        if not row["q"] and not row["v"]:
+            continue
+        rows.append({"key": [row[k] for k in keys], "quantity": row["q"], "value": row["v"]})
+    if group == "category":
+        labels = dict(Material.Category.choices)
+        for r in rows:
+            r["key"][0] = labels.get(r["key"][0], r["key"][0])
+    return rows, {"value": sum((r["value"] for r in rows), ZERO)}
+
+
+#: Reasons that change what is on hand without a purchase or a job.
+ADJUSTMENTS = (Reason.ADJUST, Reason.COUNT, Reason.SCRAP, Reason.UNRECEIVE)
+
+
+def adjustments(start, end, group: str = "reason") -> tuple[list[dict], list, dict]:
+    """Stock found, counted, scrapped and taken back out in a period: (summary rows,
+    the moves themselves, totals)."""
+    moves = StockMove.objects.filter(
+        reason__in=ADJUSTMENTS, created_at__date__range=(start, end)
+    ).select_related("item__material", "lot", "location", "user")
+    keys = ["reason"] if group == "reason" else ["item__material__name", "item__material__unit"]
+    summary = []
+    for row in moves.values(*keys).annotate(q=Sum("quantity"), v=Sum("value")).order_by(*keys):
+        if group == "reason":
+            label = Reason(row["reason"]).label
+            summary.append({"name": label, "unit": "", "quantity": None, "value": row["v"]})
+        else:
+            summary.append(
+                {
+                    "name": row["item__material__name"],
+                    "unit": row["item__material__unit"],
+                    "quantity": row["q"],
+                    "value": row["v"],
+                }
+            )
+    detail = list(moves.order_by("-created_at")[:500])
+    sums = moves.aggregate(
+        lost=Coalesce(Sum("value", filter=Q(value__lt=0)), ZERO),
+        found=Coalesce(Sum("value", filter=Q(value__gt=0)), ZERO),
+    )
+    return summary, detail, {**sums, "net": sums["lost"] + sums["found"]}

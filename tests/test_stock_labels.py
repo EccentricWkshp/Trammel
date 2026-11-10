@@ -188,6 +188,7 @@ def test_work_order_material_form_takes_a_lot_number_or_label(admin_client, lots
 
 @pytest.mark.django_db
 def test_no_lot_field_while_stock_is_off(admin_client, wo):
+    modules.set_enabled("purchasing", False)
     modules.set_enabled("stock", False)
     page = admin_client.get(f"{wo.get_absolute_url()}?tab=materials").content.decode()
     assert 'name="lot"' not in page

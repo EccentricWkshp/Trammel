@@ -8,7 +8,7 @@ from django.core.exceptions import ValidationError
 from django.urls import reverse
 from django.utils.http import urlencode
 
-from trammel.core import access, dashboard, modules, panels, scan, search
+from trammel.core import access, dashboard, modules, panels, report_cards, scan, search
 from trammel.shop import hooks as shop_hooks
 from trammel.shop.models import Material, MaterialBarcode
 from trammel.workorders import hooks as wo_hooks
@@ -242,3 +242,23 @@ def lots(actor, term):
             lot.get_absolute_url(),
             str(lot.location),
         )
+
+
+for title, description, url_name, order in (
+    (
+        "Stock valuation",
+        "What stock is on hand and worth, on any date, by material, category or location.",
+        "stock:valuation",
+        10,
+    ),
+    (
+        "Stock adjustments",
+        "Stock found, counted, scrapped or taken back out, and what it was worth.",
+        "stock:adjustments",
+        11,
+    ),
+    ("Stock history", "Every change to stock: received, used, moved, counted.", "stock:moves", 12),
+    ("Restock list", "What is at or below its restock level.", "stock:restock", 13),
+    ("Remnants", "Offcuts kept in stock, their size, age and value.", "stock:remnants", 14),
+):
+    report_cards.register(title, description, url_name, permission="stock.view", order=order)

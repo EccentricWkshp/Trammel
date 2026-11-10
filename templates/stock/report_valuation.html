@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% load trammel %}
+{% block title %}Stock valuation{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{% url 'reports:index' %}">Reports</a></p>
+<h1>Stock valuation</h1>
+<p class="lede">What was on hand at the end of {{ as_of|d }}{% if costs %}, at the cost each lot came in at: {{ totals.value|money }}{% endif %}. Rebuilt from the stock history, by when each change was recorded.</p>
+<form method="get" class="filters">
+  <label>On <input type="date" name="as_of" value="{{ as_of|date:'Y-m-d' }}"></label>
+  <label>By <select name="group">{% for v, l in groups %}<option value="{{ v }}"{% if group == v %} selected{% endif %}>{{ l }}</option>{% endfor %}</select></label>
+  <button type="submit">Show</button>
+  <a href="?{{ request.GET.urlencode }}{% if request.GET %}&amp;{% endif %}format=csv">Export CSV</a>
+</form>
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">{% if group == "category" %}Category{% elif group == "location" %}Location{% else %}Material{% endif %}</th>{% if group == "material" %}<th scope="col" class="num">On hand</th>{% endif %}{% if costs %}<th scope="col" class="num">Value</th>{% endif %}</tr></thead>
+  <tbody>
+  {% for r in rows %}
+    <tr><td>{{ r.key.0 }}</td>{% if group == "material" %}<td class="num">{{ r.quantity|qty }} {{ r.key.1 }}</td>{% endif %}{% if costs %}<td class="num">{{ r.value|money }}</td>{% endif %}</tr>
+  {% empty %}
+    <tr><td colspan="3" class="muted">Nothing was in stock then.</td></tr>
+  {% endfor %}
+  </tbody>
+  {% if costs and rows %}<tfoot><tr><th scope="row"{% if group == "material" %} colspan="2"{% endif %}>Total</th><td class="num">{{ totals.value|money }}</td></tr></tfoot>{% endif %}
+</table></div>
+{% endblock %}

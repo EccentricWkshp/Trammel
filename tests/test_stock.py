@@ -244,6 +244,7 @@ def test_stop_tracking_only_when_empty_and_stock_stays_on_while_tracked(screws, 
     stock.receive(screws, quantity=D("10"), total_cost=D("1.00"))
     with pytest.raises(ValidationError, match="still in stock"):
         stock.set_tracking(screws, tracked=False)
+    modules.set_enabled("purchasing", False)  # it depends on stock
     with pytest.raises(ValidationError, match="tracked in stock"):
         modules.set_enabled("stock", False)
     _use(wo, screws, "10", user=admin)
@@ -482,6 +483,7 @@ def test_materials_live_under_stock_and_return_to_the_menu_without_it(admin_clie
     assert 'href="/stock/">Materials</a>' in detail
     # With stock switched off, Materials is back in the menu with its own list.
     stock.set_tracking(screws, tracked=False)
+    modules.set_enabled("purchasing", False)
     modules.set_enabled("stock", False)
     page = admin_client.get("/shop/materials/").content.decode()
     nav = page[page.index('<nav class="mainnav"') : page.index("</nav>")]

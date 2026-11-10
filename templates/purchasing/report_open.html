@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% load trammel %}
+{% block title %}Open orders{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{% url 'reports:index' %}">Reports</a></p>
+<div class="heading-row"><h1>Open orders</h1><a href="?format=csv">Export CSV</a></div>
+<p class="lede">Placed and not yet all here: {{ value|money }} still to come, at landed cost. Late deliveries first.</p>
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Order</th><th scope="col">Vendor</th><th scope="col">Ordered</th><th scope="col">Expected</th><th scope="col" class="num">Lines to come</th><th scope="col" class="num">Value to come</th></tr></thead>
+  <tbody>
+  {% for po in orders %}
+    <tr>
+      <td><a href="{{ po.get_absolute_url }}"><strong>{{ po.number }}</strong></a></td>
+      <td>{{ po.vendor }}</td>
+      <td>{{ po.ordered_on|d }}</td>
+      <td>{{ po.expected_on|d|default:"—" }}{% if po.late %} <span class="flag flag-late">{{ po.days_late }} day{{ po.days_late|pluralize }} late</span>{% endif %}</td>
+      <td class="num">{{ po.lines_left }}</td>
+      <td class="num">{{ po.to_come|money }}</td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="6" class="muted">Nothing is on order.</td></tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% endblock %}

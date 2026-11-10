@@ -127,7 +127,29 @@ def test_api_flow_and_every_get_endpoint(api):
         expect=200,
     )
 
+    # Buy more walnut: a purchase order placed and received at landed cost.
+    po = api(
+        "POST", "/purchasing/orders", {"vendor": vendor["id"], "shipping": "12.00"}, expect=201
+    )
+    line = api(
+        "POST",
+        f"/purchasing/orders/{po['id']}/lines",
+        {"material": material["id"], "quantity": "10", "unit_price": "15.00"},
+        expect=201,
+    )
+    placed = api("POST", f"/purchasing/orders/{po['id']}/place", expect=200)
+    assert placed["number"].startswith("PO-") and placed["total"] == "162.00"
+    # Walnut is not kept in stock here, so it is received without a lot.
+    received = api(
+        "POST",
+        f"/purchasing/orders/{po['id']}/receive",
+        {"line": line["id"], "quantity": "10"},
+        expect=201,
+    )
+    assert received["value"] == "162.00" and received["lot"] is None
+
     ids = {
+        "po_id": po["id"],
         "customer_id": customer["id"],
         "job_id": job["id"],
         "revision_id": revision["id"],

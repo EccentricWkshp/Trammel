@@ -10,5 +10,12 @@
   <li><a class="card" href="{% url 'reports:tax' %}"><h2>Tax</h2><p class="muted">Sales tax by jurisdiction; gross receipts tax basis by classification; bad-debt deduction.</p></a></li>
   <li><a class="card" href="{% url 'reports:time' %}"><h2>Time</h2><p class="muted">By person, machine or job; machine utilization.</p></a></li>
   <li><a class="card" href="{% url 'reports:force_closed' %}"><h2>Force-closed jobs and write-offs</h2><p class="muted">For review, with reasons and what was outstanding.</p></a></li>
+  <li><a class="card" href="{% url 'reports:materials' %}"><h2>Material use</h2><p class="muted">Material used on work orders, by material or job, and where its cost came from.</p></a></li>
 </ul>
+{% if more %}
+<h2>Stock and purchasing</h2>
+<ul class="cards">
+  {% for card in more %}<li><a class="card" href="{{ card.url }}"><h2>{{ card.title }}</h2><p class="muted">{{ card.description }}</p></a></li>{% endfor %}
+</ul>
+{% endif %}
 {% endblock %}

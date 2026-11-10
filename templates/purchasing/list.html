@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% load trammel %}
+{% block title %}Purchasing{% endblock %}
+{% block content %}
+<div class="heading-row">
+  <h1>Purchase orders</h1>
+  <div class="actions">{% if can_create %}<a class="button primary" href="{% url 'purchasing:new' %}">New purchase order</a>{% endif %}</div>
+</div>
+<nav class="subnav" aria-label="Purchasing">
+  {% if can_create %}<a href="{% url 'purchasing:from_restock' %}">Order what is low</a>{% endif %}
+  <a href="{% url 'shop:vendors' %}">Vendors</a>
+</nav>
+<form method="get" class="filters" role="search">
+  <label>Search <input type="search" name="q" value="{{ q }}" placeholder="Number, vendor or item"></label>
+  <label>Show <select name="show">{% for value, label in shows %}<option value="{{ value }}"{% if value == show %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+  {% if vendors %}<label>Vendor <select name="vendor"><option value="">Any</option>{% for v in vendors %}<option value="{{ v.pk }}"{% if vendor and v.pk == vendor.pk %} selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>{% endif %}
+  <button type="submit">Filter</button>
+</form>
+<div class="table-wrap">
+<table>
+  <thead><tr><th scope="col">Order</th><th scope="col">Vendor</th><th scope="col">Status</th><th scope="col">Ordered</th><th scope="col">Expected</th><th scope="col" class="num">Total</th></tr></thead>
+  <tbody>
+  {% for po in page %}
+    <tr>
+      <td><a href="{{ po.get_absolute_url }}">{% if po.number %}<strong>{{ po.number }}</strong>{% else %}Draft{% endif %}</a>{% if po.vendor_reference %}<br><span class="muted small">their # {{ po.vendor_reference }}</span>{% endif %}</td>
+      <td>{{ po.vendor }}</td>
+      <td><span class="status status-{{ po.status }}">{{ po.get_status_display }}</span>{% if po.state == "part" %} <span class="badge">part received</span>{% endif %}</td>
+      <td>{{ po.ordered_on|d }}</td>
+      <td>{{ po.expected_on|d }}</td>
+      <td class="num">{{ po.total|money }}</td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="6" class="muted">{% if q or vendor %}Nothing matches.{% else %}No purchase orders here.{% endif %}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% include "partials/pagination.html" %}
+{% endblock %}

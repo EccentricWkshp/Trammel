@@ -26,6 +26,7 @@ def test_admin_sees_every_section_in_default_order(admin_client):
         "Quotes awaiting approval",
         "Open work orders",
         "Low stock",
+        "Deliveries expected",
         "Overdue invoices",
         "Unissued invoices",
         "Shortcuts",

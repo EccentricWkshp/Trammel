@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% load trammel %}
+{% block title %}Order what is low{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{% url 'purchasing:list' %}">Purchase orders</a></p>
+<h1>Order what is low</h1>
+<p class="lede">Tick what to order. One draft purchase order is made for each vendor, for the reorder quantity (or enough to reach the restock level), at the last price paid. Check them before placing them.</p>
+<form method="post">
+  {% csrf_token %}
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th scope="col"><span class="visually-hidden">Order</span></th><th scope="col">Material</th><th scope="col">Vendor</th><th scope="col" class="num">On hand</th><th scope="col" class="num">On order</th><th scope="col" class="num">Restock at</th><th scope="col" class="num">Reorder</th></tr></thead>
+    <tbody>
+    {% for item in rows %}
+      <tr>
+        <td><input type="checkbox" name="item" value="{{ item.pk }}" aria-label="Order {{ item.material }}"{% if item.material.vendor and not item.on_order %} checked{% endif %}></td>
+        <td><a href="{{ item.get_absolute_url }}">{{ item.material }}</a></td>
+        <td>{% if item.material.vendor %}{{ item.material.vendor }}{% else %}<span class="muted">no vendor set</span>{% endif %}</td>
+        <td class="num">{{ item.on_hand|qty }} {{ item.material.get_unit_display }}</td>
+        <td class="num">{% if item.on_order %}{{ item.on_order|qty }}{% endif %}</td>
+        <td class="num">{{ item.min_quantity|qty }}</td>
+        <td class="num">{{ item.reorder_quantity|qty }}</td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="7" class="muted">Nothing is at or below its restock level.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% if rows %}<div class="actions"><button type="submit" class="primary">Draft purchase orders</button></div>{% endif %}
+</form>
+{% endblock %}

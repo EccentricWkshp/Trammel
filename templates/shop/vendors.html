@@ -1,6 +1,6 @@
-{% extends "settings_base.html" %}
+{% extends "base.html" %}
 {% block title %}Vendors{% endblock %}
-{% block settings_content %}
+{% block content %}
 <div class="heading-row"><h1>Vendors</h1>{% if can_edit %}<a class="button" href="{% url 'shop:vendor_create' %}">Add vendor</a>{% endif %}</div>
 <p class="lede">Who you buy materials from. Link materials to a vendor on the materials price list.</p>
 <form method="get" class="filters" role="search">

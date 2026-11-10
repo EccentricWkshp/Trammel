@@ -1,0 +1,69 @@
+{% load trammel %}<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Purchase order {{ po.number|default:"(draft)" }}</title>
+<style>
+  @page { size: letter; margin: 0.6in; }
+  * { box-sizing: border-box; }
+  html { background: #e8e8e8; }
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 10.5pt; line-height: 1.4; color: #000;
+         background: #fff; max-width: 8.5in; margin: 1rem auto; padding: 0.6in; }
+  @media print { html { background: none; } body { margin: 0; padding: 0; max-width: none; } }
+  header { display: flex; justify-content: space-between; gap: 24pt; border-bottom: 2pt solid #000; padding-bottom: 10pt; }
+  .logo img { max-height: 0.8in; max-width: 2.5in; }
+  .from { font-size: 9.5pt; }
+  .from strong { font-size: 12pt; }
+  h1 { font-size: 20pt; margin: 0 0 4pt; text-align: right; }
+  .meta { text-align: right; font-size: 9.5pt; }
+  .draft { color: #a00; font-weight: bold; text-transform: uppercase; letter-spacing: .1em; }
+  .to { margin: 14pt 0; }
+  .label { font-size: 7.5pt; text-transform: uppercase; letter-spacing: .08em; color: #444; }
+  table { width: 100%; border-collapse: collapse; margin-top: 8pt; }
+  th { font-size: 7.5pt; text-transform: uppercase; letter-spacing: .05em; text-align: left; border-bottom: 1pt solid #000; padding: 4pt; }
+  td { padding: 5pt 4pt; border-bottom: .5pt solid #999; vertical-align: top; }
+  .num { text-align: right; white-space: nowrap; }
+  tfoot td { border: 0; padding: 2pt 4pt; }
+  tfoot tr.total td { border-top: 1.5pt solid #000; font-weight: bold; font-size: 11pt; padding-top: 4pt; }
+  .notes { margin-top: 16pt; white-space: pre-wrap; }
+</style></head>
+<body>
+<header>
+  <div class="from">
+    {% if business.logo %}<div class="logo"><img src="{{ business.logo }}" alt=""></div>{% endif %}
+    <strong>{{ business.legal_name }}</strong><br>
+    {% for line in business.address_lines %}{{ line }}<br>{% endfor %}
+    {% if business.phone %}{{ business.phone }}<br>{% endif %}
+    {% if business.email %}{{ business.email }}{% endif %}
+  </div>
+  <div>
+    <h1>Purchase order</h1>
+    <div class="meta">
+      {% if po.number %}<strong>{{ po.number }}</strong>{% else %}<span class="draft">Draft</span>{% endif %}<br>
+      {% if po.ordered_on %}Date: {{ po.ordered_on|d }}<br>{% endif %}
+      {% if po.expected_on %}Needed by: {{ po.expected_on|d }}<br>{% endif %}
+      {% if po.vendor_reference %}Your reference: {{ po.vendor_reference }}<br>{% endif %}
+      {% if po.tax_exempt %}<strong>Tax exempt</strong>{% if po.exemption_number %}, certificate {{ po.exemption_number }}{% endif %}{% endif %}
+    </div>
+  </div>
+</header>
+<div class="to">
+  <div class="label">To</div>
+  <strong>{{ po.vendor.name }}</strong>{% if po.vendor.contact_name %}, attn. {{ po.vendor.contact_name }}{% endif %}<br>
+  {% if po.vendor.address %}{{ po.vendor.address|linebreaksbr }}<br>{% endif %}
+  {% if po.vendor.account_number %}Our account: {{ po.vendor.account_number }}{% endif %}
+</div>
+<table>
+  <thead><tr><th>Item</th><th>Your SKU</th><th class="num">Quantity</th><th class="num">Price</th><th class="num">Amount</th></tr></thead>
+  <tbody>
+  {% for line in lines %}
+    <tr><td>{{ line.description }}{% if line.tax_exempt and not po.tax_exempt %} <em>(tax exempt)</em>{% endif %}</td><td>{{ line.vendor_sku }}</td><td class="num">{{ line.quantity|qty }} {{ line.get_unit_display }}</td><td class="num">{{ line.unit_price|money }}</td><td class="num">{{ line.goods|money }}</td></tr>
+  {% endfor %}
+  </tbody>
+  <tfoot>
+    <tr><td colspan="4" class="num">Subtotal</td><td class="num">{{ totals.goods|money }}</td></tr>
+    {% if po.tax %}<tr><td colspan="4" class="num">Tax</td><td class="num">{{ po.tax|money }}</td></tr>{% endif %}
+    {% if po.shipping %}<tr><td colspan="4" class="num">Shipping</td><td class="num">{{ po.shipping|money }}</td></tr>{% endif %}
+    {% if po.discount %}<tr><td colspan="4" class="num">Discount</td><td class="num">−{{ po.discount|money }}</td></tr>{% endif %}
+    <tr class="total"><td colspan="4" class="num">Total</td><td class="num">{{ totals.total|money }}</td></tr>
+  </tfoot>
+</table>
+{% if po.vendor.payment_terms %}<p>Payment terms: {{ po.vendor.payment_terms }}</p>{% endif %}
+</body></html>

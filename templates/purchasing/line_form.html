@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}{% if editing %}Edit line{% else %}Add a line{% endif %}{% endblock %}
+{% block main_class %}page narrow{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{% url 'purchasing:list' %}">Purchase orders</a> › <a href="{{ po.get_absolute_url }}">{{ po }}</a></p>
+<h1>{% if editing %}Edit line{% else %}Add a line{% endif %}</h1>
+<p class="lede">Ordering from {{ po.vendor }}. Leave the price blank to use the last price paid them, or the material's cost.</p>
+<form method="post" class="stack" novalidate>
+  {% csrf_token %}
+  {% include "partials/form_body.html" %}
+  <div class="actions">
+    <button type="submit" class="primary">Save line</button>
+    <a href="{{ po.get_absolute_url }}">Cancel</a>
+  </div>
+</form>
+{% if editing %}
+<form method="post" class="danger-zone">{% csrf_token %}<button type="submit" name="delete" value="1" class="danger">Remove this line</button></form>
+{% endif %}
+{% endblock %}

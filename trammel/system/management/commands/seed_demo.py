@@ -65,6 +65,7 @@ class Builder:
         self.catalog()
         self.customers()
         self.jobs()
+        self.purchasing()
         self.direct_sale()
 
     # ------------------------------------------------------------------
@@ -855,6 +856,60 @@ class Builder:
             "8 jobs across the lifecycle, with quotes, work orders, time, materials, "
             "deposits and invoices, and one internal shop job"
         )
+
+    def purchasing(self):
+        """Purchase orders: one received, one on order (part of it for a job), a draft."""
+        from trammel.core import modules
+        from trammel.purchasing import services as purchasing
+        from trammel.purchasing.models import POLine
+        from trammel.workorders.models import WorkOrder
+
+        if not modules.is_enabled("purchasing"):
+            return
+        today = dt.date.today()
+
+        def order(vendor, lines, **fields):
+            po = purchasing.create_order(vendor, **fields)
+            for material, qty, unit, price, *rest in lines:
+                purchasing.save_line(
+                    POLine(
+                        order=po,
+                        material=material,
+                        description="" if material else rest[0],
+                        quantity=D(qty),
+                        unit=unit,
+                        unit_price=D(price),
+                        work_order=rest[1] if len(rest) > 1 else None,
+                    )
+                )
+            return po
+
+        walnut = order(
+            self.crosscut, [(self.walnut, "20", "board_ft", "14.00")], shipping=D("35.00")
+        )
+        purchasing.place(walnut, actor=self.admin, ordered_on=today - dt.timedelta(days=12))
+        for line in walnut.lines.all():
+            purchasing.receive(
+                line,
+                quantity=line.quantity,
+                received_on=today - dt.timedelta(days=5),
+                user=self.admin,
+            )
+        waiting = WorkOrder.objects.filter(status="waiting").first()
+        ply = order(
+            self.edensaw,
+            [
+                (self.ply, "10", "sheet", "18.75"),
+                (None, "4", "each", "6.50", "Brass butt hinges, 2 in", waiting),
+            ],
+            tax=D("18.40"),
+            shipping=D("22.00"),
+            expected_on=today + dt.timedelta(days=3),
+            vendor_reference="ES-44817",
+        )
+        purchasing.place(ply, actor=self.admin, ordered_on=today - dt.timedelta(days=2))
+        order(self.filament_vendor, [(self.pla, "5", "spool", "21.50")])
+        self.say("3 purchase orders: received, on order (partly for a job) and a draft")
 
     def direct_sale(self):
         from trammel.billing import services as billing

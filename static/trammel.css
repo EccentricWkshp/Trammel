@@ -253,6 +253,9 @@ table.calendar { table-layout: fixed; }
 .day-number { font-size: .85rem; font-weight: 600; }
 .cal-entry { display: block; font-size: .78rem; line-height: 1.3; margin-top: .2rem; padding: .1rem .3rem; border-radius: 4px; background: var(--accent-soft); color: var(--text); text-decoration: none; overflow: hidden; }
 .cal-entry.late { background: var(--err-bg); color: var(--err-text); }
+/* Purchase orders arriving: outlined, not filled, so they never read as job dates. */
+.cal-entry.cal-delivery { background: var(--surface); border: 1px dashed var(--muted); border-left: 3px solid var(--accent); }
+.cal-entry.cal-delivery.late { background: var(--surface); border-color: var(--err-text); color: var(--err-text); }
 .cal-label { font-weight: 700; }
 
 /* Files */

@@ -26,7 +26,7 @@ from trammel.core.web import (
 )
 from trammel.shop.models import Material, MaterialBarcode
 
-from . import labels, services
+from . import hooks, labels, services
 from .floor import LENGTH_UNITS
 from .forms import (
     BarcodeForm,
@@ -187,7 +187,19 @@ def restock(request):
                 for i in rows.select_related("material__vendor")
             ),
         )
-    return render(request, "stock/restock.html", {"rows": rows.select_related("material__vendor")})
+    rows = list(rows.select_related("material__vendor"))
+    ordered = hooks.ordered([i.pk for i in rows])
+    for item in rows:
+        item.on_order = ordered.get(item.pk)
+    return render(
+        request,
+        "stock/restock.html",
+        {
+            "rows": rows,
+            "show_on_order": hooks.tracks_orders(),
+            "actions": hooks.restock_actions(request.actor),
+        },
+    )
 
 
 def _moves(request):
@@ -642,6 +654,27 @@ def remnant_list(request):
     except ValidationError as exc:
         _errors(request, exc)
         found = services.remnants(material)
+    if request.GET.get("format") == "csv":
+        audit.record("export", entity_type="stock.stocklot", summary="Exported remnants")
+        costs = access.has_perm(request.actor, "core.see_costs")
+        header = ["material", "size", "lot", "location", "received", "cut"]
+        header += ["value"] if costs else []
+        return csv_response(
+            "remnants.csv",
+            header,
+            (
+                [
+                    r.item.material.name,
+                    r.size,
+                    r.number,
+                    r.location.path,
+                    r.received_on,
+                    r.created_at.date(),
+                ]
+                + ([r.value_on_hand] if costs else [])
+                for r in found
+            ),
+        )
     return render(
         request,
         "stock/remnants.html",
@@ -771,3 +804,100 @@ def _int(value, default: int) -> int:
         return int(value)
     except TypeError, ValueError:
         return default
+
+
+# ---------------------------------------------------------------------------
+# Reports (listed on the Reports page)
+# ---------------------------------------------------------------------------
+
+VALUATION_GROUPS = (("material", "Material"), ("category", "Category"), ("location", "Location"))
+
+
+def _report_period(request):
+
+    from django.utils import timezone
+
+    today = timezone.localdate()
+    start = _date(request.GET.get("start")) or today.replace(day=1)
+    end = _date(request.GET.get("end")) or today
+    return (start, end) if start <= end else (end, start)
+
+
+@permission_required("stock.view")
+def valuation_report(request):
+    from django.utils import timezone
+
+    as_of = _date(request.GET.get("as_of")) or timezone.localdate()
+    group = request.GET.get("group", "material")
+    if group not in dict(VALUATION_GROUPS):
+        group = "material"
+    rows, totals = services.valuation(as_of, group)
+    costs = access.has_perm(request.actor, "core.see_costs")
+    if request.GET.get("format") == "csv":
+        audit.record("export", entity_type="stock.stockmove", summary="Exported stock valuation")
+        header = [group] + (["quantity", "unit"] if group == "material" else [])
+        header += ["value"] if costs else []
+        return csv_response(
+            f"stock-valuation-{as_of.isoformat()}.csv",
+            header,
+            (
+                [r["key"][0]]
+                + ([r["quantity"], r["key"][1]] if group == "material" else [])
+                + ([r["value"]] if costs else [])
+                for r in rows
+            ),
+        )
+    return render(
+        request,
+        "stock/report_valuation.html",
+        {
+            "rows": rows,
+            "totals": totals,
+            "as_of": as_of,
+            "group": group,
+            "groups": VALUATION_GROUPS,
+            "costs": costs,
+        },
+    )
+
+
+@permission_required("stock.view")
+def adjustments_report(request):
+    start, end = _report_period(request)
+    group = "material" if request.GET.get("group") == "material" else "reason"
+    summary, detail, totals = services.adjustments(start, end, group)
+    costs = access.has_perm(request.actor, "core.see_costs")
+    if request.GET.get("format") == "csv":
+        audit.record("export", entity_type="stock.stockmove", summary="Exported stock adjustments")
+        header = ["date", "material", "lot", "location", "reason", "quantity", "unit", "note"]
+        header += ["value"] if costs else []
+
+        def lines():
+            for m in detail:
+                row = [
+                    m.created_at.date(),
+                    m.item.material.name,
+                    m.lot.number,
+                    m.location.path,
+                    m.get_reason_display(),
+                    m.quantity,
+                    m.item.material.unit,
+                    m.note,
+                ]
+                yield row + ([m.value] if costs else [])
+
+        return csv_response("stock-adjustments.csv", header, lines())
+    return render(
+        request,
+        "stock/report_adjustments.html",
+        {
+            "summary": summary,
+            "detail": detail,
+            "totals": totals,
+            "start": start,
+            "end": end,
+            "group": group,
+            "groups": (("reason", "Reason"), ("material", "Material")),
+            "costs": costs,
+        },
+    )

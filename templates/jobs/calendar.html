@@ -9,7 +9,7 @@
     <a href="?month={{ next }}" rel="next">Next →</a>
   </nav>
 </div>
-<p class="lede">Target, due, promised and delivery dates of jobs. Late jobs are marked.</p>
+<p class="lede">Target, due, promised and delivery dates of jobs. Late ones are marked.{% if has_others %} Purchase orders due to arrive are outlined.{% endif %}</p>
 <div class="table-wrap">
 <table class="calendar">
   <thead><tr>{% for d in weekdays %}<th scope="col">{{ d }}</th>{% endfor %}</tr></thead>
@@ -20,8 +20,8 @@
       <td class="{% if day.month != month.month %}other-month{% endif %}{% if day == today %} today{% endif %}">
         <span class="day-number">{{ day.day }}</span>
         {% for e in entries %}
-          <a class="cal-entry{% if e.late %} late{% endif %}" href="{{ e.job.get_absolute_url }}">
-            <span class="cal-label">{{ e.label }}</span> {{ e.job.number }} {{ e.job.title|truncatechars:28 }}
+          <a class="cal-entry{% if e.late %} late{% endif %}{% if e.kind %} cal-{{ e.kind }}{% endif %}" href="{{ e.url }}">
+            <span class="cal-label">{{ e.label }}</span> {{ e.text|truncatechars:34 }}
           </a>
         {% endfor %}
       </td>

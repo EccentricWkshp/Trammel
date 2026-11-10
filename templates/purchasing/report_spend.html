@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% load trammel %}
+{% block title %}Purchasing spend{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{% url 'reports:index' %}">Reports</a></p>
+<h1>Purchasing spend</h1>
+<p class="lede">Purchase orders placed between {{ start|d }} and {{ end|d }}, canceled ones left out.{% if group == "material" %} Landed cost includes each line's share of tax and shipping, less the discount.{% endif %}</p>
+{% include "reports/_period.html" %}
+<div class="table-wrap"><table>
+  {% if group == "material" %}
+  <thead><tr><th scope="col">Item</th><th scope="col" class="num">Quantity</th><th scope="col" class="num">Orders</th><th scope="col" class="num">Goods</th><th scope="col" class="num">Landed</th></tr></thead>
+  <tbody>
+  {% for r in rows %}<tr><td>{{ r.name }}</td><td class="num">{{ r.quantity|qty }} {{ r.unit }}</td><td class="num">{{ r.orders }}</td><td class="num">{{ r.goods|money }}</td><td class="num">{{ r.landed|money }}</td></tr>
+  {% empty %}<tr><td colspan="5" class="muted">No orders placed in this period.</td></tr>{% endfor %}
+  </tbody>
+  {% if rows %}<tfoot><tr><th scope="row" colspan="3">Total</th><td class="num">{{ totals.goods|money }}</td><td class="num">{{ totals.landed|money }}</td></tr></tfoot>{% endif %}
+  {% else %}
+  <thead><tr><th scope="col">{% if group == "month" %}Month{% else %}Vendor{% endif %}</th><th scope="col" class="num">Orders</th><th scope="col" class="num">Goods</th><th scope="col" class="num">Tax</th><th scope="col" class="num">Shipping</th><th scope="col" class="num">Discount</th><th scope="col" class="num">Total</th></tr></thead>
+  <tbody>
+  {% for r in rows %}<tr><td>{% if group == "month" %}{{ r.name|date:"F Y" }}{% else %}{{ r.name }}{% endif %}</td><td class="num">{{ r.orders }}</td><td class="num">{{ r.goods|money }}</td><td class="num">{{ r.tax|money }}</td><td class="num">{{ r.shipping|money }}</td><td class="num">{{ r.discount|money }}</td><td class="num">{{ r.total|money }}</td></tr>
+  {% empty %}<tr><td colspan="7" class="muted">No orders placed in this period.</td></tr>{% endfor %}
+  </tbody>
+  {% if rows %}<tfoot><tr><th scope="row" colspan="2">Total</th><td class="num">{{ totals.goods|money }}</td><td class="num">{{ totals.tax|money }}</td><td class="num">{{ totals.shipping|money }}</td><td class="num">{{ totals.discount|money }}</td><td class="num">{{ totals.total|money }}</td></tr></tfoot>{% endif %}
+  {% endif %}
+</table></div>
+{% endblock %}

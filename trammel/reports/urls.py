@@ -12,4 +12,5 @@ urlpatterns = [
     path("tax/", views.tax, name="tax"),
     path("time/", views.time, name="time"),
     path("force-closed/", views.force_closed, name="force_closed"),
+    path("materials/", views.materials, name="materials"),
 ]

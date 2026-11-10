@@ -1,0 +1,13 @@
+{% load trammel %}
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Order</th><th scope="col">Vendor</th><th scope="col">Expected</th></tr></thead>
+  <tbody>
+  {% for po in section.rows %}
+    <tr>
+      <td><a href="{{ po.get_absolute_url }}"><strong>{{ po.number }}</strong></a>{% if po.state == "part" %} <span class="badge">part received</span>{% endif %}</td>
+      <td>{{ po.vendor }}</td>
+      <td>{{ po.expected_on|d|default:"—" }}{% if po.late %} <span class="flag flag-late">late</span>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>

@@ -407,3 +407,40 @@ def force_closed():
         )
     write_offs = WriteOff.objects.select_related("invoice__customer", "recorded_by")
     return rows, write_offs
+
+
+def material_use(start: dt.date, end: dt.date, group: str = "material"):
+    """Material used on work orders in a period (FR-STK-8), with where the cost came
+    from: lots in stock, the price list, or a cost typed in."""
+    from django.db.models import Sum
+
+    from trammel.workorders.models import MaterialUsage
+
+    qs = MaterialUsage.objects.filter(created_at__date__range=(start, end))
+    if group == "job":
+        keys = ["work_order__job__number", "work_order__job__title"]
+    elif group == "work_order":
+        keys = ["work_order__number", "work_order__title"]
+    else:
+        keys = ["description", "unit"]
+    rows: dict = {}
+    for row in qs.values(*keys, "source").annotate(q=Sum("quantity"), cost=Sum("total_cost")):
+        key = tuple(row[k] for k in keys)
+        entry = rows.setdefault(
+            key,
+            {
+                "name": key[0],
+                "detail": key[1],
+                "quantity": ZERO,
+                "cost": ZERO,
+                "stock": ZERO,
+                "price_list": ZERO,
+                "manual": ZERO,
+            },
+        )
+        entry["quantity"] += row["q"] or ZERO
+        entry["cost"] += row["cost"] or ZERO
+        entry[row["source"]] += row["cost"] or ZERO
+    out = sorted(rows.values(), key=lambda r: (-r["cost"], str(r["name"])))
+    totals = {k: sum((r[k] for r in out), ZERO) for k in ("cost", "stock", "price_list", "manual")}
+    return out, totals

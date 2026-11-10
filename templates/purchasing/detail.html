@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% load trammel files %}
+{% block title %}{{ po }}{% endblock %}
+{% block content %}
+<header class="record-header">
+  <div class="record-title">
+    <p class="breadcrumb"><a href="{% url 'purchasing:list' %}">Purchase orders</a></p>
+    <h1>{% if po.number %}{{ po.number }}{% else %}Draft purchase order{% endif %} <span class="status status-{{ po.status }}">{{ po.get_status_display }}</span>{% if state == "part" %} <span class="badge">part received</span>{% endif %}</h1>
+    <dl class="facts-inline">
+      <div><dt>Vendor</dt><dd><a href="{{ po.vendor.get_absolute_url }}">{{ po.vendor }}</a></dd></div>
+      {% if po.ordered_on %}<div><dt>Ordered</dt><dd>{{ po.ordered_on|d }}</dd></div>{% endif %}
+      {% if po.expected_on %}<div><dt>Expected</dt><dd>{{ po.expected_on|d }}{% if po.is_open and po.expected_on < today and state != "all" %} <span class="flag flag-late">late</span>{% endif %}</dd></div>{% endif %}
+      {% if po.vendor_reference %}<div><dt>Their number</dt><dd>{{ po.vendor_reference }}</dd></div>{% endif %}
+      {% if po.tax_exempt %}<div><dt>Tax</dt><dd>Exempt{% if po.exemption_number %} · certificate {{ po.exemption_number }}{% endif %}</dd></div>{% endif %}
+      <div><dt>Total</dt><dd>{{ totals.total|money }}</dd></div>
+    </dl>
+  </div>
+  <div class="actions">
+    <a class="button" href="{% url 'purchasing:document' po.pk %}?print=1" target="_blank">Print</a>
+    <a class="button" href="{% url 'purchasing:document' po.pk %}?format=pdf">PDF</a>
+    {% if po.status == "draft" or po.status == "ordered" %}{% if perms.purchasing.create %}<a href="{% url 'purchasing:edit' po.pk %}">Edit</a>{% endif %}{% endif %}
+  </div>
+</header>
+
+{% if po.status == "draft" and can_order %}
+<form method="post" action="{% url 'purchasing:place' po.pk %}" class="panel">{% csrf_token %}
+  <button type="submit" class="primary">Place order</button>
+  <span class="muted">It gets its number, and the prices are remembered for next time.</span>
+</form>
+{% endif %}
+
+<h2>Lines</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th scope="col">Item</th><th scope="col" class="num">Quantity</th><th scope="col" class="num">Price</th><th scope="col" class="num">Amount</th><th scope="col" class="num">Landed</th>{% if po.status != "draft" %}<th scope="col" class="num">Received</th>{% endif %}{% if editable %}<th scope="col"><span class="visually-hidden">Actions</span></th>{% endif %}</tr></thead>
+  <tbody>
+  {% for line in lines %}
+    <tr>
+      <td>{{ line.description }}
+        {% if line.vendor_sku %}<br><span class="muted small">their SKU {{ line.vendor_sku }}</span>{% endif %}
+        {% if line.work_order %}<br><span class="small">for <a href="{{ line.work_order.get_absolute_url }}?tab=purchases">{{ line.work_order.number }}</a></span>{% endif %}
+        {% if line.material and not line.tracked %}<br><span class="muted small">not kept in stock</span>{% endif %}
+        {% if line.tax_exempt and not po.tax_exempt %}<br><span class="badge">tax exempt</span>{% endif %}</td>
+      <td class="num">{{ line.quantity|qty }} {{ line.get_unit_display }}</td>
+      <td class="num">{{ line.unit_price|money }}</td>
+      <td class="num">{{ line.goods|money }}</td>
+      <td class="num">{{ line.landed|money }}</td>
+      {% if po.status != "draft" %}<td class="num">{{ line.got|qty }}{% if line.left <= 0 %} <span class="badge">all</span>{% endif %}</td>{% endif %}
+      {% if editable %}<td class="row-actions">
+        <a href="{% url 'purchasing:line_edit' po.pk line.pk %}">Edit</a>
+        <form method="post" action="{% url 'purchasing:line_edit' po.pk line.pk %}" class="inline">{% csrf_token %}<button type="submit" name="delete" value="1" class="linklike danger-text" aria-label="Remove {{ line.description }}">Remove</button></form>
+      </td>{% endif %}
+    </tr>
+  {% empty %}
+    <tr><td colspan="7" class="muted">No lines yet.{% if editable %} <a href="{% url 'purchasing:line_add' po.pk %}">Add one</a>.{% endif %}</td></tr>
+  {% endfor %}
+  </tbody>
+  <tfoot>
+    <tr><th scope="row" colspan="3">Goods</th><td class="num">{{ totals.goods|money }}</td><td colspan="{{ trailing }}"></td></tr>
+    {% if po.tax %}<tr><th scope="row" colspan="3">Tax</th><td class="num">{{ po.tax|money }}</td><td colspan="{{ trailing }}"></td></tr>{% endif %}
+    {% if po.shipping %}<tr><th scope="row" colspan="3">Shipping</th><td class="num">{{ po.shipping|money }}</td><td colspan="{{ trailing }}"></td></tr>{% endif %}
+    {% if po.discount %}<tr><th scope="row" colspan="3">Discount</th><td class="num">−{{ po.discount|money }}</td><td colspan="{{ trailing }}"></td></tr>{% endif %}
+    <tr><th scope="row" colspan="3">Total</th><td class="num"><strong>{{ totals.total|money }}</strong></td><td colspan="{{ trailing }}"></td></tr>
+  </tfoot>
+</table>
+</div>
+{% if fixed_note %}<p class="muted small">{{ fixed_note }}</p>{% endif %}
+{% if editable %}<p><a class="button" href="{% url 'purchasing:line_add' po.pk %}">Add a line</a> <span class="muted small">Landed cost spreads the tax over the taxable lines, and shipping less the discount over all of them, by value.</span></p>{% endif %}
+
+{% if can_receive and state != "all" %}
+<section class="card" aria-labelledby="receive-heading">
+  <h2 id="receive-heading">Receive a delivery</h2>
+  <form method="post" action="{% url 'purchasing:receive' po.pk %}" class="stack">
+    {% csrf_token %}
+    <div class="table-wrap"><table>
+      <thead><tr><th scope="col">Item</th><th scope="col" class="num">Still to come</th><th scope="col">Arrived</th><th scope="col">Put in</th></tr></thead>
+      <tbody>
+      {% for line in lines %}{% if line.left > 0 %}
+        <tr>
+          <td>{{ line.description }}{% if line.work_order %}<br><span class="small">goes onto {{ line.work_order.number }}</span>{% endif %}</td>
+          <td class="num">{{ line.left|qty }} {{ line.get_unit_display }}</td>
+          <td><input type="text" inputmode="decimal" name="qty-{{ line.pk }}" aria-label="Quantity of {{ line.description }} that arrived" size="8"></td>
+          <td>{% if line.tracked %}<select name="loc-{{ line.pk }}" aria-label="Where {{ line.description }} goes">{% for loc in locations %}<option value="{{ loc.pk }}"{% if loc.pk == line.default_location %} selected{% endif %}>{{ loc }}</option>{% endfor %}</select>{% else %}<span class="muted small">not stocked</span>{% endif %}</td>
+        </tr>
+      {% endif %}{% endfor %}
+      </tbody>
+    </table></div>
+    <label>Received on <input type="date" name="received_on" value="{{ today|date:'Y-m-d' }}"></label>
+    <div class="actions"><button type="submit" class="primary">Receive</button></div>
+  </form>
+</section>
+{% endif %}
+
+{% if receipts %}
+<h2>Deliveries</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Received</th><th scope="col">Item</th><th scope="col" class="num">Quantity</th><th scope="col" class="num">Landed</th><th scope="col">Lot</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+  <tbody>
+  {% for r in receipts %}
+    <tr{% if r.reverses %} class="inactive"{% endif %}>
+      <td>{{ r.received_on|d }}{% if r.user %} <span class="muted small">· {{ r.user.get_short_name }}</span>{% endif %}</td>
+      <td>{{ r.line.description }}{% if r.reverses %} <span class="badge">undone</span>{% endif %}</td>
+      <td class="num">{{ r.quantity|qty }} {{ r.line.get_unit_display }}</td>
+      <td class="num">{{ r.value|money }}</td>
+      <td>{% if r.lot %}<a href="{{ r.lot.get_absolute_url }}">{{ r.lot.number }}</a>{% endif %}</td>
+      <td>{% if can_receive or perms.purchasing.receive %}{% if r.quantity > 0 and r.pk not in undone %}<form method="post" action="{% url 'purchasing:unreceive' po.pk r.pk %}" class="inline">{% csrf_token %}<button type="submit" class="linklike">Undo</button></form>{% endif %}{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% endif %}
+
+{% if po.notes %}<h2>Notes</h2><p class="prewrap">{{ po.notes }}</p>{% endif %}
+
+{% if actions %}
+<section class="panel lifecycle">
+  {% for t in actions %}{% if t.target != "ordered" or po.status == "closed" %}
+  <form method="post" action="{% url 'purchasing:transition' po.pk %}" class="transition">{% csrf_token %}
+    <input type="hidden" name="target" value="{{ t.target }}">
+    {% if t.requires_reason %}<input type="text" name="reason" placeholder="Why?" aria-label="Reason to {{ t.label|lower }}" required>{% endif %}
+    <button type="submit"{% if t.target == "cancelled" %} class="danger"{% endif %}>{{ t.label }}</button>
+  </form>
+  {% endif %}{% endfor %}
+  {% if po.status == "draft" and perms.purchasing.create %}
+  <form method="post" action="{% url 'purchasing:delete' po.pk %}" class="transition">{% csrf_token %}<button type="submit" class="linklike danger-text">Delete this draft</button></form>
+  {% endif %}
+</section>
+{% endif %}
+
+<div class="panel">{% attachments po "Confirmations, receipts and packing slips" %}</div>
+{% endblock %}

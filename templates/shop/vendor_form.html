@@ -1,7 +1,7 @@
-{% extends "settings_base.html" %}
+{% extends "base.html" %}
 {% load files %}
 {% block title %}{{ title }}{% endblock %}
-{% block settings_content %}
+{% block content %}
 <h1>{{ title }}</h1>
 <form method="post" class="stack" novalidate>
   {% csrf_token %}

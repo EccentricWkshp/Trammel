@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% load trammel %}
+{% block title %}Material use{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{% url 'reports:index' %}">Reports</a></p>
+<h1>Material use</h1>
+<p class="lede">Material recorded on work orders in the period{% if costs %}, and where its cost came from: lots in stock, the materials price list, or a cost typed in{% endif %}. Returns count against what was used.</p>
+{% include "reports/_period.html" %}
+<div class="table-wrap"><table>
+  <thead><tr>
+    <th scope="col">{% if group == "job" %}Job{% elif group == "work_order" %}Work order{% else %}Material{% endif %}</th>
+    {% if group == "material" %}<th scope="col" class="num">Quantity</th>{% endif %}
+    {% if costs %}<th scope="col" class="num">Cost</th><th scope="col" class="num">From stock</th><th scope="col" class="num">Price list</th><th scope="col" class="num">Cost entered</th>{% endif %}
+  </tr></thead>
+  <tbody>
+  {% for r in rows %}
+    <tr>
+      <td>{% if group == "material" %}{{ r.name }}{% else %}<strong>{{ r.name }}</strong> {{ r.detail }}{% endif %}</td>
+      {% if group == "material" %}<td class="num">{{ r.quantity|qty }} {{ r.detail }}</td>{% endif %}
+      {% if costs %}<td class="num">{{ r.cost|money }}</td><td class="num">{{ r.stock|money }}</td><td class="num">{{ r.price_list|money }}</td><td class="num">{{ r.manual|money }}</td>{% endif %}
+    </tr>
+  {% empty %}
+    <tr><td colspan="6" class="muted">No material recorded in this period.</td></tr>
+  {% endfor %}
+  </tbody>
+  {% if costs and rows %}<tfoot><tr><th scope="row"{% if group == "material" %} colspan="2"{% endif %}>Total</th><td class="num">{{ totals.cost|money }}</td><td class="num">{{ totals.stock|money }}</td><td class="num">{{ totals.price_list|money }}</td><td class="num">{{ totals.manual|money }}</td></tr></tfoot>{% endif %}
+</table></div>
+{% endblock %}

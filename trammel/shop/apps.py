@@ -26,6 +26,9 @@ class ShopConfig(ModuleConfig):
         menu=(
             MenuEntry("Machines", "shop:machines", "shop.view", "admin", 25),
             MenuEntry("Materials", "shop:materials", "shop.view", "main", 55, hidden_with="stock"),
-            MenuEntry("Vendors", "shop:vendors", "shop.view", "admin", 27),
+            # Vendors live under Purchasing while it is on.
+            MenuEntry(
+                "Vendors", "shop:vendors", "shop.view", "admin", 27, hidden_with="purchasing"
+            ),
         ),
     )

@@ -10,7 +10,7 @@ from django.shortcuts import redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from trammel.core import access, audit, panels
+from trammel.core import access, agenda, audit, panels
 from trammel.core.lifecycle import TransitionError
 from trammel.core.models import AuditEvent
 from trammel.core.web import csv_response, paginate, permission_required
@@ -148,7 +148,19 @@ def job_calendar(request):
         for name in date_fields:
             day = getattr(job, name)
             if day and start <= day <= end:
-                by_day.setdefault(day, []).append({"job": job, "label": labels[name], "late": late})
+                by_day.setdefault(day, []).append(
+                    agenda.Entry(
+                        day=day,
+                        label=labels[name],
+                        text=f"{job.number} {job.title}",
+                        url=job.get_absolute_url(),
+                        late=late,
+                        kind="job",
+                    )
+                )
+    # Other modules' dates: deliveries expected on purchase orders, say.
+    for entry in agenda.entries(request, start, end):
+        by_day.setdefault(entry.day, []).append(entry)
 
     prev_month = (first - dt.timedelta(days=1)).replace(day=1)
     next_month = (first + dt.timedelta(days=32)).replace(day=1)
@@ -162,6 +174,7 @@ def job_calendar(request):
             "prev": prev_month.strftime("%Y-%m"),
             "next": next_month.strftime("%Y-%m"),
             "weekdays": [calendar.day_abbr[(week_start + i) % 7] for i in range(7)],
+            "has_others": agenda.any_for(request),
         },
     )
 
