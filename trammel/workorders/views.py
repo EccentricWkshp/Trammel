@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+from decimal import Decimal
 
 from django import forms
 from django.conf import settings
@@ -12,7 +13,7 @@ from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
-from django.utils.timezone import now
+from django.utils.timezone import localtime, now
 from django.views.decorators.http import require_POST
 
 from trammel.core import access, audit, panels, templating, units
@@ -181,6 +182,7 @@ def wo_detail(request, pk):
     actor = request.actor
     can_edit = access.has_perm(actor, "workorders.edit", wo) and wo.is_editable
     operations = services.operation_tree(wo)
+    finish = services.estimate_finish(wo, operations)
     if can_edit:
         options = services.parent_options(operations)
         for op in operations:
@@ -192,6 +194,8 @@ def wo_detail(request, pk):
             "wo": wo,
             "job": wo.job,
             "operations": operations,
+            "finish": finish,
+            "finish_late": _late(wo, finish),
             "can_nest": [op for op in operations if op.depth < Operation.MAX_DEPTH],
             "done_count": wo.operations.exclude(status="pending").count(),
             "planned": hooks.annotate_planned(
@@ -286,6 +290,22 @@ def _parent(wo, value: str):
     return parent
 
 
+def _late(wo, finish) -> tuple[str, object] | None:
+    """The first date the estimated finish misses: (what it is, the date)."""
+    if finish is None:
+        return None
+    day = localtime(finish).date()
+    job = wo.job
+    for label, date in (
+        ("the job's promised date", job.promised_date),
+        ("the job's due date", job.due_date),
+        ("the work order's target", wo.target_completion),
+    ):
+        if date and day > date:
+            return label, date
+    return None
+
+
 def _ops_tab(wo):
     return f"{wo.get_absolute_url()}?tab=operations"
 
@@ -302,6 +322,11 @@ def op_edit(request, pk, op_pk):
                 name=request.POST.get("name", ""),
                 description=request.POST.get("description", ""),
                 machine=machine,
+                planned_labor_minutes=_minutes(request.POST.get("planned_labor_minutes")),
+                planned_machine_minutes=_minutes(request.POST.get("planned_machine_minutes")),
+                planned_wait_hours=_minutes(
+                    request.POST.get("planned_wait_hours"), "Enter the wait in hours, such as 12."
+                ),
             )
             if "parent" in request.POST:
                 services.reparent_operation(
@@ -310,6 +335,17 @@ def op_edit(request, pk, op_pk):
     except ValidationError as exc:
         messages.error(request, " ".join(exc.messages))
     return redirect(_ops_tab(wo))
+
+
+def _minutes(value: str | None, problem: str = "Enter planned time in minutes, such as 45."):
+    """Planned minutes (or hours) typed on the form: blank for none."""
+    value = (value or "").strip()
+    if not value:
+        return None
+    try:
+        return Decimal(value)
+    except ArithmeticError:
+        raise ValidationError(problem) from None
 
 
 @permission_required("workorders.edit")

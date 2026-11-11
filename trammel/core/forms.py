@@ -5,7 +5,13 @@ import zoneinfo
 from django import forms
 from django.contrib.auth import password_validation
 
-from .models import BusinessProfile, DocumentSequence, ShopRates, SystemSettings
+from .models import (
+    WEEKDAYS,
+    BusinessProfile,
+    DocumentSequence,
+    ShopRates,
+    SystemSettings,
+)
 
 COMMON_CURRENCIES = [
     "USD",
@@ -108,6 +114,7 @@ class BusinessProfileForm(forms.ModelForm):
     )
     REGIONAL = ("timezone", "unit_system", "week_start", "date_format", "currency")
     RESALE = ("resale_certificate_number", "resale_certificate_expires")
+    HOURS = ("work_days", "day_starts", "day_ends")
     LOGO = ("logo_file", "remove_logo")
 
     #: The settings page's tabs: (key, label, its titled groups of fields). Each tab
@@ -126,6 +133,7 @@ class BusinessProfileForm(forms.ModelForm):
             ),
         ),
         ("region", "Region and format", (("Region and format", REGIONAL),)),
+        ("hours", "Shop hours", (("Shop hours", HOURS),)),
         ("tax", "Tax certificate", (("Resale certificate", RESALE),)),
     )
 
@@ -157,8 +165,13 @@ class BusinessProfileForm(forms.ModelForm):
             "week_start",
             "date_format",
             "currency",
+            "work_days",
+            "day_starts",
+            "day_ends",
         ]
         widgets = {
+            "day_starts": forms.TimeInput(attrs={"type": "time"}, format="%H:%M"),
+            "day_ends": forms.TimeInput(attrs={"type": "time"}, format="%H:%M"),
             "tax_registration_numbers": forms.Textarea(attrs={"rows": 3}),
             "resale_certificate_expires": forms.DateInput(attrs={"type": "date"}),
         }
@@ -181,6 +194,26 @@ class BusinessProfileForm(forms.ModelForm):
                 ].help_text = "Locked: quotes or invoices already exist in this currency."
         if "remove_logo" in self.fields and not self.instance.logo:
             del self.fields["remove_logo"]
+        if "work_days" in self.fields:
+            # Listed from the day the shop's week starts on.
+            start = self.instance.week_start
+            days = sorted(WEEKDAYS, key=lambda d: (d[0] - start) % 7)
+            self.fields["work_days"] = forms.TypedMultipleChoiceField(
+                label="Working days",
+                choices=days,
+                coerce=int,
+                widget=forms.CheckboxSelectMultiple,
+                help_text=BusinessProfile._meta.get_field("work_days").help_text,
+                error_messages={"required": "Pick at least one working day."},
+            )
+            self.initial["work_days"] = list(self.instance.work_days)
+
+    def clean(self):
+        data = super().clean()
+        starts, ends = data.get("day_starts"), data.get("day_ends")
+        if starts and ends and ends <= starts:
+            self.add_error("day_ends", "The working day has to end after it starts.")
+        return data
 
     def sections(self):
         """This tab's fields in titled groups."""
@@ -213,6 +246,7 @@ class ShopRatesForm(forms.ModelForm):
         fields = [
             "labor_hourly_rate",
             "labor_daily_rate",
+            "labor_cost_rate",
             "shop_overhead_rate",
             "default_material_markup",
             "consumables_allowance",

@@ -335,8 +335,13 @@ def tax_report(start: dt.date, end: dt.date) -> dict:
 # Time (FR-RPT-5)
 # ---------------------------------------------------------------------------
 
+
 #: Hours a machine could run on a working day, for the utilization figure.
-WORKDAY_HOURS = Decimal("8")
+def workday_hours() -> Decimal:
+    """Hours in the shop's working day."""
+    from trammel.core.workhours import Hours
+
+    return (Decimal(Hours.load().day_minutes) / 60).quantize(Decimal("0.01")).normalize()
 
 
 def time_report(start: dt.date, end: dt.date, group: str = "user"):
@@ -355,10 +360,15 @@ def time_report(start: dt.date, end: dt.date, group: str = "user"):
         qs = qs.filter(kind="labor").values("user__full_name")
         key = "user__full_name"
     rows = qs.annotate(minutes=Sum("minutes"), cost=Sum("cost")).order_by(key)
+    from trammel.core.workhours import Hours
+
+    hours_of = Hours.load()
     workdays = sum(
-        1 for i in range((end - start).days + 1) if (start + dt.timedelta(days=i)).weekday() < 5
+        1
+        for i in range((end - start).days + 1)
+        if hours_of.is_working_day(start + dt.timedelta(days=i))
     )
-    available = workdays * WORKDAY_HOURS
+    available = workdays * workday_hours()
     out = []
     for r in rows:
         hours = (r["minutes"] or ZERO) / 60

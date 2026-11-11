@@ -16,6 +16,22 @@ def no_running_timers(wo):
         yield f"{who}'s timer is still running."
 
 
+@wo_hooks.time_logged
+def logged_by_operation(wo) -> dict:
+    """Minutes logged against each of the work order's operations, by kind."""
+    from django.db.models import Sum
+
+    out: dict = {}
+    for op_id, kind, minutes in (
+        TimeEntry.objects.filter(work_order=wo, operation__isnull=False)
+        .values_list("operation_id", "kind")
+        .annotate(Sum("minutes"))
+        .order_by()
+    ):
+        out.setdefault(op_id, {})[kind] = minutes or 0
+    return out
+
+
 @job_hooks.register_outstanding
 def running_timers(job):
     """§6.2: a forced closeout stops running timers at the current time."""

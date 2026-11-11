@@ -91,14 +91,12 @@ def test_a_disabled_module_leaves_record_pages(rf, admin):
 def test_staff_recipients_are_chosen_users(admin_client, admin):
     riley = make_user("riley@example.com", name="Riley Chen")
     make_user("nomail@example.com", name="No Mail")
-    page = admin_client.get("/settings/email/").content.decode()
+    page = admin_client.get("/settings/email/notifications/").content.decode()
     assert 'class="multiselect"' in page and "Riley Chen &lt;riley@example.com&gt;" in page
     assert notifications.staff_recipients() == [admin.email]  # nobody chosen: system admins
     response = admin_client.post(
-        "/settings/email/",
+        "/settings/email/notifications/",
         {
-            "port": "587",
-            "security": "starttls",
             "overdue_reminder_days": "7",
             "staff_recipients": [str(riley.pk)],
         },
@@ -112,7 +110,7 @@ def test_staff_recipients_are_chosen_users(admin_client, admin):
 def test_notifications_switch_on_and_off_from_the_list(admin_client):
     admin_client.post("/settings/email/templates/quote_sent/toggle/", {"enabled": "0"})
     assert not EmailTemplate.objects.get(event="quote_sent").enabled
-    page = admin_client.get("/settings/email/").content.decode()
+    page = admin_client.get("/settings/email/notifications/").content.decode()
     assert 'role="switch" aria-checked="false"' in page
     admin_client.post("/settings/email/templates/quote_sent/toggle/", {"enabled": "1"})
     assert EmailTemplate.objects.get(event="quote_sent").enabled
@@ -120,5 +118,5 @@ def test_notifications_switch_on_and_off_from_the_list(admin_client):
 
 @pytest.mark.django_db
 def test_sign_in_link_goes_to_the_person(admin_client):
-    page = admin_client.get("/settings/email/").content.decode()
+    page = admin_client.get("/settings/email/notifications/").content.decode()
     assert "Person signing in" in page

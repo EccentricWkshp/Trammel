@@ -218,6 +218,17 @@ class Operation(models.Model):
     )
     status = models.CharField(max_length=8, choices=State.choices, default=State.PENDING)
     completed_at = models.DateTimeField(null=True, blank=True)
+    #: Minutes planned for it, from a product's routing or typed in: hands-on
+    #: time (setup included) and machine time. Time logged against the operation
+    #: is shown beside them.
+    planned_labor_minutes = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True
+    )
+    planned_machine_minutes = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True
+    )
+    #: Hours the work sits after it (glue, finish, paint) before the next can start.
+    planned_wait_hours = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
     #: Set on the operation an approved change order added (its lines are the
     #: sub-operations), so a change order is never added twice.
     source_revision = models.ForeignKey(

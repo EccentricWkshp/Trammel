@@ -1,0 +1,22 @@
+{% load trammel %}
+<section aria-labelledby="cost-heading">
+<h2 id="cost-heading">Cost</h2>
+<p class="muted small">What one {{ product.get_unit_display }} costs to make, worked out from its bill of materials, its routing at your labor and machine rates, and its other cost. Quotes use the product's cost for margins.</p>
+<div class="table-wrap"><table class="form-narrow">
+  <tbody>
+  {% for p in parts %}
+    <tr><th scope="row">{{ p.label }}</th><td class="muted">{{ p.detail }}</td><td class="num">{{ p.amount|money }}</td></tr>
+  {% empty %}
+    <tr><td colspan="3" class="muted">Nothing to work it out from yet: add a routing, a bill of materials, or an other cost.</td></tr>
+  {% endfor %}
+  </tbody>
+  <tfoot>
+    <tr><th scope="row" colspan="2">Calculated cost</th><td class="num"><strong>{{ calculated|money }}</strong></td></tr>
+  </tfoot>
+</table></div>
+{% if product.cost_is_calculated %}
+<p>The product's cost is the calculated cost, {{ product.cost|money }}, kept up to date as material costs and rates change.</p>
+{% else %}
+<aside class="callout"><p>The cost is set by hand to <strong>{{ product.cost|money }}</strong>{% if product.cost != calculated %}; the calculated cost is {{ calculated|money }}{% endif %}. Clear the cost override on the Details tab to use the calculated cost.</p></aside>
+{% endif %}
+</section>

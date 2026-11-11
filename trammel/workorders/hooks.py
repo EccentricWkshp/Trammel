@@ -90,14 +90,37 @@ _carry_over: list[Callable] = []
 
 
 def carry_over(fn):
-    """Register `fn(wo, line, operation)` run for each quote line carried over."""
+    """Register `fn(wo, line, operation, steps)` run for each quote line carried
+    over. `steps` maps the product's routing step ids to the sub-operations made
+    for them (empty when the line has no routing)."""
     _carry_over.append(fn)
     return fn
 
 
-def run_carry_over(wo, line, operation) -> None:
+def run_carry_over(wo, line, operation, steps=None) -> None:
     for fn in _enabled(_carry_over):
-        fn(wo, line, operation)
+        fn(wo, line, operation, steps or {})
+
+
+# Time logged against operations: time tracking says how much, by kind.
+
+_time_logged: list[Callable] = []
+
+
+def time_logged(fn):
+    """Register `fn(work_order) -> {operation_id: {"labor": minutes, "machine": minutes}}`."""
+    _time_logged.append(fn)
+    return fn
+
+
+def logged_minutes(work_order) -> dict:
+    out: dict = {}
+    for fn in _enabled(_time_logged):
+        for op_id, kinds in fn(work_order).items():
+            mine = out.setdefault(op_id, {})
+            for kind, value in kinds.items():
+                mine[kind] = mine.get(kind, 0) + value
+    return out
 
 
 # An operation marked done: its planned materials may be recorded as used.

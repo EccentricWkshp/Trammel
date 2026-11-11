@@ -113,7 +113,12 @@ def test_email_quote_and_settings_screen(admin_client, smtp, admin):
     assert response.status_code == 302
     assert secrets.get(services.PASSWORD_KEY) == "hunter2"
     assert "hunter2" not in Credential.objects.get().ciphertext
-    assert "hunter2" not in admin_client.get("/settings/email/").content.decode()
+    page = admin_client.get("/settings/email/").content.decode()
+    assert "hunter2" not in page
+    # The password sits with the username; notification settings are on their own page.
+    assert page.index('name="username"') < page.index('name="password"')
+    assert page.index('name="clear_password"') < page.index('name="from_address"')
+    assert "A password is stored" in page and 'name="staff_recipients"' not in page
     admin_client.post("/settings/email/", {"test_to": "me@example.com"})
     assert mail.outbox[-1].subject == "Trammel test email"
     for path in ("/settings/email/log/", "/settings/email/templates/quote_sent/"):

@@ -6,9 +6,11 @@ import re
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models.signals import post_save
 from django.urls import reverse
 from django.utils.http import urlencode
 
+from trammel.catalog import costing
 from trammel.core import (
     access,
     archive,
@@ -78,8 +80,28 @@ def offer_new_material(request, code):
 
 
 @wo_hooks.carry_over
-def plan_bill_of_materials(wo, line, operation):
-    services.plan_bom(wo, line, operation)
+def plan_bill_of_materials(wo, line, operation, steps=None):
+    services.plan_bom(wo, line, operation, steps)
+
+
+@costing.part
+def materials(product):
+    """A product's bill of materials at current material costs."""
+    lines, total = services.bom_cost(product)
+    if not lines:
+        return []
+    return [costing.Part("Materials", total, f"{len(lines)} on the bill of materials")]
+
+
+def _material_saved(sender, instance, created, **kwargs):
+    """A material edited by hand: products using it are costed again."""
+    from trammel.core import modules
+
+    if not created and modules.is_enabled("stock"):
+        services.refresh_costs_using(instance)
+
+
+post_save.connect(_material_saved, sender=Material, dispatch_uid="stock.material_cost")
 
 
 @wo_hooks.planned_use
@@ -339,7 +361,6 @@ def bill_of_materials(request, product):
     lines, cost = services.bom_cost(product)
     can_edit = access.has_perm(request.actor, "catalog.edit")
     editing = request.GET.get("edit", "") if can_edit else ""
-    other, costing = services.bom_other_cost(product, cost)
     return panels.Panel(
         "Bill of materials",
         "stock/_bom_panel.html",
@@ -347,9 +368,7 @@ def bill_of_materials(request, product):
             "product": product,
             "lines": lines,
             "cost": cost,
-            "other": other,
-            "costing": costing,
-            "in_step": product.cost == cost + other,
+            "steps": list(product.routing_steps.all()),
             "editing": next((line for line in lines if str(line.pk) == editing), None),
             "can_edit": can_edit,
             "can_costs": access.has_perm(request.actor, "core.see_costs"),

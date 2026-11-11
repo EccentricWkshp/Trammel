@@ -21,7 +21,7 @@ def _rates(kind: str, user=None, machine=None) -> tuple[Decimal, Decimal]:
     shop = ShopRates.load()
     if kind == TimeEntry.Kind.MACHINE:
         return machine.cost_rate, machine.hourly_rate
-    cost = user.labor_cost_rate if user.labor_cost_rate is not None else shop.labor_hourly_rate
+    cost = user.labor_cost_rate if user.labor_cost_rate is not None else shop.labor_cost
     return cost, shop.labor_hourly_rate
 
 

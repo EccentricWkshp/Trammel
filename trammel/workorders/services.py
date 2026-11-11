@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
@@ -84,8 +85,10 @@ def _carry_over(wo: WorkOrder, revision, parent: Operation | None = None) -> Non
             name=line.description[:200],
             machine=machine,
         )
-        # Other modules plan for the line too: stock expands a product's bill of materials.
-        hooks.run_carry_over(wo, line, op)
+        steps = _routing(wo, line, op)
+        # Other modules plan for the line too: stock expands a product's bill of
+        # materials, each part on the step that uses it.
+        hooks.run_carry_over(wo, line, op, steps)
         if line.kind == "material" and line.material is not None:
             PlannedMaterial.objects.create(
                 work_order=wo,
@@ -124,6 +127,30 @@ def _carry_over(wo: WorkOrder, revision, parent: Operation | None = None) -> Non
                 material=material,
                 description=row["detail"] if row else str(material),
             )
+
+
+def _routing(wo: WorkOrder, line, op: Operation) -> dict:
+    """A product's routing, as sub-operations of the line's operation: each step
+    with its machine, instructions and time planned for the line's quantity.
+    Returns {step id: sub-operation}."""
+    product = line.product if line.product_id else None
+    if product is None or op.depth >= Operation.MAX_DEPTH:
+        return {}
+    out = {}
+    for n, step in enumerate(product.routing_steps.select_related("machine"), start=1):
+        out[step.pk] = Operation.objects.create(
+            work_order=wo,
+            parent=op,
+            depth=op.depth + 1,
+            position=n * 10,
+            name=step.name,
+            description=step.instructions,
+            machine=step.machine,
+            planned_labor_minutes=step.planned_labor(line.quantity),
+            planned_machine_minutes=step.planned_machine(line.quantity),
+            planned_wait_hours=step.wait_hours or None,
+        )
+    return out
 
 
 def _change_orders(job):
@@ -246,7 +273,71 @@ def operation_tree(wo: WorkOrder) -> list[Operation]:
             walk(op.pk, f"{op.number}.")
 
     walk(None, "")
+    _add_time(wo, out, children)
     return out
+
+
+ZERO_MIN = Decimal("0")
+
+
+def _add_time(wo: WorkOrder, ops: list[Operation], children: dict) -> None:
+    """Give each operation `time`: planned and logged minutes, hands-on and machine,
+    for it and everything under it."""
+    logged = hooks.logged_minutes(wo)
+    by_id = {op.pk: op for op in ops}
+
+    def total(op) -> dict:
+        own = logged.get(op.pk, {})
+        t = {
+            "planned_labor": op.planned_labor_minutes or ZERO_MIN,
+            "planned_machine": op.planned_machine_minutes or ZERO_MIN,
+            "planned_wait": op.planned_wait_hours or ZERO_MIN,
+            "logged_labor": Decimal(own.get("labor", 0)),
+            "logged_machine": Decimal(own.get("machine", 0)),
+        }
+        for child in children.get(op.pk, []):
+            below = total(child)
+            for key in t:
+                t[key] += below[key]
+        t["planned"] = bool(t["planned_labor"] or t["planned_machine"])
+        t["logged"] = bool(t["logged_labor"] or t["logged_machine"])
+        op.time = t
+        return t
+
+    for op in ops:
+        if op.parent_id not in by_id:
+            total(op)
+        op.own_wait = op.planned_wait_hours or ZERO_MIN
+        own = logged.get(op.pk, {})
+        op.own_logged = Decimal(own.get("labor", 0)) + Decimal(own.get("machine", 0))
+
+
+def estimate_finish(wo: WorkOrder, ops: list[Operation] | None = None):
+    """When the work order should be done: the planned time not yet logged on each
+    operation still to do, fitted into shop hours one at a time in order, with
+    each one's wait after it. A wait after a finished operation still holds up
+    the rest until it's over. None if nothing left has planned time.
+
+    `ops` is `operation_tree(wo)`, if already worked out."""
+    from trammel.core import workhours
+
+    if wo.status in (Status.COMPLETE, Status.CLOSED, Status.CANCELLED):
+        return None
+    ops = operation_tree(wo) if ops is None else ops
+    hours = workhours.Hours.load()
+    start = timezone.now()
+    plan = []
+    for op in ops:
+        wait = op.own_wait
+        if op.status != P.PENDING:
+            if wait and op.status == P.DONE and op.completed_at:
+                start = max(start, op.completed_at + dt.timedelta(hours=float(wait)))
+            continue
+        work = (op.planned_labor_minutes or ZERO_MIN) + (op.planned_machine_minutes or ZERO_MIN)
+        plan.append((max(work - op.own_logged, ZERO_MIN), wait))
+    if not any(work or wait for work, wait in plan):
+        return None if start <= timezone.now() else start
+    return hours.finish(start, plan)
 
 
 def _descendants(op: Operation) -> list[Operation]:
@@ -412,13 +503,28 @@ def reparent_operation(op: Operation, parent: Operation | None, *, user=None) ->
 
 
 @transaction.atomic
-def update_operation(op: Operation, *, name: str, description: str = "", machine=None) -> Operation:
+def update_operation(
+    op: Operation,
+    *,
+    name: str,
+    description: str = "",
+    machine=None,
+    planned_labor_minutes=None,
+    planned_machine_minutes=None,
+    planned_wait_hours=None,
+) -> Operation:
     _require_editable(op.work_order)
     name = name.strip()
     if not name:
         raise ValidationError("Name the operation.")
+    for value in (planned_labor_minutes, planned_machine_minutes, planned_wait_hours):
+        if value is not None and value < 0:
+            raise ValidationError("Planned time can't be negative.")
     before = audit.snapshot(op)
     op.name, op.description, op.machine = name, description.strip(), machine
+    op.planned_labor_minutes = planned_labor_minutes
+    op.planned_machine_minutes = planned_machine_minutes
+    op.planned_wait_hours = planned_wait_hours
     op.save()
     audit.record(
         "operation.edit",

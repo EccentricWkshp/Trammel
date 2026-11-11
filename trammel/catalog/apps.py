@@ -11,7 +11,7 @@ class CatalogConfig(ModuleConfig):
         name="Products",
         version="0.1.0",
         description="Catalog of made, resold and service items.",
-        depends_on=("tax",),
+        depends_on=("tax", "shop"),
         urls="trammel.catalog.urls",
         url_prefix="products",
         api_router="trammel.catalog.api.router",

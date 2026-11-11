@@ -101,6 +101,7 @@
       <td>
         <div class="op-name d{{ op.depth }}">{{ op.name }}</div>
         {% if op.machine %}<div class="machine">Machine: {{ op.machine }}</div>{% endif %}
+        {% if op.time.planned or op.time.logged %}<div class="machine">{% include "workorders/_op_time.html" %}</div>{% endif %}
         {% if op.description %}<div class="op-desc">{{ op.description }}</div>{% endif %}
       </td>
       <td class="check"><span class="box">{% if op.status == "done" %}✓{% elif op.status == "skipped" %}–{% endif %}</span></td>

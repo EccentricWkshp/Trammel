@@ -17,25 +17,49 @@ from .models import EmailLog, EmailTemplate, SmtpSettings
 
 
 class SmtpForm(forms.ModelForm):
+    """The connection to the SMTP server: the password with the username it goes with."""
+
     password = forms.CharField(
         required=False,
         widget=forms.PasswordInput(render_value=False),
-        help_text="Stored encrypted. Leave blank to keep the current password.",
+        help_text="Stored encrypted and never shown.",
     )
     clear_password = forms.BooleanField(required=False, label="Remove the stored password")
 
+    field_order = [
+        "host",
+        "port",
+        "security",
+        "username",
+        "password",
+        "clear_password",
+        "from_address",
+        "from_name",
+    ]
+
     class Meta:
         model = SmtpSettings
-        fields = [
-            "host",
-            "port",
-            "security",
-            "username",
-            "from_address",
-            "from_name",
-            "staff_recipients",
-            "overdue_reminder_days",
-        ]
+        fields = ["host", "port", "security", "username", "from_address", "from_name"]
+
+    def __init__(self, *args, password_set: bool = False, **kwargs):
+        super().__init__(*args, **kwargs)
+        if password_set:
+            self.fields[
+                "password"
+            ].help_text = (
+                "A password is stored, encrypted, and never shown. Leave blank to keep it."
+            )
+        else:
+            self.fields["password"].help_text = "No password is stored yet. It's kept encrypted."
+            del self.fields["clear_password"]
+
+
+class NotificationSettingsForm(forms.ModelForm):
+    """Who gets staff notifications, and how often overdue reminders go out."""
+
+    class Meta:
+        model = SmtpSettings
+        fields = ["staff_recipients", "overdue_reminder_days"]
         widgets = {"staff_recipients": MultiSelectDropdown(placeholder="Every system admin")}
 
     def __init__(self, *args, **kwargs):
@@ -70,7 +94,12 @@ class TemplateForm(forms.ModelForm):
 def smtp(request):
     obj = SmtpSettings.load()
     before = audit.snapshot(obj)
-    form = SmtpForm(request.POST or None, instance=obj)
+    password_set = secrets.is_set(services.PASSWORD_KEY)
+    form = SmtpForm(
+        None if "test_to" in request.POST else (request.POST or None),
+        instance=obj,
+        password_set=password_set,
+    )
     if request.method == "POST" and "test_to" in request.POST:
         try:
             services.send_test(request.POST["test_to"], user=request.user)
@@ -81,8 +110,7 @@ def smtp(request):
         return redirect("notifications:smtp")
     if request.method == "POST" and form.is_valid():
         save_audited(form.save(commit=False), before=before, summary="Edited email settings")
-        form.save_m2m()
-        if form.cleaned_data["clear_password"]:
+        if form.cleaned_data.get("clear_password"):
             secrets.clear(services.PASSWORD_KEY)
             audit.record(
                 "credential.clear",
@@ -100,12 +128,26 @@ def smtp(request):
             )
         messages.success(request, "Email settings saved.")
         return redirect("notifications:smtp")
+    return render(request, "notifications/smtp.html", {"form": form})
+
+
+@admin_required
+def notification_settings(request):
+    """Which notification emails are sent, who gets the staff ones, and how often
+    overdue invoices are chased."""
+    obj = SmtpSettings.load()
+    before = audit.snapshot(obj)
+    form = NotificationSettingsForm(request.POST or None, instance=obj)
+    if request.method == "POST" and form.is_valid():
+        save_audited(form.save(commit=False), before=before, summary="Edited notification settings")
+        form.save_m2m()
+        messages.success(request, "Notification settings saved.")
+        return redirect("notifications:settings")
     return render(
         request,
-        "notifications/smtp.html",
+        "notifications/settings.html",
         {
             "form": form,
-            "password_set": secrets.is_set(services.PASSWORD_KEY),
             "templates": [(e, services.template_for(e.key)) for e in listed()],
         },
     )
@@ -124,19 +166,19 @@ def template_toggle(request, event):
             summary=f"{'Turned on' if tpl.enabled else 'Turned off'} the "
             f"“{EVENTS[event].label}” email",
         )
-    return redirect(f"{reverse('notifications:smtp')}#events-heading")
+    return redirect(f"{reverse('notifications:settings')}#events-heading")
 
 
 @admin_required
 def template_edit(request, event):
     if event not in EVENTS:
-        return redirect("notifications:smtp")
+        return redirect("notifications:settings")
     tpl = services.template_for(event)
     before = audit.snapshot(tpl)
     form = TemplateForm(request.POST or None, instance=tpl)
     if request.method == "POST" and form.is_valid():
         save_audited(form.save(commit=False), before=before)
-        return redirect("notifications:smtp")
+        return redirect("notifications:settings")
     return render(
         request,
         "core/template_editor.html",
@@ -144,8 +186,8 @@ def template_edit(request, event):
             "form": form,
             "title": f"Email: {EVENTS[event].label}",
             "intro": f"Goes to {EVENTS[event].audience_label}.",
-            "back": "notifications:smtp",
-            "back_label": "Email",
+            "back": "notifications:settings",
+            "back_label": "Notifications",
             **placeholders.editor_context(f"email:{event}"),
         },
     )

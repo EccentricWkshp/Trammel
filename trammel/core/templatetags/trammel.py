@@ -74,6 +74,41 @@ def qty(value):
 
 
 @register.filter
+def minutes(value):
+    """A time in minutes for reading: 0 -> —, 45 -> 45 min, 90 -> 1 h 30 min, 7.5 -> 7.5 min."""
+    if value in (None, ""):
+        return ""
+    from decimal import Decimal
+
+    from trammel.core.money import trim_decimal
+
+    total = Decimal(value)
+    if not total:
+        return "—"
+    hours, rest = divmod(total, 60)
+    rest_text = f"{trim_decimal(rest.quantize(Decimal('0.1')))} min" if rest else ""
+    if not hours:
+        return rest_text
+    return f"{int(hours)} h {rest_text}".strip()
+
+
+@register.filter
+def hours(value):
+    """A time in hours for reading: 0 -> —, 1 -> 1 hour, 12 -> 12 hours, 1.5 -> 1.5 hours."""
+    if value in (None, ""):
+        return ""
+    from decimal import Decimal
+
+    from trammel.core.money import trim_decimal
+
+    total = Decimal(value)
+    if not total:
+        return "—"
+    text = trim_decimal(total.quantize(Decimal("0.01")))
+    return f"{text} hour{'' if total == 1 else 's'}"
+
+
+@register.filter
 def pct(value):
     """A percentage without trailing zeros: 6.5000 -> 6.5%, 10.0000 -> 10%."""
     if value in (None, ""):

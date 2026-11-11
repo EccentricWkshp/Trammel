@@ -242,6 +242,15 @@ class BOMLine(models.Model):
     quantity = models.DecimalField(**QTY)
     unit = models.CharField(max_length=12)
     note = models.CharField(max_length=200, blank=True)
+    #: The routing step that uses it, so a work order plans it on that step's
+    #: operation. Blank: on the product's own operation.
+    step = models.ForeignKey(
+        "catalog.RoutingStep",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="bom_lines",
+    )
     position = models.PositiveIntegerField(default=0)
 
     class Meta:
@@ -252,22 +261,6 @@ class BOMLine(models.Model):
 
     def __str__(self) -> str:
         return f"{self.quantity} {self.unit} {self.material}"
-
-
-class ProductCosting(models.Model):
-    """How a product's cost was last set from its bill of materials: the
-    materials at their cost then, plus everything else (labor, machine time).
-    Kept so the other costs carry over when the materials change."""
-
-    product = models.OneToOneField(
-        "catalog.Product", on_delete=models.CASCADE, related_name="costing", primary_key=True
-    )
-    materials = RateField(default=ZERO)
-    other = RateField(default=ZERO)
-    set_at = models.DateTimeField(default=timezone.now)
-
-    def __str__(self) -> str:
-        return f"{self.product}: {self.materials} materials + {self.other} other"
 
 
 class StockSettings(SingletonModel):

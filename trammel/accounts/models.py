@@ -91,7 +91,7 @@ class User(AbstractBaseUser):
         null=True,
         blank=True,
         help_text="What an hour of this person's time costs the shop. "
-        "Blank uses the shop labor rate.",
+        "Blank uses the shop's labor cost per hour.",
     )
     # Second factor (SPEC §9). The secret is encrypted; recovery codes are hashed.
     totp_secret = models.TextField(blank=True, editable=False)

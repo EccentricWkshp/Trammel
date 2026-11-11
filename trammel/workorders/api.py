@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -21,6 +22,9 @@ class OperationOut(ModelSchema):
     #: "1.2.3": its place in the list, sub-operations under their parent.
     number: str
     parent: UUID | None
+    #: Minutes logged against it and everything under it, by kind.
+    logged_labor_minutes: Decimal
+    logged_machine_minutes: Decimal
 
     class Meta:
         model = Operation
@@ -33,15 +37,29 @@ class OperationOut(ModelSchema):
             "machine",
             "status",
             "completed_at",
+            "planned_labor_minutes",
+            "planned_machine_minutes",
+            "planned_wait_hours",
         ]
 
     @staticmethod
     def resolve_parent(obj):
         return obj.parent_id
 
+    @staticmethod
+    def resolve_logged_labor_minutes(obj):
+        return getattr(obj, "time", {}).get("logged_labor", 0)
+
+    @staticmethod
+    def resolve_logged_machine_minutes(obj):
+        return getattr(obj, "time", {}).get("logged_machine", 0)
+
 
 class WorkOrderOut(ModelSchema):
     operations: list[OperationOut]
+    #: When the work still to do should be finished, from its planned time and
+    #: waits in shop hours; null when nothing left has planned time.
+    estimated_finish: datetime | None
 
     class Meta:
         model = WorkOrder
@@ -60,7 +78,12 @@ class WorkOrderOut(ModelSchema):
 
     @staticmethod
     def resolve_operations(obj):
-        return services.operation_tree(obj)
+        obj._tree = services.operation_tree(obj)
+        return obj._tree
+
+    @staticmethod
+    def resolve_estimated_finish(obj):
+        return services.estimate_finish(obj, getattr(obj, "_tree", None))
 
 
 class WorkOrderCreateIn(Schema):

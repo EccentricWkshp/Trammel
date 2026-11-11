@@ -23,6 +23,7 @@ from django.db.models import F, Max, Q, Sum
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
+from trammel.catalog import costing
 from trammel.core import audit, numbering, units
 from trammel.core.money import round_money
 from trammel.core.services import save_audited
@@ -324,6 +325,7 @@ def receive(
         before = audit.snapshot(material)
         Material.objects.filter(pk=material.pk).update(unit_cost=lot.unit_cost)
         material.unit_cost = lot.unit_cost
+        refresh_costs_using(material)
         audit.record(
             "material.cost",
             material,
@@ -1100,6 +1102,8 @@ def save_bom_line(line) -> object:
         raise ValidationError({"unit": str(exc)}) from None
     if line.quantity is None or line.quantity <= 0:
         raise ValidationError({"quantity": "Enter how much goes into one."})
+    if line.step_id and line.step.product_id != line.product_id:
+        raise ValidationError({"step": "That step is in another product's routing."})
     adding = line._state.adding
     if adding and not line.position:
         last = BOMLine.objects.filter(product=line.product).aggregate(m=Max("position"))["m"]
@@ -1111,6 +1115,7 @@ def save_bom_line(line) -> object:
         summary=f"{line.product}: {'added' if adding else 'changed to'} "
         f"{line.quantity} {line.unit} {line.material}",
     )
+    costing.refresh([line.product])
     return line
 
 
@@ -1128,59 +1133,35 @@ def bom_cost(product) -> tuple[list, Decimal]:
     return lines, total.quantize(Q4)
 
 
-def bom_other_cost(product, materials: Decimal) -> tuple[Decimal, object]:
-    """What the product's cost holds besides its materials (labor, machine
-    time): as recorded when the cost was last set from the bill of materials,
-    else whatever the cost is above the materials now. Returns (other, costing)."""
-    from .models import ProductCosting
-
-    costing = ProductCosting.objects.filter(product=product).first()
-    if costing is not None:
-        return costing.other, costing
-    return max(product.cost - materials, ZERO), None
-
-
-@transaction.atomic
-def set_cost_from_bom(product, *, other: Decimal) -> Decimal:
-    """Set the product's cost to its materials at current cost plus `other`."""
-    from .models import ProductCosting
-
-    if other < 0:
-        raise ValidationError("Other costs can't be negative.")
-    _, materials = bom_cost(product)
-    before = audit.snapshot(product)
-    product.cost = materials + other
-    save_audited(
-        product,
-        before=before,
-        summary=f"Cost set from the bill of materials: {materials} materials + {other} other",
-    )
-    ProductCosting.objects.update_or_create(
-        product=product,
-        defaults={"materials": materials, "other": other, "set_at": timezone.now()},
-    )
-    return product.cost
-
-
 @transaction.atomic
 def delete_bom_line(line) -> None:
     product, label = line.product, str(line)
     line.delete()
     audit.record("product.bom_delete", product, summary=f"{product}: removed {label}")
+    costing.refresh([product])
 
 
-def plan_bom(wo, line, operation) -> None:
+def refresh_costs_using(material) -> int:
+    """Products whose bill of materials uses `material`, after its cost changed."""
+    from trammel.catalog.models import Product
+
+    return costing.refresh(Product.objects.filter(bom_lines__material=material).distinct())
+
+
+def plan_bom(wo, line, operation, steps=None) -> None:
     """A product line carried over to a work order: plan each component of its
-    bill of materials, times the quantity, for the line's operation."""
+    bill of materials, times the quantity, on the operation for the routing step
+    that uses it (`steps` maps step ids to them), else on the line's operation."""
     from trammel.workorders.models import PlannedMaterial
 
     product = getattr(line, "product", None)
     if product is None:
         return
+    steps = steps or {}
     for part in product.bom_lines.select_related("material"):
         PlannedMaterial.objects.create(
             work_order=wo,
-            operation=operation,
+            operation=steps.get(part.step_id, operation),
             material=part.material,
             description=f"{part.material} (for {product.name})",
             quantity=(part.quantity * line.quantity).quantize(Q4),

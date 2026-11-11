@@ -16,6 +16,13 @@ class NotificationsConfig(ModuleConfig):
         url_prefix="settings/email",
         menu=(
             MenuEntry("Email", "notifications:smtp", section="admin", order=65, admin_only=True),
-            MenuEntry("Email log", "notifications:log", section="admin", order=66, admin_only=True),
+            MenuEntry(
+                "Notifications",
+                "notifications:settings",
+                section="admin",
+                order=66,
+                admin_only=True,
+            ),
+            MenuEntry("Email log", "notifications:log", section="admin", order=67, admin_only=True),
         ),
     )

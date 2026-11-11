@@ -42,11 +42,16 @@
     <dt>SKU</dt><dd>{{ product.sku|default:"—" }}</dd>
     <dt>Type</dt><dd>{{ product.get_kind_display }}</dd>
     <dt>Price</dt><dd>{{ product.price|money }} / {{ product.get_unit_display }}</dd>
-    {% if can_costs %}<dt>Cost</dt><dd>{{ product.cost|money }}</dd>{% endif %}
+    {% if can_costs %}<dt>Cost</dt><dd>{{ product.cost|money }} {% if product.cost_is_calculated %}<span class="muted">calculated</span>{% else %}<span class="muted">set by hand</span>{% endif %}</dd>{% endif %}
+    <dt>Usual batch</dt><dd>{{ product.batch_size }}</dd>
     <dt>Tax category</dt><dd>{{ product.tax_category|default:"Default" }}</dd>
     {% if product.description %}<dt>Description</dt><dd class="prewrap">{{ product.description }}</dd>{% endif %}
   </dl>
   {% endif %}
+{% elif tab == "routing" %}
+  {% include "catalog/_routing.html" %}
+{% elif tab == "cost" %}
+  {% include "catalog/_cost.html" %}
 {% elif tab == "files" %}
   {% attachments product "Images and files" %}
 {% else %}

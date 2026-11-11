@@ -13,6 +13,7 @@
       <div><dt>Target</dt><dd>{{ wo.target_completion|d|default:"—" }}</dd></div>
       <div><dt>Job due</dt><dd>{{ job.due_date|d|default:"—" }}</dd></div>
       <div><dt>Operations</dt><dd>{{ done_count }} of {{ operations|length }} done</dd></div>
+      {% if finish %}<div><dt>Estimated finish</dt><dd>{{ finish|mdt }}{% if finish_late %} <span class="flag flag-late">After {{ finish_late.0 }} ({{ finish_late.1|d }})</span>{% endif %}</dd></div>{% endif %}
     </dl>
   </div>
   <div class="actions">
@@ -36,6 +37,7 @@
       <span class="op-main">
         <span class="op-name"><span class="op-number">{{ op.number }}</span> {{ op.name }}{% if op.machine %} <span class="badge">{{ op.machine }}</span>{% endif %}</span>
         {% if op.description %}<span class="op-desc muted prewrap">{{ op.description }}</span>{% endif %}
+        {% include "workorders/_op_time.html" %}
       </span>
       <span class="muted">{{ op.get_status_display }}{% if op.completed_by %} · {{ op.completed_by.get_short_name }} {{ op.completed_at|mdt }}{% endif %}</span>
       {% if can_edit %}
@@ -58,6 +60,10 @@
           <label>Name <input type="text" name="name" value="{{ op.name }}" required maxlength="200"></label>
           <label>Machine <select name="machine"><option value="">—</option>{% if op.machine and not op.machine.is_active %}<option value="{{ op.machine_id }}" selected>{{ op.machine }} (inactive)</option>{% endif %}{% for m in machines %}<option value="{{ m.pk }}"{% if m.pk == op.machine_id %} selected{% endif %}>{{ m }}</option>{% endfor %}</select></label>
           <label>Under <select name="parent"><option value="">Top level</option>{% for p in op.parent_options %}<option value="{{ p.pk }}"{% if p.pk == op.parent_id %} selected{% endif %}>{{ p.number }} {{ p.name }}</option>{% endfor %}</select></label>
+          <label>Planned hands-on (min) <input type="text" inputmode="decimal" name="planned_labor_minutes" size="6" value="{{ op.planned_labor_minutes|default_if_none:''|qty }}"></label>
+          <label>Planned machine (min) <input type="text" inputmode="decimal" name="planned_machine_minutes" size="6" value="{{ op.planned_machine_minutes|default_if_none:''|qty }}"></label>
+          <label>Wait after (hours) <input type="text" inputmode="decimal" name="planned_wait_hours" size="6" value="{{ op.planned_wait_hours|default_if_none:''|qty }}" aria-describedby="wait-help-{{ op.pk }}"></label>
+          <p class="muted small wide" id="wait-help-{{ op.pk }}">How long the work sits after this (glue clamping, finish curing) before the next operation can start. The estimated finish counts it around the clock.</p>
           <label class="wide">Details <textarea name="description" rows="2">{{ op.description }}</textarea></label>
           <div class="actions"><button type="submit" class="primary">Save</button></div>
         </form>

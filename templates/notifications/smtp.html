@@ -2,10 +2,9 @@
 {% block title %}Email{% endblock %}
 {% block settings_content %}
 <h1>Email</h1>
-<p class="lede">Trammel sends email through your own SMTP server — your email provider's, or a relay. Nothing is sent while outbound traffic is switched off in System settings. The password is stored encrypted and never shown.</p>
+<p class="lede">Trammel sends email through your own SMTP server — your email provider's, or a relay. Nothing is sent while outbound traffic is switched off in System settings. Which emails are sent, and who gets them, is in <a href="{% url 'notifications:settings' %}">Notifications</a>.</p>
 <form method="post" class="stack" novalidate>{% csrf_token %}
   {% include "partials/form_body.html" %}
-  <p class="muted">Password: {% if password_set %}set{% else %}not set{% endif %}.</p>
   <div class="actions"><button type="submit" class="primary">Save</button></div>
 </form>
 
@@ -15,20 +14,5 @@
     <label>To <input type="email" name="test_to" value="{{ user.email }}" required></label>
     <button type="submit">Send test email</button>
   </form>
-</section>
-
-<section class="panel" aria-labelledby="events-heading">
-  <h2 id="events-heading">Notifications</h2>
-  <div class="table-wrap"><table>
-    <thead><tr><th scope="col">Event</th><th scope="col">Goes to</th><th scope="col">Sends</th><th scope="col"><span class="visually-hidden">Edit</span></th></tr></thead>
-    <tbody>{% for spec, tpl in templates %}
-      <tr{% if not tpl.enabled %} class="inactive"{% endif %}><td>{{ spec.label }}</td><td>{{ spec.audience_short }}</td>
-        <td><form method="post" action="{% url 'notifications:template_toggle' spec.key %}" class="inline">{% csrf_token %}
-          <input type="hidden" name="enabled" value="{{ tpl.enabled|yesno:'0,1' }}">
-          <button type="submit" class="switch" role="switch" aria-checked="{{ tpl.enabled|yesno:'true,false' }}" aria-label="Send “{{ spec.label }}” emails"><span class="switch-track" aria-hidden="true"></span>{{ tpl.enabled|yesno:"On,Off" }}</button>
-        </form></td>
-        <td><a href="{% url 'notifications:template' spec.key %}">Edit message</a></td></tr>
-    {% endfor %}</tbody>
-  </table></div>
 </section>
 {% endblock %}

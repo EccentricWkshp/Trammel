@@ -176,7 +176,7 @@ def test_catalog(admin_client):
             "sku": "CB-1",
             "kind": "made",
             "price": "45",
-            "cost": "12",
+            "cost_override": "12",
             "unit": "each",
             "is_active": "on",
         },

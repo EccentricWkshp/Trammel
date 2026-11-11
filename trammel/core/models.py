@@ -16,10 +16,11 @@ from __future__ import annotations
 
 import uuid
 import zoneinfo
-from datetime import timedelta
+from datetime import time, timedelta
 from decimal import Decimal
 
 from django.conf import settings
+from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
@@ -241,6 +242,23 @@ class SystemSettings(SingletonModel):
         return self.offline_mode or settings.OFFLINE_MODE
 
 
+#: Python's weekday numbers (Monday is 0) with their names.
+WEEKDAYS = [
+    (0, "Monday"),
+    (1, "Tuesday"),
+    (2, "Wednesday"),
+    (3, "Thursday"),
+    (4, "Friday"),
+    (5, "Saturday"),
+    (6, "Sunday"),
+]
+
+
+def default_work_days() -> list[int]:
+    """Monday to Friday."""
+    return [0, 1, 2, 3, 4]
+
+
 class BusinessProfile(SingletonModel):
     """Who the business is (FR-ADM-1, FR-ADM-3)."""
 
@@ -303,6 +321,26 @@ class BusinessProfile(SingletonModel):
         choices=Weekday.choices,
         default=Weekday.SUNDAY,
         help_text="For calendars. Sunday is the US convention.",
+    )
+    # Shop hours: when work gets done, for estimating when it will be finished.
+    work_days = ArrayField(
+        models.PositiveSmallIntegerField(choices=WEEKDAYS),
+        default=default_work_days,
+        blank=True,
+        help_text="The days the shop works. Production estimates put work on these days only; "
+        "waiting time, such as glue drying or finish curing, counts every day.",
+    )
+    day_starts = models.TimeField(
+        "working day starts",
+        default=time(8, 0),
+        help_text="When work starts each working day.",
+    )
+    day_ends = models.TimeField(
+        "working day ends",
+        default=time(16, 0),
+        help_text="When work stops. Production estimates fit work between the two, so 8:00 AM "
+        "to 4:00 PM is an 8-hour day. It's also the day the time report measures machine use "
+        "against.",
     )
     unit_system = models.CharField(
         max_length=10, choices=UnitSystem.choices, default=UnitSystem.IMPERIAL
@@ -371,23 +409,64 @@ class BusinessProfile(SingletonModel):
 class ShopRates(SingletonModel):
     """Business costs that feed quotes and job costing (FR-ADM-4)."""
 
-    labor_hourly_rate = MoneyField(default=Decimal("0"), validators=[MinValueValidator(0)])
-    labor_daily_rate = MoneyField(default=Decimal("0"), validators=[MinValueValidator(0)])
-    shop_overhead_rate = RateField(
-        "overhead / shop rate (per hour)",
+    labor_hourly_rate = MoneyField(
+        "labor rate (per hour)",
         default=Decimal("0"),
         validators=[MinValueValidator(0)],
+        help_text="What you charge a customer for an hour of work. New quotes price labor at "
+        "it, and logged time is billed at it.",
     )
-    default_material_markup = PercentField("default markup on materials (%)", default=Decimal("0"))
+    labor_daily_rate = MoneyField(
+        "labor rate (per day)",
+        default=Decimal("0"),
+        validators=[MinValueValidator(0)],
+        help_text="What you charge for a full day of work, kept for your reference. Nothing is "
+        "calculated from it yet.",
+    )
+    #: What an hour of hands-on work costs the shop, as against what it is
+    #: charged at. Product costs use it, and time logged by someone without a
+    #: cost rate of their own.
+    labor_cost_rate = RateField(
+        "labor cost per hour",
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0)],
+        help_text="What an hour of work actually costs you: wages plus payroll taxes and "
+        "benefits, per hour worked. Product costs use it, and so does logged time for anyone "
+        "without a cost rate of their own. Leave blank to use the labor rate.",
+    )
+    shop_overhead_rate = RateField(
+        "overhead (per hour)",
+        default=Decimal("0"),
+        validators=[MinValueValidator(0)],
+        help_text="Rent, utilities, insurance and other running costs, divided by the hours the "
+        "shop works in a year. It is added to every hour of labor and machine time: in what "
+        "quotes charge, and in product costs.",
+    )
+    default_material_markup = PercentField(
+        "default markup on materials (%)",
+        default=Decimal("0"),
+        help_text="Added to a material's cost to price it on quotes and invoices, unless the "
+        "material has its own markup. 50 prices a $10 material at $15.",
+    )
     consumables_allowance = PercentField(
-        "consumables / supplies allowance (%)", default=Decimal("0")
+        "consumables allowance (%)",
+        default=Decimal("0"),
+        help_text="Sandpaper, glue, blades and other supplies a job uses up, as a percentage "
+        "added to the cost of its materials on quotes. 5 adds $0.50 to $10 of material.",
     )
-    minimum_job_charge = MoneyField(default=Decimal("0"), validators=[MinValueValidator(0)])
+    minimum_job_charge = MoneyField(
+        default=Decimal("0"),
+        validators=[MinValueValidator(0)],
+        help_text="The least a quote comes to. A quote whose lines add up to less is raised to "
+        "it, shown as its own line. 0 for no minimum. Change orders don't use it.",
+    )
     electricity_rate = RateField(
         "electricity price (per kWh)",
         default=Decimal("0.15"),
         validators=[MinValueValidator(0)],
-        help_text="From your power bill; used by the machine rate calculator.",
+        help_text="The price per kilowatt-hour on your power bill. The machine rate calculator "
+        "uses it for what each machine's power costs.",
     )
 
     class Meta:
@@ -396,6 +475,11 @@ class ShopRates(SingletonModel):
 
     def __str__(self) -> str:
         return str(self._meta.verbose_name)
+
+    @property
+    def labor_cost(self) -> Decimal:
+        """An hour of labor at cost: the labor cost rate, or the labor rate if it's blank."""
+        return self.labor_hourly_rate if self.labor_cost_rate is None else self.labor_cost_rate
 
 
 # ---------------------------------------------------------------------------

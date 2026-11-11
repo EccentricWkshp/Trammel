@@ -1,0 +1,25 @@
+{% extends "settings_base.html" %}
+{% block title %}Notifications{% endblock %}
+{% block settings_content %}
+<h1>Notifications</h1>
+<p class="lede">The emails Trammel sends when things happen: to customers, such as a quote or invoice sent, and to staff, such as a quote approved. They go out through the server set in <a href="{% url 'notifications:smtp' %}">Email</a>.</p>
+<form method="post" class="stack" novalidate>{% csrf_token %}
+  {% include "partials/form_body.html" %}
+  <div class="actions"><button type="submit" class="primary">Save</button></div>
+</form>
+
+<section class="panel" aria-labelledby="events-heading">
+  <h2 id="events-heading">Emails sent</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th scope="col">Event</th><th scope="col">Goes to</th><th scope="col">Sends</th><th scope="col"><span class="visually-hidden">Edit</span></th></tr></thead>
+    <tbody>{% for spec, tpl in templates %}
+      <tr{% if not tpl.enabled %} class="inactive"{% endif %}><td>{{ spec.label }}</td><td>{{ spec.audience_short }}</td>
+        <td><form method="post" action="{% url 'notifications:template_toggle' spec.key %}" class="inline">{% csrf_token %}
+          <input type="hidden" name="enabled" value="{{ tpl.enabled|yesno:'0,1' }}">
+          <button type="submit" class="switch" role="switch" aria-checked="{{ tpl.enabled|yesno:'true,false' }}" aria-label="Send “{{ spec.label }}” emails"><span class="switch-track" aria-hidden="true"></span>{{ tpl.enabled|yesno:"On,Off" }}</button>
+        </form></td>
+        <td><a href="{% url 'notifications:template' spec.key %}">Edit message</a></td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+</section>
+{% endblock %}

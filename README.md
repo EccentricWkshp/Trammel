@@ -15,9 +15,13 @@ printing, laser work. Self-hosted: the data stays on the shop's own hardware.
   templates, approval with customer agreements, deposits, and a shipping or
   delivery charge. Anything priced after a job is approved is a change order,
   with the same detail and optional amended terms and deposit.
-- **Work orders** — operations, planned and used materials, approved change
-  orders added as operations,
-  printable travelers with a QR code, and a phone/tablet shop-floor app.
+- **Products** — a catalog of made, resold and service items, each with a
+  routing (the steps it takes to make one, with machines and time) and a bill
+  of materials, and a cost calculated from them unless set by hand.
+- **Work orders** — operations with planned and logged time, products' routings
+  as steps, planned and used materials, approved change orders added as
+  operations, printable travelers with a QR code, and a phone/tablet
+  shop-floor app.
 - **Machines, materials and vendors** — a machine rate calculator, a materials
   price list linked to vendors with product pages and files.
 - **Time** — timers and manual entries for people and machines, costed at each

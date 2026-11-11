@@ -201,13 +201,36 @@ class QuoteRevision(LifecycleModel, BaseModel):
 
     # Rates used to price this revision — copied from Shop rates when the
     # revision is created, and overridable per quote (FR-QUO-3).
-    labor_rate = RateField("labor rate (per hour)", default=ZERO, validators=[MinValueValidator(0)])
-    overhead_rate = RateField(
-        "overhead (per hour)", default=ZERO, validators=[MinValueValidator(0)]
+    labor_rate = RateField(
+        "labor rate (per hour)",
+        default=ZERO,
+        validators=[MinValueValidator(0)],
+        help_text="What this quote charges for an hour of work. Starts from your shop rates.",
     )
-    material_markup = PercentField("material markup (%)", default=ZERO)
-    consumables_pct = PercentField("consumables allowance (%)", default=ZERO)
-    minimum_charge = MoneyField(default=ZERO)
+    overhead_rate = RateField(
+        "overhead (per hour)",
+        default=ZERO,
+        validators=[MinValueValidator(0)],
+        help_text="Added to each hour of labor and machine time on this quote. Starts from "
+        "your shop rates.",
+    )
+    material_markup = PercentField(
+        "material markup (%)",
+        default=ZERO,
+        help_text="Added to material costs to price them on this quote, unless a material has "
+        "its own markup. 50 prices a $10 material at $15.",
+    )
+    consumables_pct = PercentField(
+        "consumables allowance (%)",
+        default=ZERO,
+        help_text="Supplies a job uses up, as a percentage added to the cost of materials on "
+        "this quote.",
+    )
+    minimum_charge = MoneyField(
+        default=ZERO,
+        help_text="The least this quote comes to; lines adding up to less are raised to it. "
+        "0 for no minimum.",
+    )
     rates_overridden = models.BooleanField(default=False, editable=False)
 
     # Totals, recomputed whenever a draft changes and frozen once sent.

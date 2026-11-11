@@ -105,7 +105,7 @@ def test_business_settings_tabs_save_on_their_own(admin_client):
     from trammel.core.models import BusinessProfile
 
     keys = walk(admin_client, "/settings/business/")
-    assert keys == ["details", "documents", "region", "tax"]
+    assert keys == ["details", "documents", "region", "hours", "tax"]
     tax = admin_client.get("/settings/business/?tab=tax").content.decode()
     assert "resale_certificate_number" in tax and "Resale certificate file" in tax
     assert "Resale certificate file" not in admin_client.get("/settings/business/").content.decode()

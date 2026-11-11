@@ -276,6 +276,8 @@ class BOMLineIn(Schema):
     quantity: Decimal
     unit: str = ""
     note: str = ""
+    #: The routing step that uses it, if any.
+    step: UUID | None = None
 
 
 def _product(request, perm, pk):
@@ -297,6 +299,11 @@ def _fill(line, payload: BOMLineIn):
     line.quantity = payload.quantity
     line.unit = payload.unit or line.material.unit
     line.note = payload.note[:200]
+    line.step = (
+        get_object_or_404(line.product.routing_steps.all(), pk=payload.step)
+        if payload.step
+        else None
+    )
     return line
 
 

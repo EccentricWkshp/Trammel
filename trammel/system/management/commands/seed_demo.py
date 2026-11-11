@@ -63,8 +63,10 @@ class Builder:
         self.stock()
         self.tax()
         self.catalog()
+        self.routings()
         self.customers()
         self.jobs()
+        self.routed_job()
         self.purchasing()
         self.direct_sale()
 
@@ -389,6 +391,7 @@ class Builder:
                     "kind": kind,
                     "price": D(price),
                     "cost": D(cost),
+                    "cost_override": D(cost),
                     "unit": unit,
                 },
             )[0]
@@ -417,6 +420,169 @@ class Builder:
                     BOMLine(product=self.board, material=oil, quantity=D("30"), unit="ml")
                 )
             self.say("a bill of materials for the cutting board")
+
+    def routings(self):
+        """The steps it takes to make the cutting board and the coaster set. The
+        board's cost is calculated from them and its bill of materials; the coaster
+        set keeps a cost set by hand, so the Cost tab shows the two side by side.
+        Looks everything up itself, so it can run on its own and again."""
+        from trammel.catalog import services as catalog
+        from trammel.catalog.models import Product, RoutingStep
+        from trammel.core import modules
+        from trammel.shop.models import Machine
+
+        board = Product.objects.filter(sku="CB-WAL-12").first()
+        coasters = Product.objects.filter(sku="CO-SET-4").first()
+        if board is None or board.routing_steps.exists():
+            return
+        machines = {m.name: m for m in Machine.objects.all()}
+
+        def step(product, name, machine=None, *, setup=0, run=0, hands=0, wait=0, instructions=""):
+            return catalog.save_step(
+                RoutingStep(
+                    product=product,
+                    name=name,
+                    machine=machines.get(machine) if machine else None,
+                    setup_minutes=D(setup),
+                    machine_minutes=D(run),
+                    labor_minutes=D(hands),
+                    wait_hours=D(wait),
+                    instructions=instructions,
+                )
+            )
+
+        mill = step(
+            board,
+            "Mill and glue up",
+            "SawStop table saw",
+            setup=20,
+            run=6,
+            hands=12,
+            wait=12,
+            instructions="Joint, plane and rip 1-1/2 in strips. Alternate the grain, glue up "
+            "and clamp overnight.",
+        )
+        step(
+            board,
+            "Flatten and profile",
+            "ShopBot Desktop",
+            setup=15,
+            run=9,
+            hands=4,
+            instructions="Surface both faces, then cut the outline and the juice groove.",
+        )
+        step(
+            board,
+            "Engrave",
+            "Epilog Fusion 32",
+            setup=10,
+            run=8,
+            hands=2,
+            instructions="Logo on the back, centered 2 in from the bottom edge.",
+        )
+        finish = step(
+            board,
+            "Sand and oil",
+            setup=5,
+            hands=15,
+            wait=24,
+            instructions="Sand to 220, raise the grain, sand again. Flood with oil and wipe "
+            "off after 15 minutes. Let it cure a day before packing.",
+        )
+        board.batch_size, board.cost_override = 6, None  # calculated from now on
+        catalog.save_product(board)
+        if modules.is_enabled("stock"):
+            from trammel.stock import services as stock
+
+            for line in board.bom_lines.select_related("material"):
+                line.step = finish if line.material.category == "finish" else mill
+                stock.save_bom_line(line)
+        if coasters is not None and not coasters.routing_steps.exists():
+            step(
+                coasters,
+                "Cut and engrave",
+                "Epilog Fusion 32",
+                setup=10,
+                run=6,
+                hands=3,
+                instructions="Four 4 in rounds from 1/8 in birch; engrave before cutting out.",
+            )
+            step(coasters, "Finish and pack", setup=5, hands=5)
+            coasters.batch_size = 10
+            catalog.save_product(coasters)
+        board.refresh_from_db()
+        self.say(
+            f"routings for the cutting board (cost now calculated: {board.cost:.2f}) "
+            "and the coaster set"
+        )
+
+    def routed_job(self):
+        """Six cutting boards for the brewery, made from the board's routing: the
+        work order gets its steps with their time planned, and some time logged
+        against them, so planned and logged time show side by side."""
+        from trammel.accounts.models import User
+        from trammel.catalog.models import Product
+        from trammel.customers.models import Customer
+        from trammel.jobs.models import Job
+        from trammel.timetracking import services as time
+        from trammel.workorders import services as wos
+
+        title = "Taproom serving boards"
+        board = Product.objects.filter(sku="CB-WAL-12").first()
+        customer = Customer.objects.filter(name="Foundry Brewing").first()
+        if board is None or customer is None or Job.objects.filter(title=title).exists():
+            return
+        hand = User.objects.filter(email="sam@demo.trammel.test").first() or self.admin
+        job = self._job(
+            customer,
+            title,
+            "Six walnut serving boards with the brewery's logo engraved on the back.",
+            due=12,
+            promised=14,
+            tags=["boards"],
+        )
+        rev = self._quote(job, [("product", {"product": str(board.pk), "quantity": "6"})])
+        self._approve(rev, "Dana Price")
+        job.refresh_from_db()
+        wo = wos.create(job, title="Six walnut serving boards", revision=rev)
+        ops = {op.name: op for op in wo.operations.all()}
+        mill, profile = ops["Mill and glue up"], ops["Flatten and profile"]
+        # Milling ran over its plan (92 minutes hands-on); the CNC is on track.
+        time.manual(
+            wo,
+            kind="labor",
+            minutes=D("110"),
+            started_at=at(2, 8),
+            user=hand,
+            operation=mill,
+            note="Glue-up took two sessions",
+        )
+        time.manual(
+            wo,
+            kind="machine",
+            minutes=D("40"),
+            started_at=at(2, 13),
+            machine=mill.machine,
+            operation=mill,
+        )
+        wos.set_operation(mill, "done", user=hand)
+        time.manual(
+            wo,
+            kind="machine",
+            minutes=D("30"),
+            started_at=at(1, 9),
+            machine=profile.machine,
+            operation=profile,
+        )
+        time.manual(
+            wo,
+            kind="labor",
+            minutes=D("20"),
+            started_at=at(1, 9),
+            user=hand,
+            operation=profile,
+        )
+        self.say(f"a job for six boards, work order {wo.number} built from the routing")
 
     def customers(self):
         from trammel.customers.models import Address, Contact, Customer
@@ -614,8 +780,11 @@ class Builder:
         if note:
             wos.add_note(wo, text=note, user=self.hand)
         if done:
-            for op in wo.operations.all():
-                wos.set_operation(op, "done", user=self.hand)
+            # Steps first: an operation with steps is done once they are.
+            for op in wo.operations.order_by("-depth", "position"):
+                op.refresh_from_db()
+                if op.status == "pending":
+                    wos.set_operation(op, "done", user=self.hand)
         wo.refresh_from_db()
         return wo
 

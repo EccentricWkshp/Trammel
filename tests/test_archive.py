@@ -165,23 +165,25 @@ def test_read_only_product_page(client, board):  # noqa: F811
 
 
 @pytest.mark.django_db
-def test_product_cost_set_from_its_bill_of_materials(admin_client, board):  # noqa: F811
+def test_product_cost_is_calculated_from_its_bill_of_materials(admin_client, board):  # noqa: F811
+    from trammel.catalog import costing
+    from trammel.catalog import services as catalog
+
     # 2.5 board feet of walnut at $12 and 50 ml of oil at $40 a liter: $32.
-    board.cost = D("50")
-    board.save()
-    page = admin_client.get(f"{board.get_absolute_url()}?tab=bom").content.decode()
-    assert "materials now cost $32.00" not in page  # $50 = $32 + $18 other, in step
-    assert 'value="18.00"' in page
-    admin_client.post(f"/stock/products/{board.pk}/cost/", {"other": "20"})
+    costing.refresh([board])
     board.refresh_from_db()
+    assert board.cost == D("32")
+    board.other_cost = D("20")
+    catalog.save_product(board)
     assert board.cost == D("52")
-    # Walnut goes up: the $20 of other costs is remembered, not soaked up.
-    Material.objects.filter(name="Walnut").update(unit_cost=D("14"))
-    page = admin_client.get(f"{board.get_absolute_url()}?tab=bom").content.decode()
-    assert "materials now cost $37.00" in page and 'value="20.00"' in page
-    admin_client.post(f"/stock/products/{board.pk}/cost/", {"other": "20"})
+    # Walnut goes up: the cost follows, the $20 of other cost stays.
+    wood = Material.objects.get(name="Walnut")
+    Material.objects.filter(pk=wood.pk).update(unit_cost=D("14"))
+    stock.refresh_costs_using(wood)
     board.refresh_from_db()
     assert board.cost == D("57")
+    page = admin_client.get(f"{board.get_absolute_url()}?tab=cost").content.decode()
+    assert "$37.00" in page and "$57.00" in page and "calculated cost" in page
 
 
 # ---------------------------------------------------------------------------

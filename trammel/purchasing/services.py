@@ -360,6 +360,7 @@ def unreceive(receipt: PurchaseReceipt, *, user=None, reason: str = "") -> Purch
             current = Material.objects.get(pk=material.pk).unit_cost
             if current == lot.unit_cost and current != receipt.previous_unit_cost:
                 Material.objects.filter(pk=material.pk).update(unit_cost=receipt.previous_unit_cost)
+                stock.refresh_costs_using(material)
                 audit.record(
                     "material.cost",
                     material,

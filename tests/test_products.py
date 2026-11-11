@@ -37,7 +37,7 @@ def test_product_page_has_tabs_and_saves_back_to_itself(admin_client, product):
             "sku": "CB-1",
             "kind": "made",
             "price": "90",
-            "cost": "20",
+            "cost_override": "20",
             "unit": "each",
         },
     )

@@ -1,0 +1,55 @@
+{% load trammel %}
+<section aria-labelledby="routing-heading">
+<h2 id="routing-heading">Routing</h2>
+<p class="muted small">The steps it takes to make {{ product.name }}, in order. A work order made from a quote with this product gets each step as an operation, with its time planned for the quantity. Setup happens once per batch; machine and hands-on time are for each one.</p>
+{% if steps %}
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Step</th><th scope="col">Machine</th><th scope="col" class="num">Setup</th><th scope="col" class="num">Machine each</th><th scope="col" class="num">Hands-on each</th><th scope="col" class="num">Wait after</th>{% if can_costs %}<th scope="col" class="num">Cost each</th>{% endif %}{% if can_edit %}<th scope="col"><span class="visually-hidden">Actions</span></th>{% endif %}</tr></thead>
+  <tbody>
+  {% for s in steps %}
+    <tr{% if s == editing %} class="row-edit"{% endif %}>
+      <td><strong>{{ s.name }}</strong>{% if s.instructions %}<br><span class="muted small prewrap">{{ s.instructions }}</span>{% endif %}</td>
+      <td>{% if s.machine %}<a href="{{ s.machine.get_absolute_url }}">{{ s.machine }}</a>{% else %}—{% endif %}</td>
+      <td class="num">{{ s.setup_minutes|minutes }}</td>
+      <td class="num">{{ s.machine_minutes|minutes }}</td>
+      <td class="num">{{ s.labor_minutes|minutes }}</td>
+      <td class="num">{{ s.wait_hours|hours }}</td>
+      {% if can_costs %}<td class="num">{{ s.unit_cost|money }}</td>{% endif %}
+      {% if can_edit %}
+      <td><div class="row-actions nowrap">
+        {% if not forloop.first %}<form method="post" action="{% url 'catalog:step_move' product.pk s.pk %}" class="inline">{% csrf_token %}<input type="hidden" name="direction" value="up"><button type="submit" class="linklike" aria-label="Move {{ s.name }} up">↑</button></form>{% endif %}
+        {% if not forloop.last %}<form method="post" action="{% url 'catalog:step_move' product.pk s.pk %}" class="inline">{% csrf_token %}<input type="hidden" name="direction" value="down"><button type="submit" class="linklike" aria-label="Move {{ s.name }} down">↓</button></form>{% endif %}
+        <a href="?tab=routing&amp;edit={{ s.pk }}#step-form" aria-label="Edit {{ s.name }}">Edit</a>
+        <form method="post" action="{% url 'catalog:step_delete' product.pk s.pk %}" class="inline">{% csrf_token %}<button type="submit" class="linklike danger-text" aria-label="Remove {{ s.name }}">Remove</button></form>
+      </div></td>
+      {% endif %}
+    </tr>
+  {% endfor %}
+  </tbody>
+  <tfoot>
+    <tr><th scope="row" colspan="2">For one</th><td class="num">{{ unit_minutes.setup|minutes }}</td><td class="num">{{ unit_minutes.machine|minutes }}</td><td class="num">{{ unit_minutes.labor|minutes }}</td><td class="num">{{ wait_hours|hours }}</td>{% if can_costs %}<td class="num">{{ routing_cost|money }}</td>{% endif %}{% if can_edit %}<td></td>{% endif %}</tr>
+  </tfoot>
+</table></div>
+<p class="muted small">Setup is spread over the usual batch of {{ batch }} in the product's cost; change the batch size on the Details tab. Waiting adds nothing to the cost.</p>
+{% if production %}
+<section class="card" aria-labelledby="production-heading">
+  <h3 id="production-heading">Production time for a batch of {{ batch }}</h3>
+  <p><strong>About {{ production.working_days }} working day{{ production.working_days|pluralize }}</strong>: {{ production.work_minutes|minutes }} of work{% if production.wait_hours %} and {{ production.wait_hours|hours }} of waiting{% endif %}.</p>
+  <p class="muted small">Started {{ production.start|mdt }}, it would be done {{ production.finish|mdt }}. Work is fitted into your shop hours one step at a time, hands-on and machine time one after the other; waiting goes on around the clock. Change the shop hours in Settings, Business.</p>
+</section>
+{% endif %}
+{% else %}
+<p class="muted">No steps yet.</p>
+{% endif %}
+
+{% if can_edit %}
+<section class="card" id="step-form" aria-labelledby="step-form-heading">
+  <h3 id="step-form-heading">{% if editing %}Change “{{ editing.name }}”{% else %}Add a step{% endif %}</h3>
+  <form method="post" action="{% if editing %}{% url 'catalog:step_edit' product.pk editing.pk %}{% else %}{% url 'catalog:step_add' product.pk %}{% endif %}" class="stack form-narrow" novalidate>
+    {% csrf_token %}
+    {% include "partials/form_body.html" with form=step_form %}
+    <div class="actions"><button type="submit" class="primary">{% if editing %}Save step{% else %}Add step{% endif %}</button>{% if editing %} <a href="?tab=routing">Cancel</a>{% endif %}</div>
+  </form>
+</section>
+{% endif %}
+</section>

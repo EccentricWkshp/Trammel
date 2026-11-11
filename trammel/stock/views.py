@@ -17,7 +17,6 @@ from django.utils.http import url_has_allowed_host_and_scheme, urlencode
 from django.views.decorators.http import require_POST
 
 from trammel.core import access, archive, audit, templating
-from trammel.core.money import format_money
 from trammel.core.services import save_audited
 from trammel.core.web import (
     csv_response,
@@ -945,6 +944,8 @@ def _bom_fields(request, line):
     line.quantity = quantity
     line.unit = request.POST.get("unit") or material.unit
     line.note = request.POST.get("note", "").strip()[:200]
+    step = request.POST.get("step") or None
+    line.step = line.product.routing_steps.filter(pk=step).first() if step else None
     return line
 
 
@@ -961,27 +962,6 @@ def bom_edit(request, pk):
         _errors(request, exc)
         return redirect(f"{url}&edit={line.pk}")
     return redirect(url)
-
-
-@permission_required("catalog.edit")
-@require_POST
-def bom_cost(request, product_pk):
-    """Set the product's cost from its bill of materials plus other costs."""
-    from trammel.catalog.models import Product
-
-    access.require(request.actor, "core.see_costs")
-    product = access.get_or_404(request.actor, "catalog.edit", Product.objects.all(), pk=product_pk)
-    try:
-        try:
-            other = Decimal(request.POST.get("other", "").strip() or "0")
-        except ArithmeticError:
-            raise ValidationError("Enter the other costs as an amount.") from None
-        cost = services.set_cost_from_bom(product, other=other)
-    except ValidationError as exc:
-        _errors(request, exc)
-    else:
-        messages.success(request, f"{product}'s cost is now {format_money(cost)}.")
-    return redirect(f"{product.get_absolute_url()}?tab=bom")
 
 
 @permission_required("catalog.edit")
