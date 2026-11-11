@@ -1,9 +1,12 @@
 """The shop's working hours, for estimating when work will be done.
 
-Work (hands-on and machine time) only happens in working hours: on the shop's
-working days, between the start and end of its day. Waiting (glue clamping,
-finish curing, paint drying) goes on around the clock, nights and days off
-included. Steps are taken one at a time, in order: each step's work, then its
+Each day of the week the shop works has its own hours (a shift). A shift that
+ends at or before it starts runs past midnight, as a night shift, and belongs to
+the day it starts; the same start and end time is around the clock.
+
+Work (hands-on and machine time) only happens in those hours. Waiting (glue
+clamping, finish curing, paint drying) goes on around the clock, nights and days
+off included. Steps are taken one at a time, in order: each step's work, then its
 wait, before the next one starts.
 """
 
@@ -11,19 +14,57 @@ from __future__ import annotations
 
 import datetime as dt
 import zoneinfo
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 
 ZERO = Decimal("0")
+DAY = 24 * 60
+
+Shift = tuple[dt.time, dt.time]
+
+
+def shift_minutes(start: dt.time, end: dt.time) -> int:
+    """How long a shift lasts, in minutes: past midnight when it ends at or
+    before it starts, a whole day when the two are the same."""
+    span = (end.hour * 60 + end.minute - start.hour * 60 - start.minute) % DAY
+    return span or DAY
+
+
+def shifts_from(value) -> tuple[Shift | None, ...]:
+    """The stored shop hours (seven entries, Monday first, each ["HH:MM",
+    "HH:MM"] or null) as times. Anything unreadable counts as a day off."""
+    days: list[Shift | None] = []
+    for i in range(7):
+        try:
+            start, end = value[i]
+            days.append((dt.time.fromisoformat(start), dt.time.fromisoformat(end)))
+        except IndexError, KeyError, TypeError, ValueError:
+            days.append(None)
+    return tuple(days)
+
+
+def stored(shifts: Sequence[Shift | None]) -> list[list[str] | None]:
+    """`shifts` the way BusinessProfile.shop_hours keeps them."""
+    return [[t.strftime("%H:%M") for t in shift] if shift else None for shift in shifts]
+
+
+#: No shop hours at all: work goes on around the clock.
+ALL_DAY: tuple[Shift, ...] = ((dt.time(0), dt.time(0)),) * 7
 
 
 @dataclass(frozen=True)
 class Hours:
-    days: frozenset[int]  # Python weekdays: Monday is 0
-    start: dt.time
-    end: dt.time
+    shifts: tuple[Shift | None, ...]  # by Python weekday: Monday is 0
     zone: dt.tzinfo
+
+    @classmethod
+    def same_days(
+        cls, days: Iterable[int], start: dt.time, end: dt.time, zone: dt.tzinfo = dt.UTC
+    ) -> Hours:
+        """The same hours on each of `days`."""
+        days = set(days)
+        return cls(tuple((start, end) if d in days else None for d in range(7)), zone)
 
     @classmethod
     def load(cls) -> Hours:
@@ -34,54 +75,56 @@ class Hours:
             zone = zoneinfo.ZoneInfo(profile.timezone)
         except zoneinfo.ZoneInfoNotFoundError, ValueError:
             zone = dt.UTC
-        return cls(frozenset(profile.work_days), profile.day_starts, profile.day_ends, zone)
+        return cls(shifts_from(profile.shop_hours), zone)
 
     @property
     def usable(self) -> bool:
-        return bool(self.days) and self.start < self.end
+        return any(self.shifts)
 
     @property
-    def day_minutes(self) -> int:
-        """Working minutes in a working day."""
-        if not self.usable:
-            return 24 * 60
-        today = dt.date.today()
-        span = dt.datetime.combine(today, self.end) - dt.datetime.combine(today, self.start)
-        return int(span.total_seconds() // 60)
+    def _week(self) -> tuple[Shift | None, ...]:
+        return self.shifts if self.usable else ALL_DAY
 
     def is_working_day(self, day: dt.date) -> bool:
-        return not self.usable or day.weekday() in self.days
+        return self._week[day.weekday()] is not None
+
+    def shift_on(self, day: dt.date) -> tuple[dt.datetime, dt.datetime] | None:
+        """When the shift starting on `day` begins and ends (wall clock)."""
+        shift = self._week[day.weekday()]
+        if shift is None:
+            return None
+        begins = dt.datetime.combine(day, shift[0])
+        return begins, begins + dt.timedelta(minutes=shift_minutes(*shift))
+
+    def minutes_on(self, day: dt.date) -> int:
+        """Working minutes in the shift starting on `day`."""
+        shift = self._week[day.weekday()]
+        return shift_minutes(*shift) if shift else 0
+
+    def available_minutes(self, first: dt.date, last: dt.date) -> int:
+        """Working minutes in the shifts starting from `first` through `last`."""
+        return sum(
+            self.minutes_on(first + dt.timedelta(days=i)) for i in range((last - first).days + 1)
+        )
 
     # Arithmetic is on the shop's wall clock (naive local times).
 
-    def _next_working(self, t: dt.datetime) -> dt.datetime:
-        """`t` if it's in working hours, otherwise when they next begin."""
-        if not self.usable:
-            return t
-        day = t.date()
-        if day.weekday() in self.days:
-            if t.time() < self.start:
-                return dt.datetime.combine(day, self.start)
-            if t.time() < self.end:
-                return t
-        for _ in range(7):
-            day += dt.timedelta(days=1)
-            if day.weekday() in self.days:
-                return dt.datetime.combine(day, self.start)
-        return t  # unreachable: some day is a working day
+    def _shift_at(self, t: dt.datetime) -> tuple[dt.datetime, dt.datetime]:
+        """The part of the shift `t` falls in from `t` on, or else the next shift."""
+        for offset in range(-1, 8):
+            span = self.shift_on(t.date() + dt.timedelta(days=offset))
+            if span and span[1] > t:
+                return max(span[0], t), span[1]
+        raise AssertionError("some day is a working day")
 
     def _add_work(self, t: dt.datetime, minutes: Decimal) -> dt.datetime:
         remaining = dt.timedelta(minutes=float(minutes))
-        if not self.usable:
-            return t + remaining
-        t = self._next_working(t)
-        while remaining > dt.timedelta(0):
-            left_today = dt.datetime.combine(t.date(), self.end) - t
-            if remaining <= left_today:
+        while True:
+            t, ends = self._shift_at(t)
+            if remaining <= ends - t:
                 return t + remaining
-            remaining -= left_today
-            t = self._next_working(dt.datetime.combine(t.date(), self.end))
-        return t
+            remaining -= ends - t
+            t = ends
 
     def local(self, moment: dt.datetime) -> dt.datetime:
         return moment.astimezone(self.zone).replace(tzinfo=None)
@@ -101,24 +144,24 @@ class Hours:
         return self.aware(t)
 
     def first_working_moment(self, day: dt.date) -> dt.datetime:
-        """The start of the first working day on or after `day` (aware)."""
-        wall = self._next_working(dt.datetime.combine(day, dt.time.min))
-        return self.aware(wall)
+        """The start of the first shift starting on or after `day` (aware)."""
+        for offset in range(7):
+            span = self.shift_on(day + dt.timedelta(days=offset))
+            if span:
+                return self.aware(span[0])
+        raise AssertionError("some day is a working day")
 
     def working_days_between(self, start: dt.datetime, end: dt.datetime) -> int:
-        """Working days from `start` through `end`, counting each one any of the
-        span falls in (so work started and finished on one day is 1)."""
+        """Shifts any of the span from `start` to `end` falls in (so work started
+        and finished in one shift is 1, and a cure that's over before the next
+        shift begins doesn't count that shift)."""
         first, last = self.local(start), self.local(end)
         if last <= first:
             return 0
-        if self.usable and last.time() <= self.start:
-            # Ready before the day's work starts: the day before is the last.
-            last_day = last.date() - dt.timedelta(days=1)
-        else:
-            last_day = last.date()
-        count, day = 0, first.date()
-        while day <= last_day:
-            count += self.is_working_day(day)
+        count, day = 0, first.date() - dt.timedelta(days=1)
+        while day <= last.date():
+            span = self.shift_on(day)
+            count += bool(span and span[0] < last and span[1] > first)
             day += dt.timedelta(days=1)
         return count
 

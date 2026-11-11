@@ -10,7 +10,7 @@ from django.utils import timezone
 
 from trammel.catalog import services as catalog
 from trammel.catalog.models import Product, RoutingStep
-from trammel.core.models import BusinessProfile, ShopRates
+from trammel.core.models import ShopRates
 from trammel.core.workhours import Hours
 from trammel.jobs import services as jobs
 from trammel.jobs.models import Job
@@ -20,7 +20,7 @@ from trammel.workorders import services as wos
 
 D = Decimal
 UTC = dt.UTC
-WEEKDAYS = Hours(frozenset(range(5)), dt.time(8), dt.time(16), UTC)
+WEEKDAYS = Hours.same_days(range(5), dt.time(8), dt.time(16), UTC)
 
 
 def at(day, hour, minute=0):
@@ -121,25 +121,3 @@ def test_the_wait_can_be_typed_on_any_operation(admin_client, work_order):
     )
     op.refresh_from_db()
     assert op.planned_wait_hours == D("4")
-
-
-@pytest.mark.django_db
-def test_shop_hours_are_set_in_business_settings(admin_client):
-    url = "/settings/business/?tab=hours"
-    page = admin_client.get(url).content.decode()
-    assert "Working days" in page and "Saturday" in page
-    admin_client.post(
-        url, {"work_days": ["1", "2", "3", "4", "5"], "day_starts": "07:00", "day_ends": "17:30"}
-    )
-    profile = BusinessProfile.load()
-    assert (profile.work_days, profile.day_starts, profile.day_ends) == (
-        [1, 2, 3, 4, 5],
-        dt.time(7),
-        dt.time(17, 30),
-    )
-    assert Hours.load().day_minutes == 630
-    page = admin_client.post(
-        url, {"work_days": ["1"], "day_starts": "17:00", "day_ends": "08:00"}
-    ).content.decode()
-    assert "has to end after it starts" in page
-    assert BusinessProfile.load().day_starts == dt.time(7)

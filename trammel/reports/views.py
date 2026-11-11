@@ -194,7 +194,6 @@ def time(request):
             "end": end,
             "group": group,
             "available": available,
-            "workday": services.workday_hours(),
         },
     )
 

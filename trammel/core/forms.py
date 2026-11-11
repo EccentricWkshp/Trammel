@@ -5,6 +5,7 @@ import zoneinfo
 from django import forms
 from django.contrib.auth import password_validation
 
+from . import workhours
 from .models import (
     WEEKDAYS,
     BusinessProfile,
@@ -114,7 +115,9 @@ class BusinessProfileForm(forms.ModelForm):
     )
     REGIONAL = ("timezone", "unit_system", "week_start", "date_format", "currency")
     RESALE = ("resale_certificate_number", "resale_certificate_expires")
-    HOURS = ("work_days", "day_starts", "day_ends")
+    #: A works box, start and end for each day, Monday (0) first. The tab shows
+    #: them as a table (hour_rows), and they're kept in shop_hours.
+    HOURS = tuple(f"day{d}_{part}" for d in range(7) for part in ("works", "starts", "ends"))
     LOGO = ("logo_file", "remove_logo")
 
     #: The settings page's tabs: (key, label, its titled groups of fields). Each tab
@@ -165,13 +168,8 @@ class BusinessProfileForm(forms.ModelForm):
             "week_start",
             "date_format",
             "currency",
-            "work_days",
-            "day_starts",
-            "day_ends",
         ]
         widgets = {
-            "day_starts": forms.TimeInput(attrs={"type": "time"}, format="%H:%M"),
-            "day_ends": forms.TimeInput(attrs={"type": "time"}, format="%H:%M"),
             "tax_registration_numbers": forms.Textarea(attrs={"rows": 3}),
             "resale_certificate_expires": forms.DateInput(attrs={"type": "date"}),
         }
@@ -194,26 +192,84 @@ class BusinessProfileForm(forms.ModelForm):
                 ].help_text = "Locked: quotes or invoices already exist in this currency."
         if "remove_logo" in self.fields and not self.instance.logo:
             del self.fields["remove_logo"]
-        if "work_days" in self.fields:
-            # Listed from the day the shop's week starts on.
-            start = self.instance.week_start
-            days = sorted(WEEKDAYS, key=lambda d: (d[0] - start) % 7)
-            self.fields["work_days"] = forms.TypedMultipleChoiceField(
-                label="Working days",
-                choices=days,
-                coerce=int,
-                widget=forms.CheckboxSelectMultiple,
-                help_text=BusinessProfile._meta.get_field("work_days").help_text,
-                error_messages={"required": "Pick at least one working day."},
+        self._shifts = None
+        if tab == "hours":
+            self._add_hour_fields()
+
+    def _add_hour_fields(self):
+        shifts = workhours.shifts_from(self.instance.shop_hours)
+
+        def clock(label):
+            return forms.TimeInput(attrs={"type": "time", "aria-label": label}, format="%H:%M")
+
+        for d, name in WEEKDAYS:
+            shift = shifts[d]
+            self.fields[f"day{d}_works"] = forms.BooleanField(
+                label=name, required=False, initial=shift is not None
             )
-            self.initial["work_days"] = list(self.instance.work_days)
+            for i, part in enumerate(("starts", "ends")):
+                self.fields[f"day{d}_{part}"] = forms.TimeField(
+                    label=f"{name} {part}",
+                    required=False,
+                    initial=shift[i] if shift else None,
+                    widget=clock(f"{name} {part}"),
+                )
+
+    def hour_rows(self):
+        """The hours tab's table: a row per day, from the day the week starts on,
+        with the saved shift's length."""
+        start = self.instance.week_start
+        shifts = workhours.shifts_from(self.instance.shop_hours)
+        rows = []
+        for d, name in sorted(WEEKDAYS, key=lambda day: (day[0] - start) % 7):
+            shift = shifts[d]
+            rows.append(
+                {
+                    "name": name,
+                    "works": self[f"day{d}_works"],
+                    "starts": self[f"day{d}_starts"],
+                    "ends": self[f"day{d}_ends"],
+                    "minutes": workhours.shift_minutes(*shift) if shift else 0,
+                    "overnight": bool(shift) and shift[1] <= shift[0],
+                }
+            )
+        return rows
 
     def clean(self):
         data = super().clean()
-        starts, ends = data.get("day_starts"), data.get("day_ends")
-        if starts and ends and ends <= starts:
-            self.add_error("day_ends", "The working day has to end after it starts.")
+        if self.tab == "hours":
+            self._clean_hours(data)
         return data
+
+    def _clean_hours(self, data):
+        names = dict(WEEKDAYS)
+        shifts = []
+        for d in range(7):
+            if not data.get(f"day{d}_works"):
+                shifts.append(None)
+                continue
+            missing = [p for p in ("starts", "ends") if data.get(f"day{d}_{p}") is None]
+            for part in missing:
+                if f"day{d}_{part}" not in self.errors:
+                    self.add_error(f"day{d}_{part}", f"Give the time {names[d]} {part}.")
+            shifts.append(None if missing else (data[f"day{d}_starts"], data[f"day{d}_ends"]))
+        if self.errors:
+            return
+        if not any(shifts):
+            self.add_error(None, "Pick at least one working day.")
+            return
+        for d, shift in enumerate(shifts):
+            after = (d + 1) % 7
+            following = shifts[after]
+            if not (shift and following):
+                continue
+            runs_to = shift[0].hour * 60 + shift[0].minute + workhours.shift_minutes(*shift)
+            if workhours.DAY + following[0].hour * 60 + following[0].minute < runs_to:
+                self.add_error(
+                    f"day{after}_starts",
+                    f"{names[after]} can't start before {names[d]}'s hours end.",
+                )
+        self._shifts = shifts
 
     def sections(self):
         """This tab's fields in titled groups."""
@@ -231,6 +287,8 @@ class BusinessProfileForm(forms.ModelForm):
 
     def save(self, commit=True):
         profile = super().save(commit=False)
+        if self._shifts is not None:
+            profile.shop_hours = workhours.stored(self._shifts)
         if self._logo:
             profile.logo, profile.logo_type = self._logo
         elif self.cleaned_data.get("remove_logo"):

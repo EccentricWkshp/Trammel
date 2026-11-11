@@ -117,11 +117,13 @@ code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-siz
 label { display: block; font-weight: 600; margin-bottom: .25rem; }
 .helptext, .stack div > div[id$="_helptext"] { display: block; color: var(--muted); font-size: .88rem; margin-top: .2rem; }
 input[type="text"], input[type="email"], input[type="password"], input[type="number"], input[type="search"],
-input[type="url"], input[type="date"], input[type="tel"], select, textarea {
+input[type="url"], input[type="date"], input[type="time"], input[type="tel"], select, textarea {
   width: 100%; max-width: 32rem; padding: var(--control-pad); font: inherit; line-height: 1.5; color: var(--text);
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
 }
 textarea { max-width: 40rem; }
+.shop-hours input[type="time"] { width: auto; margin: 0; }
+.shop-hours th[scope="row"] label { display: flex; align-items: center; font-weight: 600; white-space: nowrap; }
 label > input, label > select, label > textarea { font-weight: normal; margin-top: .2rem; }
 input[type="checkbox"] { width: 1.1rem; height: 1.1rem; vertical-align: -0.15em; margin-right: .4rem; accent-color: var(--accent); }
 .stack div:has(> input[type="checkbox"]) > label { display: inline; }

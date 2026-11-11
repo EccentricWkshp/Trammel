@@ -15,7 +15,7 @@
   <button type="submit">Show</button>
   <a href="?{{ request.GET.urlencode }}{% if request.GET %}&amp;{% endif %}format=csv">Export CSV</a>
 </form>
-{% if group == "machine" %}<p class="muted">Utilization is machine hours over {{ available }} available hours ({{ workday }} hours per working day in the period).</p>{% endif %}
+{% if group == "machine" %}<p class="muted">Utilization is machine hours over {{ available }} available hours: the shop hours of each day in the period, from Settings, Business.</p>{% endif %}
 <div class="table-wrap"><table>
   <thead><tr><th scope="col">{% if group == "user" %}Person{% elif group == "machine" %}Machine{% else %}Job{% endif %}</th><th scope="col" class="num">Hours</th>{% if perms.core.see_costs %}<th scope="col" class="num">Cost</th>{% endif %}{% if group == "machine" %}<th scope="col" class="num">Utilization</th>{% endif %}</tr></thead>
   <tbody>{% for r in rows %}<tr><td>{{ r.name }} {{ r.title }}</td><td class="num">{{ r.hours }}</td>{% if perms.core.see_costs %}<td class="num">{{ r.cost|money }}</td>{% endif %}{% if group == "machine" %}<td class="num">{{ r.utilization }}%</td>{% endif %}</tr>{% empty %}<tr><td colspan="4" class="muted">No time recorded in this period.</td></tr>{% endfor %}</tbody>

@@ -16,11 +16,10 @@ from __future__ import annotations
 
 import uuid
 import zoneinfo
-from datetime import time, timedelta
+from datetime import timedelta
 from decimal import Decimal
 
 from django.conf import settings
-from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
@@ -259,8 +258,13 @@ WEEKDAYS = [
 
 
 def default_work_days() -> list[int]:
-    """Monday to Friday."""
+    """Monday to Friday (for migrations from before 0.7.0)."""
     return [0, 1, 2, 3, 4]
+
+
+def default_shop_hours() -> list[list[str] | None]:
+    """8:00 AM to 4:00 PM, Monday to Friday."""
+    return [["08:00", "16:00"]] * 5 + [None, None]
 
 
 class BusinessProfile(SingletonModel):
@@ -327,25 +331,9 @@ class BusinessProfile(SingletonModel):
         help_text="For calendars. Sunday is the US convention.",
     )
     # Shop hours: when work gets done, for estimating when it will be finished.
-    work_days = ArrayField(
-        models.PositiveSmallIntegerField(choices=WEEKDAYS),
-        default=default_work_days,
-        blank=True,
-        help_text="The days the shop works. Production estimates put work on these days only; "
-        "waiting time, such as glue drying or finish curing, counts every day.",
-    )
-    day_starts = models.TimeField(
-        "working day starts",
-        default=time(8, 0),
-        help_text="When work starts each working day.",
-    )
-    day_ends = models.TimeField(
-        "working day ends",
-        default=time(16, 0),
-        help_text="When work stops. Production estimates fit work between the two, so 8:00 AM "
-        "to 4:00 PM is an 8-hour day. It's also the day the time report measures machine use "
-        "against.",
-    )
+    # Seven entries, Monday first: ["HH:MM", "HH:MM"] for a working day, null for
+    # a day off. Read through trammel.core.workhours.
+    shop_hours = models.JSONField(default=default_shop_hours)
     unit_system = models.CharField(
         max_length=10, choices=UnitSystem.choices, default=UnitSystem.IMPERIAL
     )
