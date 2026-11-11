@@ -85,7 +85,11 @@ def sign_in(request):
         if "@" not in email:
             messages.error(request, "Enter your email address.")
         else:
-            services.request_code(email, client_ip(request))
+            # Looked up and sent by the worker: the answer takes the same
+            # time whether or not the address can sign in.
+            from trammel.core import tasks
+
+            tasks.enqueue("portal.request_code", {"email": email, "ip": client_ip(request)})
             request.session[services.PENDING_KEY] = email
             return redirect("portal:code")
     return render(request, "portal/sign_in.html", _context(request, ready=ready))

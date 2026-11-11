@@ -19,11 +19,13 @@
 {
 	http_port {$HTTP_PORT:8726}
 	https_port {$HTTPS_PORT:8727}
-	# A client gets 10 seconds to send its request headers, so connections that
-	# trickle them in can't pile up.
+	# A client gets 10 seconds to send its request headers, and 10 minutes for
+	# the whole request (room for a large upload on a slow line), so connections
+	# that trickle them in can't pile up.
 	servers {
 		timeouts {
 			read_header 10s
+			read_body 10m
 			idle 2m
 		}
 	}
@@ -46,7 +48,12 @@
 
 	# Caddy sets X-Forwarded-For to the connecting address, discarding whatever
 	# the client sent, and the app believes it (TRUSTED_PROXIES in compose).
-	reverse_proxy app:8080
+	reverse_proxy app:8080 {
+		# A request body up to 8 MB (every form, most photos) arrives whole at
+		# the proxy before the app sees it, so someone sending one slowly holds
+		# a proxy connection, not one of the app's few worker threads.
+		request_buffers 8MB
+	}
 
 	import /etc/caddy/tls.conf
 

@@ -55,8 +55,9 @@ def test_a_locked_password_doesnt_stop_an_emailed_link(admin, django_capture_on_
         client.post("/accounts/login/", {"email": admin.email, "password": "wrong"})
     # Refusals are logged once per window, not once per try.
     assert AuditEvent.objects.filter(action="auth.locked").count() == 1
+    client.post("/accounts/email-link/", {"email": admin.email})
     with django_capture_on_commit_callbacks(execute=True):
-        client.post("/accounts/email-link/", {"email": admin.email})
+        tasks.run_pending()
     tasks.run_pending()
     assert len(mail.outbox) == 1
 
@@ -209,3 +210,37 @@ def test_the_container_health_check_gets_through(setup_done):
     response = Client(HTTP_HOST="127.0.0.1:8080").get("/healthz")
     assert response.status_code == 200 and response.json() == {"status": "ok"}
     assert Client(HTTP_HOST="127.0.0.1:8080").get("/accounts/login/").status_code == 400
+
+
+@pytest.mark.django_db
+def test_staff_are_signed_out_days_after_signing_in_however_active(client, admin):
+    import datetime as dt
+
+    from django.utils import timezone
+
+    client.post("/accounts/login/", {"email": admin.email, "password": PASSWORD})
+    assert client.session["signed_in_at"]
+    assert client.get("/").status_code == 200
+    session = client.session
+    session["signed_in_at"] = (timezone.now() - dt.timedelta(days=8)).isoformat()
+    session.save()
+    response = client.get("/customers/")
+    assert response.status_code == 302 and response["Location"].startswith("/accounts/login/")
+    assert "_auth_user_id" not in client.session
+
+
+@pytest.mark.django_db
+def test_asking_for_a_sign_in_link_does_the_same_work_for_any_address(client, admin):
+    from trammel.accounts.models import MagicLink
+    from trammel.core.models import AuditEvent
+
+    smtp = SmtpSettings.load()
+    smtp.host, smtp.from_address = "smtp.example.com", "shop@example.com"
+    smtp.save()
+    before = AuditEvent.objects.count()
+    for email in (admin.email, "nobody@example.com"):
+        client.post("/accounts/email-link/", {"email": email})
+    # Each request only queues the lookup; nothing about the address is known yet.
+    queued = BackgroundTask.objects.filter(name="accounts.magic_link")
+    assert queued.count() == 2 and not MagicLink.objects.exists()
+    assert AuditEvent.objects.count() == before

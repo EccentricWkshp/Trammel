@@ -106,3 +106,42 @@ def delete_role(role: Role) -> None:
         before=audit.snapshot(role),
     )
     role.delete()
+
+
+def send_magic_link(email: str, ip: str | None) -> None:
+    """Email a single-use sign-in link, if `email` belongs to an active account
+    and nothing is rate limited. Run by the worker (accounts.magic_link)."""
+    import datetime as dt
+
+    from django.conf import settings
+
+    from trammel.core import access
+    from trammel.notifications.services import notify
+
+    from . import security
+    from .models import MagicLink
+
+    user = User.objects.filter(email__iexact=email, is_active=True).first()
+    if user is None:
+        return
+    recent = MagicLink.objects.filter(
+        user=user, created_at__gte=timezone.now() - dt.timedelta(minutes=15)
+    ).count()
+    # Only the IP address's lock applies: a locked password must not also stop
+    # the real person signing in by email.
+    if recent >= 3 or security.ip_locked(ip):
+        return
+    token = MagicLink.issue(user, ip=ip)
+    link = settings.BASE_URL + reverse("accounts:magic_redeem", args=[token])
+    notify(
+        "magic_link",
+        to=[user.email],
+        entity=user,
+        context={"link": link, "minutes": MagicLink.LIFETIME_MINUTES},
+    )
+    audit.record(
+        "auth.magic_link",
+        user,
+        summary=f"Sent a sign-in link to {user}",
+        actor=access.ANONYMOUS,
+    )

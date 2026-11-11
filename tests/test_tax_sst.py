@@ -256,3 +256,46 @@ def test_failed_download_is_reported(admin_client, monkeypatch):
     batch = ImportBatch.objects.get()
     assert batch.status == "failed" and "404" in batch.error
     assert "failed" in admin_client.get("/tax/").content.decode()
+
+
+def test_a_download_connects_to_the_address_that_was_checked(monkeypatch):
+    seen = {}
+
+    def connect(address, timeout=None):
+        seen["address"] = address
+        return "socket"
+
+    class Context:
+        def wrap_socket(self, sock, server_hostname):
+            seen["certificate_for"] = server_hostname
+            return sock
+
+    monkeypatch.setattr(importers.socket, "create_connection", connect)
+    connection = importers._PinnedHTTPSConnection(
+        "dor.wa.gov", 443, address="142.250.0.1", context=Context()
+    )
+    connection.connect()
+    assert seen == {"address": ("142.250.0.1", 443), "certificate_for": "dor.wa.gov"}
+
+
+@pytest.mark.django_db
+def test_each_hop_is_pinned_to_its_own_checked_address(setup_done, monkeypatch):
+    monkeypatch.setattr(
+        importers.socket,
+        "getaddrinfo",
+        lambda host, port, *rest: [(2, 1, 6, "", ("142.250.0.9", port))],
+    )
+    pinned = []
+
+    class Opener:
+        def open(self, req, timeout):
+            raise OSError("stop here")
+
+    def build(*handlers):
+        pinned.extend(h._address for h in handlers if isinstance(h, importers._PinnedHTTPSHandler))
+        return Opener()
+
+    monkeypatch.setattr(importers.urllib.request, "build_opener", build)
+    with pytest.raises(OSError):
+        importers._open("https://dor.wa.gov/rates.zip")
+    assert pinned == ["142.250.0.9"]

@@ -163,6 +163,8 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     # Users whose role requires two-factor sign-in must set it up first (SPEC §9).
     "trammel.accounts.middleware.MfaEnrollmentMiddleware",
+    # Signs people out a set number of days after they signed in (SPEC §9).
+    "trammel.accounts.middleware.SessionLifetimeMiddleware",
     # Sends every request to the setup page until an admin exists (FR-ADM-1).
     "trammel.core.middleware.SetupRequiredMiddleware",
     # Binds the acting principal and source IP for the audit log (FR-AUD-1).
@@ -253,6 +255,9 @@ SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Lax"
 SESSION_COOKIE_AGE = env_int("SESSION_HOURS", 12) * 3600
 SESSION_SAVE_EVERY_REQUEST = True
+# Idle for SESSION_HOURS signs a person out; this signs them out this many days
+# after they signed in, however busy, so a stolen session can't last forever.
+SESSION_ABSOLUTE_DAYS = env_int("SESSION_ABSOLUTE_DAYS", 7)
 CSRF_COOKIE_SAMESITE = "Lax"
 CSRF_COOKIE_HTTPONLY = True
 

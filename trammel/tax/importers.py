@@ -43,9 +43,12 @@ from __future__ import annotations
 
 import csv
 import datetime as dt
+import functools
+import http.client
 import io
 import ipaddress
 import socket
+import ssl
 import tempfile
 import urllib.request
 import zipfile
@@ -417,8 +420,10 @@ def _chain(first: str, rest: Iterator[str]) -> Iterator[str]:
     yield from rest
 
 
-def check_url(url: str) -> None:
-    """Refuse anything but https to a public address (no reaching into the LAN)."""
+def check_url(url: str) -> str:
+    """Refuse anything but https to a public address (no reaching into the LAN).
+    Returns the address checked, which the download then connects to, so the
+    name can't be pointed somewhere else in between (DNS rebinding)."""
     parsed = urlparse(url)
     if parsed.scheme != "https" or not parsed.hostname:
         raise ValidationError("Give an https:// address.")
@@ -432,6 +437,33 @@ def check_url(url: str) -> None:
             address = address.ipv4_mapped
         if not address.is_global:
             raise ValidationError("That address is on a private network.")
+    return infos[0][4][0]
+
+
+class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    """HTTPS to one checked address, with the certificate still checked against
+    the host name."""
+
+    def __init__(self, host, *args, address: str, **kwargs):
+        super().__init__(host, *args, **kwargs)
+        self._address = address
+
+    def connect(self):
+        sock = socket.create_connection((self._address, self.port), self.timeout)
+        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+
+
+class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
+    def __init__(self, address: str):
+        super().__init__(context=ssl.create_default_context())
+        self._address = address
+
+    def https_open(self, req):
+        return self.do_open(
+            functools.partial(_PinnedHTTPSConnection, address=self._address),
+            req,
+            context=self._context,
+        )
 
 
 class _NoRedirects(urllib.request.HTTPRedirectHandler):
@@ -449,9 +481,9 @@ def _open(url: str):
     import urllib.error
     from urllib.parse import urljoin
 
-    opener = urllib.request.build_opener(_NoRedirects)
     for _ in range(MAX_REDIRECTS + 1):
-        check_url(url)
+        address = check_url(url)
+        opener = urllib.request.build_opener(_NoRedirects, _PinnedHTTPSHandler(address))
         request = urllib.request.Request(  # noqa: S310 — https checked above
             url, headers={"User-Agent": f"Trammel/{settings.APP_VERSION} (tax import)"}
         )

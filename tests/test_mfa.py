@@ -93,9 +93,11 @@ def test_magic_link(client, admin, django_capture_on_commit_callbacks):
     smtp = SmtpSettings.load()
     smtp.host, smtp.from_address = "smtp.example.com", "shop@example.com"
     smtp.save()
+    client.post("/accounts/email-link/", {"email": admin.email})
+    client.post("/accounts/email-link/", {"email": "nobody@example.com"})
+    # The worker looks the addresses up and queues the email, then sends it.
     with django_capture_on_commit_callbacks(execute=True):
-        client.post("/accounts/email-link/", {"email": admin.email})
-        client.post("/accounts/email-link/", {"email": "nobody@example.com"})
+        tasks.run_pending()
     tasks.run_pending()
     assert len(mail.outbox) == 1
     link = re.search(r"https?://\S+/accounts/email-link/\S+/", mail.outbox[0].body).group(0)

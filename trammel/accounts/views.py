@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import datetime as dt
-
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout, update_session_auth_hash
@@ -134,37 +132,12 @@ def _email_available() -> bool:
 def magic_request(request):
     """Email a single-use sign-in link. Same answer whether or not the address exists."""
     if request.method == "POST" and _email_available():
-        email = request.POST.get("email", "").strip().lower()
-        ip = client_ip(request)
-        user = User.objects.filter(email__iexact=email, is_active=True).first()
-        recent = (
-            MagicLink.objects.filter(
-                user=user, created_at__gte=timezone.now() - dt.timedelta(minutes=15)
-            ).count()
-            if user
-            else 0
-        )
-        # Only the IP address's lock applies: a locked password must not also
-        # stop the real person signing in by email.
-        if user and recent < 3 and not security.ip_locked(ip):
-            from django.urls import reverse
+        email = request.POST.get("email", "").strip().lower()[:254]
+        # Looked up and sent by the worker: the answer takes the same time
+        # whether or not the address has an account.
+        from trammel.core import tasks
 
-            from trammel.notifications.services import notify
-
-            token = MagicLink.issue(user, ip=ip)
-            link = settings.BASE_URL + reverse("accounts:magic_redeem", args=[token])
-            notify(
-                "magic_link",
-                to=[user.email],
-                entity=user,
-                context={"link": link, "minutes": MagicLink.LIFETIME_MINUTES},
-            )
-            audit.record(
-                "auth.magic_link",
-                user,
-                summary=f"Sent a sign-in link to {user}",
-                actor=access.ANONYMOUS,
-            )
+        tasks.enqueue("accounts.magic_link", {"email": email, "ip": client_ip(request)})
         messages.success(
             request,
             "If that address belongs to an account, a sign-in link is on "

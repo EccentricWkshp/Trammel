@@ -79,7 +79,9 @@ For Caddy:
 
 ```caddyfile
 trammel.example.com {
-    reverse_proxy <trammel host>:8726
+    reverse_proxy <trammel host>:8726 {
+        request_buffers 8MB
+    }
 }
 ```
 
@@ -90,6 +92,10 @@ Your proxy must:
 - **pass the `Host` header through unchanged.** Caddy does by default.
 - **send `X-Forwarded-For` and `X-Forwarded-Proto`.** Caddy does by default.
 - **accept uploads up to 512 MB.**
+- **buffer request bodies** before passing them on, so someone sending a request
+  slowly can't hold one of Trammel's few web threads. nginx does by default;
+  Caddy needs `request_buffers`, as above. Limit how long a client may take to send
+  its headers (10 seconds is plenty).
 
 Trammel believes `X-Forwarded-For` only from the addresses in `TRUSTED_PROXIES`,
 so a device on the network that connects to port 8726 directly cannot forge its

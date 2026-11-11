@@ -15,6 +15,9 @@ x-app: &app
   image: eccentricwkshp/trammel:${TRAMMEL_TAG:-latest}
   restart: unless-stopped
   env_file: [.env]
+  # The app runs as an ordinary user and needs no Linux privileges at all.
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
   environment:
     DATABASE_URL: postgresql://${POSTGRES_USER:-trammel}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-trammel}
     MEDIA_ROOT: /data/media
@@ -34,6 +37,12 @@ services:
   proxy:
     image: eccentricwkshp/trammel-caddy:${TRAMMEL_TAG:-latest}
     restart: unless-stopped
+    # It keeps only what it needs to read and write its own files, and to bind
+    # ports (Caddy's image marks the program as needing that, and won't start
+    # without it, even on ports above 1024).
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETUID, SETGID, NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
     # Published on the same port inside and out; the Caddyfile says why.
     ports:
       - "${HTTP_PORT:-8726}:${HTTP_PORT:-8726}"

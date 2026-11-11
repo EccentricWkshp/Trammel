@@ -61,8 +61,10 @@ def _sent_quote(customer, admin, title="Bookshelf"):
 
 def _emailed_code(django_capture_on_commit_callbacks, client, email):
     sent = len(mail.outbox)
+    response = client.post("/portal/sign-in/", {"email": email})
+    # The worker looks the address up and queues the email, then sends it.
     with django_capture_on_commit_callbacks(execute=True):
-        response = client.post("/portal/sign-in/", {"email": email})
+        tasks.run_pending()
     tasks.run_pending()
     assert response.status_code == 302 and response["Location"] == "/portal/sign-in/code/"
     if len(mail.outbox) == sent:
