@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import models
 from django.utils import timezone
@@ -52,31 +53,18 @@ class ShopifySettings(SingletonModel):
         return "Shopify settings"
 
 
-class EtsySettings(SingletonModel):
-    """One Etsy shop, connected by the seller approving Trammel on Etsy (OAuth with
-    PKCE). The shared secret and the tokens are encrypted secrets, never here."""
+class OAuthStore(SingletonModel):
+    """A store the seller connects by approving Trammel on the store's own site
+    (FR-IMP-5). The tokens are encrypted secrets, never here."""
 
-    enabled = models.BooleanField("connect Etsy", default=False)
-    keystring = models.CharField(
-        "keystring",
-        max_length=120,
-        blank=True,
-        help_text="Your app's keystring, from Your apps on the Etsy developer site.",
-    )
-    #: Found from the account that approved Trammel.
-    shop_id = models.CharField(max_length=40, blank=True, editable=False)
-    shop_name = models.CharField(max_length=120, blank=True, editable=False)
     connected_at = models.DateTimeField(null=True, blank=True, editable=False)
-    #: The hour-long access token's end, and the refresh token's: Etsy keeps a
-    #: connection for 90 days after it was last renewed.
+    #: When the short-lived access token ends, and when the refresh token that
+    #: renews it does.
     access_token_expires_at = models.DateTimeField(null=True, blank=True, editable=False)
     refresh_token_expires_at = models.DateTimeField(null=True, blank=True, editable=False)
 
     class Meta:
-        verbose_name = "Etsy settings"
-
-    def __str__(self) -> str:
-        return "Etsy settings"
+        abstract = True
 
     @property
     def is_connected(self) -> bool:
@@ -89,7 +77,62 @@ class EtsySettings(SingletonModel):
         )
 
 
-SOURCES = {"shopify": "Shopify", "etsy": "Etsy"}
+class EtsySettings(OAuthStore):
+    """One Etsy shop, connected by the seller approving Trammel on Etsy (OAuth with
+    PKCE). Etsy keeps a connection for 90 days after it was last renewed. The
+    shared secret is an encrypted secret."""
+
+    enabled = models.BooleanField("connect Etsy", default=False)
+    keystring = models.CharField(
+        "keystring",
+        max_length=120,
+        blank=True,
+        help_text="Your app's keystring, from Your apps on the Etsy developer site.",
+    )
+    #: Found from the account that approved Trammel.
+    shop_id = models.CharField(max_length=40, blank=True, editable=False)
+    shop_name = models.CharField(max_length=120, blank=True, editable=False)
+
+    class Meta:
+        verbose_name = "Etsy settings"
+
+    def __str__(self) -> str:
+        return "Etsy settings"
+
+
+class EbaySettings(OAuthStore):
+    """One eBay seller account, connected by the seller approving Trammel on eBay
+    (authorization code with the app's RuName). The access token lasts two
+    hours, the refresh token about 18 months. The Cert ID is an encrypted secret."""
+
+    enabled = models.BooleanField("connect eBay", default=False)
+    client_id = models.CharField(
+        "App ID (Client ID)",
+        max_length=120,
+        blank=True,
+        help_text="From the production keyset under Application Keys on the eBay developer site.",
+    )
+    ru_name = models.CharField(
+        "RuName (eBay redirect URL name)",
+        max_length=200,
+        blank=True,
+        help_text="The name eBay gives the redirect it sends sellers back by, under User "
+        "Tokens, Get a Token from eBay via Your Application.",
+    )
+    sandbox = models.BooleanField(
+        "use the eBay sandbox",
+        default=False,
+        help_text="eBay's test site, with its own keys. Leave off for your real orders.",
+    )
+
+    class Meta:
+        verbose_name = "eBay settings"
+
+    def __str__(self) -> str:
+        return "eBay settings"
+
+
+SOURCES = {"shopify": "Shopify", "etsy": "Etsy", "ebay": "eBay"}
 
 
 class ImportedOrder(models.Model):
@@ -164,3 +207,64 @@ class ImportedOrder(models.Model):
         survive when the rest is withheld."""
         buyer = self.payload.get("customer") or {}
         return {k: buyer.get(k, "") for k in ("region", "country", "postal_code", "city")}
+
+
+class DeletionRequest(models.Model):
+    """A platform's request to delete a buyer's data (FR-IMP-6): an eBay
+    marketplace account deletion notice, forwarded to the API by a relay or
+    entered by hand.
+
+    The buyer's details in the platform's stored orders are wiped when it
+    arrives. Customer records are never changed automatically: one can also be
+    a customer in their own right, so each waits for staff to anonymize it or
+    dismiss the request. Sales and tax figures always stay.
+    """
+
+    class Status(models.TextChoices):
+        OPEN = "open", "To review"
+        DONE = "done", "Anonymized"
+        DISMISSED = "dismissed", "Dismissed"
+        NO_MATCH = "no_match", "Not one of your buyers"
+
+    class Via(models.TextChoices):
+        API = "api", "Forwarded to the API"
+        HAND = "hand", "Entered by hand"
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    source = models.CharField(max_length=20, default="ebay")
+    #: eBay's three ids for the account; the username is what orders carry.
+    username = models.CharField(max_length=100, blank=True, db_index=True)
+    user_id = models.CharField(max_length=100, blank=True)
+    eias_token = models.CharField(max_length=200, blank=True)
+    #: eBay's id for the notice: a notice delivered twice is handled once.
+    notification_id = models.CharField(max_length=100, blank=True)
+    event_date = models.DateTimeField(null=True, blank=True)
+    received_at = models.DateTimeField(default=timezone.now)
+    via = models.CharField(max_length=8, choices=Via.choices, default=Via.HAND)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.OPEN)
+    #: How many stored orders had the buyer's details wiped on arrival.
+    orders = models.PositiveIntegerField(default=0)
+    #: Customers anonymized for this request.
+    anonymized = models.JSONField(default=list, blank=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    resolved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    note = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-received_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["source", "notification_id"],
+                condition=~models.Q(notification_id=""),
+                name="deletion_notice_once",
+            )
+        ]
+
+    def __str__(self) -> str:
+        who = self.username or self.user_id
+        return f"{SOURCES.get(self.source, self.source)} deletion request for {who}"
+
+    def get_source_display(self) -> str:
+        return SOURCES.get(self.source, self.source)

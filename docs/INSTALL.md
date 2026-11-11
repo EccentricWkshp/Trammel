@@ -210,3 +210,27 @@ location / { return 404; }
 The address answers "not found" until the Online orders module and its
 webhooks are switched on, and only accepts requests Shopify has signed. Fetch
 by date now and then anyway: Shopify gives up on a webhook it can't deliver.
+
+## eBay account deletion notices
+
+eBay won't switch an app's keys on for real orders until the app deals with
+its marketplace account deletion notices, and those need a public HTTPS address
+that answers eBay's challenge and stays up. Trammel doesn't host that. Run a
+small relay on the internet instead: it answers eBay, keeps each notice, and
+forwards it to Trammel:
+
+```
+POST /api/v1/imports/ebay/deletion-notices
+Authorization: Bearer <API key>
+Content-Type: application/json
+
+<eBay's notice body, as eBay sent it>
+```
+
+Give the relay its own API key holding only "Forward eBay account deletion
+notices" (your profile, API keys). The relay should check eBay's signature before
+forwarding. A notice sent twice is handled once, so the relay can retry freely.
+Each notice wipes the buyer's details from the stored eBay orders and waits on
+Online orders, Deletion requests, for you to anonymize the customer or dismiss
+it. Without a relay, enter notices by hand on that page.
+

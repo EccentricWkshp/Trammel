@@ -18,8 +18,14 @@ from trammel.core.services import save_audited
 from trammel.core.web import paginate, permission_required
 from trammel.customers.models import Customer
 
-from . import etsy, services, shopify
-from .models import EtsySettings, ImportedOrder, ShopifySettings
+from . import deletions, ebay, etsy, services, shopify
+from .models import (
+    DeletionRequest,
+    EbaySettings,
+    EtsySettings,
+    ImportedOrder,
+    ShopifySettings,
+)
 
 #: The most a webhook body may be; a Shopify order is a few kilobytes.
 MAX_WEBHOOK_BYTES = 2 * 1024 * 1024
@@ -28,6 +34,7 @@ MAX_WEBHOOK_BYTES = 2 * 1024 * 1024
 def _stores() -> list[dict]:
     """Every store Trammel can fetch from, and whether it is connected."""
     shopify_config, etsy_config = ShopifySettings.load(), EtsySettings.load()
+    ebay_config = EbaySettings.load()
     return [
         {
             "key": "shopify",
@@ -42,6 +49,13 @@ def _stores() -> list[dict]:
             "connected": etsy_config.enabled and etsy_config.is_connected,
             "hint": "Etsy collects and pays the sales tax on these sales; they are recorded "
             "that way.",
+        },
+        {
+            "key": "ebay",
+            "label": "eBay",
+            "connected": ebay_config.enabled and ebay_config.is_connected,
+            "hint": "eBay collects and pays the sales tax on these sales; they are recorded "
+            "that way. Orders whose buyer eBay withholds wait for a customer.",
         },
     ]
 
@@ -63,6 +77,9 @@ def order_list(request):
             "pending": pending,
             "page": paginate(request, imported, 50),
             "needs_attention": imported.exclude(problem=""),
+            "deletion_requests": deletions.open_count()
+            if access.has_perm(request.actor, "imports.manage")
+            else 0,
             "can_run": access.has_perm(request.actor, "imports.run"),
             "can_manage": access.has_perm(request.actor, "imports.manage"),
             "start": (today - dt.timedelta(days=7)).isoformat(),
@@ -75,8 +92,9 @@ def order_list(request):
 READERS = {
     "shopify": (ShopifySettings, lambda c, a, b: shopify.fetch(c, a, b), shopify.read),
     "etsy": (EtsySettings, lambda c, a, b: etsy.fetch(c, a, b), etsy.read),
+    "ebay": (EbaySettings, lambda c, a, b: ebay.fetch(c, a, b), ebay.read),
 }
-STORE_ERRORS = (shopify.ShopifyError, etsy.EtsyError, ValidationError)
+STORE_ERRORS = (shopify.ShopifyError, etsy.EtsyError, ebay.EbayError, ValidationError)
 
 
 @permission_required("imports.run")
@@ -309,27 +327,73 @@ def settings_view(request):
         if changed:
             shopify.forget_token()
         messages.success(request, "Shopify settings saved.")
-        return redirect("imports:settings")
-    return _settings_page(request, shopify_form=form)
+        return _back("shopify")
+    return _settings_page(request, shopify_form=form if form.is_bound else None)
 
 
-def _settings_page(request, *, shopify_form=None, etsy_form=None):
-    config, etsy_config = ShopifySettings.load(), EtsySettings.load()
-    return render(
-        request,
-        "imports/settings.html",
-        {
+TABS = (("shopify", "Shopify"), ("etsy", "Etsy"), ("ebay", "eBay"))
+
+
+def _back(tab: str):
+    """Back to a store's own tab of Settings, Online stores."""
+    return redirect(f"{reverse('imports:settings')}?tab={tab}")
+
+
+def _settings_page(request, *, shopify_form=None, etsy_form=None, ebay_form=None):
+    """Settings, Online stores: a tab per store. A form that came back with an
+    error opens its own tab."""
+    tab = (
+        "etsy"
+        if etsy_form is not None
+        else "ebay"
+        if ebay_form is not None
+        else "shopify"
+        if shopify_form is not None and shopify_form.is_bound
+        else request.GET.get("tab", "shopify")
+    )
+    if tab not in dict(TABS):
+        tab = "shopify"
+    config, etsy_config, ebay_config = (
+        ShopifySettings.load(),
+        EtsySettings.load(),
+        EbaySettings.load(),
+    )
+    on = {
+        "shopify": config.enabled,
+        "etsy": etsy_config.enabled and etsy_config.is_connected,
+        "ebay": ebay_config.enabled and ebay_config.is_connected,
+    }
+    context = {
+        "tab": tab,
+        "tabs": [
+            {"key": key, "label": label + (" ●" if on[key] else ""), "active": key == tab}
+            for key, label in TABS
+        ],
+    }
+    if tab == "shopify":
+        context |= {
             "form": shopify_form or ShopifyForm(instance=config),
             "config": config,
             "webhook_url": request.build_absolute_uri(reverse("imports:shopify_webhook"))
             if config.webhooks_enabled
             else "",
+        }
+    elif tab == "etsy":
+        context |= {
             "etsy_form": etsy_form or EtsyForm(instance=etsy_config, prefix="etsy"),
             "etsy": etsy_config,
             "etsy_callback": _etsy_callback_url(request),
             "etsy_waiting": secrets.is_set(etsy.PENDING_KEY),
-        },
-    )
+        }
+    else:
+        context |= {
+            "ebay_form": ebay_form or EbayForm(instance=ebay_config, prefix="ebay"),
+            "ebay": ebay_config,
+            "ebay_callback": request.build_absolute_uri(reverse("imports:ebay_callback")),
+            "ebay_waiting": secrets.is_set(ebay.PENDING_KEY),
+            "deletion_requests": deletions.open_count(),
+        }
+    return render(request, "imports/settings.html", context)
 
 
 @permission_required("imports.manage")
@@ -346,7 +410,7 @@ def test_connection(request):
         messages.success(
             request, f"Connected to {config.shop_domain}: {len(orders)} order(s) today."
         )
-    return redirect("imports:settings")
+    return _back("shopify")
 
 
 # ---------------------------------------------------------------------------
@@ -444,7 +508,7 @@ def etsy_settings(request):
         messages.warning(request, "Etsy settings saved. The app changed, so connect Etsy again.")
     else:
         messages.success(request, "Etsy settings saved.")
-    return redirect("imports:settings")
+    return _back("etsy")
 
 
 @permission_required("imports.manage")
@@ -455,7 +519,7 @@ def etsy_connect(request):
         url = etsy.begin(EtsySettings.load(), _etsy_callback_url(request))
     except etsy.EtsyError as exc:
         messages.error(request, str(exc))
-        return redirect("imports:settings")
+        return _back("etsy")
     audit.record(
         "import.connect",
         entity_type="imports.etsysettings",
@@ -470,7 +534,7 @@ def _etsy_finish(request, code: str, state: str | None):
         config = etsy.complete(EtsySettings.load(), code, state)
     except etsy.EtsyError as exc:
         messages.error(request, str(exc))
-        return redirect("imports:settings")
+        return _back("etsy")
     audit.record(
         "import.connect",
         entity_type="imports.etsysettings",
@@ -478,7 +542,7 @@ def _etsy_finish(request, code: str, state: str | None):
         summary=f"Connected Etsy shop {config.shop_name or config.shop_id}",
     )
     messages.success(request, f"Etsy connected: {config.shop_name or 'shop ' + config.shop_id}.")
-    return redirect("imports:settings")
+    return _back("etsy")
 
 
 @permission_required("imports.manage")
@@ -486,7 +550,7 @@ def etsy_callback(request):
     """Where Etsy sends the browser back, with the code (or the refusal)."""
     if refused := request.GET.get("error_description") or request.GET.get("error"):
         messages.error(request, f"Etsy didn't connect: {refused}")
-        return redirect("imports:settings")
+        return _back("etsy")
     return _etsy_finish(request, request.GET.get("code", ""), request.GET.get("state", ""))
 
 
@@ -509,7 +573,7 @@ def etsy_disconnect(request):
         summary="Disconnected Etsy",
     )
     messages.success(request, "Etsy disconnected. Its imported sales stay as they are.")
-    return redirect("imports:settings")
+    return _back("etsy")
 
 
 @permission_required("imports.manage")
@@ -528,4 +592,219 @@ def etsy_test(request):
             f"Connected to {config.shop_name or 'Etsy shop ' + config.shop_id}: "
             f"{len(receipts)} order(s) today.",
         )
-    return redirect("imports:settings")
+    return _back("etsy")
+
+
+# ---------------------------------------------------------------------------
+# Connecting eBay (FR-IMP-5)
+# ---------------------------------------------------------------------------
+
+
+class EbayForm(forms.ModelForm):
+    cert_id = forms.CharField(
+        label="Cert ID (Client Secret)",
+        required=False,
+        widget=_secret_box(),
+        help_text="From the same keyset as the App ID.",
+    )
+
+    class Meta:
+        model = EbaySettings
+        fields = ["enabled", "client_id", "ru_name", "sandbox"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if secrets.is_set(ebay.CERT_ID_KEY):
+            self.fields["cert_id"].help_text += " Saved; leave blank to keep it."
+
+    def clean(self):
+        data = super().clean()
+        if data.get("enabled"):
+            for name in ("client_id", "ru_name"):
+                if not (data.get(name) or "").strip():
+                    self.add_error(name, "eBay needs this to connect.")
+        return data
+
+
+@permission_required("imports.manage")
+@require_POST
+def ebay_settings(request):
+    config = EbaySettings.load()
+    before = audit.snapshot(config)
+    form = EbayForm(request.POST, instance=config, prefix="ebay")
+    if not form.is_valid():
+        return _settings_page(request, ebay_form=form)
+    app_changed = bool({"client_id", "ru_name", "sandbox"} & set(form.changed_data))
+    save_audited(form.save(commit=False), before=before, summary="Edited eBay settings")
+    if value := form.cleaned_data.get("cert_id", "").strip():
+        secrets.put(ebay.CERT_ID_KEY, value)
+        app_changed = True
+        audit.record(
+            "credential.set",
+            entity_type="core.credential",
+            entity_id=ebay.CERT_ID_KEY,
+            summary="Changed the eBay Cert ID",
+        )
+    if app_changed and config.connected_at:
+        ebay.disconnect()
+        messages.warning(request, "eBay settings saved. The app changed, so connect eBay again.")
+    else:
+        messages.success(request, "eBay settings saved.")
+    return _back("ebay")
+
+
+@permission_required("imports.manage")
+@require_POST
+def ebay_connect(request):
+    """Off to eBay, where the seller approves Trammel."""
+    try:
+        url = ebay.begin(EbaySettings.load())
+    except ebay.EbayError as exc:
+        messages.error(request, str(exc))
+        return _back("ebay")
+    audit.record(
+        "import.connect",
+        entity_type="imports.ebaysettings",
+        entity_id="1",
+        summary="Started connecting eBay",
+    )
+    return redirect(url)
+
+
+def _ebay_finish(request, code: str, state: str | None):
+    try:
+        ebay.complete(EbaySettings.load(), code, state)
+    except ebay.EbayError as exc:
+        messages.error(request, str(exc))
+        return _back("ebay")
+    audit.record(
+        "import.connect",
+        entity_type="imports.ebaysettings",
+        entity_id="1",
+        summary="Connected eBay",
+    )
+    messages.success(request, "eBay connected.")
+    return _back("ebay")
+
+
+@permission_required("imports.manage")
+def ebay_callback(request):
+    """Where eBay sends the browser back (the RuName's auth accepted address)."""
+    if refused := request.GET.get("error_description") or request.GET.get("error"):
+        messages.error(request, f"eBay didn't connect: {refused}")
+        return _back("ebay")
+    return _ebay_finish(request, request.GET.get("code", ""), request.GET.get("state", ""))
+
+
+@permission_required("imports.manage")
+@require_POST
+def ebay_paste(request):
+    """The code pasted by hand, when eBay's redirect couldn't reach Trammel."""
+    code, state = ebay.code_from(request.POST.get("code", ""))
+    return _ebay_finish(request, code, state)
+
+
+@permission_required("imports.manage")
+@require_POST
+def ebay_disconnect(request):
+    ebay.disconnect()
+    audit.record(
+        "import.disconnect",
+        entity_type="imports.ebaysettings",
+        entity_id="1",
+        summary="Disconnected eBay",
+    )
+    messages.success(request, "eBay disconnected. Its imported sales stay as they are.")
+    return _back("ebay")
+
+
+@permission_required("imports.manage")
+@require_POST
+def ebay_test(request):
+    """Ask eBay for today's orders, to show the connection works."""
+    try:
+        today = timezone.localdate()
+        orders = ebay.fetch(EbaySettings.load(), today, today)
+    except ebay.EbayError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(request, f"Connected to eBay: {len(orders)} order(s) today.")
+    return _back("ebay")
+
+
+# ---------------------------------------------------------------------------
+# Requests to delete a buyer's data (FR-IMP-6)
+# ---------------------------------------------------------------------------
+
+
+@permission_required("imports.manage")
+def deletion_list(request):
+    open_rows = DeletionRequest.objects.filter(status=DeletionRequest.Status.OPEN)
+    return render(
+        request,
+        "imports/deletions.html",
+        {
+            "open": [(row, deletions.candidates(row)) for row in open_rows],
+            "closed": DeletionRequest.objects.exclude(status=DeletionRequest.Status.OPEN)
+            .exclude(status=DeletionRequest.Status.NO_MATCH)
+            .select_related("resolved_by")[:50],
+            "unmatched": DeletionRequest.objects.filter(
+                status=DeletionRequest.Status.NO_MATCH
+            ).count(),
+        },
+    )
+
+
+@permission_required("imports.manage")
+@require_POST
+def deletion_new(request):
+    """A notice entered by hand, say from eBay's email or the developer site."""
+    try:
+        row, _ = deletions.receive(
+            username=request.POST.get("username", ""),
+            user_id=request.POST.get("user_id", ""),
+            via=DeletionRequest.Via.HAND,
+        )
+    except ValidationError as exc:
+        messages.error(request, " ".join(exc.messages))
+    else:
+        if row.status == DeletionRequest.Status.NO_MATCH:
+            messages.info(request, f"{row.username or row.user_id} never bought from you on eBay.")
+        else:
+            messages.success(
+                request,
+                f"The buyer's details in {row.orders} eBay order(s) are wiped. Review the "
+                "customer below.",
+            )
+    return redirect("imports:deletions")
+
+
+def _open_request(pk) -> DeletionRequest:
+    return get_object_or_404(DeletionRequest, pk=pk, status=DeletionRequest.Status.OPEN)
+
+
+@permission_required("imports.manage")
+@require_POST
+def deletion_anonymize(request, pk, customer):
+    row = _open_request(pk)
+    chosen = get_object_or_404(Customer, pk=customer)
+    try:
+        deletions.anonymize(row, chosen, user=request.user)
+    except ValidationError as exc:
+        messages.error(request, " ".join(exc.messages))
+    else:
+        messages.success(request, "Customer anonymized. Their sales and tax records stay.")
+    return redirect("imports:deletions")
+
+
+@permission_required("imports.manage")
+@require_POST
+def deletion_dismiss(request, pk):
+    row = _open_request(pk)
+    try:
+        deletions.dismiss(row, note=request.POST.get("note", ""), user=request.user)
+    except ValidationError as exc:
+        messages.error(request, " ".join(exc.messages))
+    else:
+        messages.success(request, "Request dismissed.")
+    return redirect("imports:deletions")

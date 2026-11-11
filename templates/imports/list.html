@@ -3,7 +3,7 @@
 {% block content %}
 <div class="heading-row">
   <h1>Online orders</h1>
-  {% if can_manage %}<div class="actions"><a class="button" href="{% url 'imports:settings' %}">Online stores…</a></div>{% endif %}
+  {% if can_manage %}<div class="actions">{% if deletion_requests %}<a class="button" href="{% url 'imports:deletions' %}">Deletion requests ({{ deletion_requests }})</a> {% endif %}<a class="button" href="{% url 'imports:settings' %}">Online stores…</a></div>{% endif %}
 </div>
 <p class="lede">Orders from your online stores come in as paid sales, at the prices, shipping and tax the store charged, with their customers. Fetching a range again is safe: nothing is imported twice.</p>
 

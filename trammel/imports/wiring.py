@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from trammel.core import access, panels
+from django.urls import reverse
+
+from trammel.core import access, modules, notices, panels
 from trammel.notifications.services import reminder_filters
 
 from .models import ImportedOrder
@@ -29,3 +31,24 @@ def imported_from(request, invoice):
         },
         order=5,
     )
+
+
+@notices.register
+def deletion_requests(request):
+    """A platform's request to delete a buyer's data waits for staff (FR-IMP-6)."""
+    actor = getattr(request, "actor", None)
+    if not (modules.is_enabled("imports") and access.has_perm(actor, "imports.manage")):
+        return []
+    from .deletions import open_count
+
+    waiting = open_count()
+    if not waiting:
+        return []
+    return [
+        notices.Notice(
+            "warning",
+            f"{waiting} request{'s' if waiting != 1 else ''} from eBay to delete a buyer's "
+            f"data {'are' if waiting != 1 else 'is'} waiting for review.",
+            reverse("imports:deletions"),
+        )
+    ]

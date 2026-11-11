@@ -2,8 +2,11 @@
 {% block title %}Online stores{% endblock %}
 {% block settings_content %}
 <h1>Online stores</h1>
-<p class="lede">Connect your online stores to bring their orders in as paid sales: on the Online orders page, fetch any range of dates.</p>
+<p class="lede">Connect your online stores to bring their orders in as paid sales: on the Online orders page, fetch any range of dates. A dot marks a connected store.</p>
+{% include "partials/tabs.html" %}
 
+<div class="tab-body">
+{% if tab == "shopify" %}
 <section class="panel" aria-labelledby="shopify-heading">
   <h2 id="shopify-heading">Shopify</h2>
   <details>
@@ -16,7 +19,7 @@
     </ol>
     <p class="small">Use the Dev Dashboard app with its client ID and secret if you can: below Shopify's Advanced plan, a custom app made in the store's admin gets no buyer names, emails or addresses, while a Dev Dashboard app does. Orders without their buyer wait on the Online orders page for you to give them a customer.</p>
   </details>
-  <form method="post" class="stack" novalidate>{% csrf_token %}
+  <form method="post" action="{% url 'imports:settings' %}" class="stack" novalidate>{% csrf_token %}
     {% if form.non_field_errors %}
     <div class="form-errors" role="alert">{% for e in form.non_field_errors %}<p>{{ e }}</p>{% endfor %}</div>
     {% endif %}
@@ -44,6 +47,7 @@
   {% endif %}
 </section>
 
+{% elif tab == "etsy" %}
 <section class="panel" aria-labelledby="etsy-heading">
   <h2 id="etsy-heading">Etsy</h2>
   <p class="small">Etsy collects and pays the sales tax on its sales as the marketplace facilitator. Etsy sales show that tax, and the tax report lists it as paid by Etsy, not as tax you owe.</p>
@@ -82,4 +86,51 @@
   {% endif %}
   {% endif %}
 </section>
+
+{% else %}
+<section class="panel" aria-labelledby="ebay-heading">
+  <h2 id="ebay-heading">eBay</h2>
+  <p class="small">eBay collects and pays the sales tax on its sales as the marketplace facilitator; eBay sales record it that way. eBay withholds the buyer's details on some orders, which then wait on the Online orders page for a customer.</p>
+  <details>
+    <summary>Setting up the app on eBay</summary>
+    <ol class="small">
+      <li>On the eBay developer site, under Application Keys, use the production keyset: its App ID (Client ID) and Cert ID (Client Secret). Tick the sandbox below only for eBay's test keys.</li>
+      <li>Under User Tokens, choose "Get a Token from eBay via Your Application" and add a redirect (RuName). Set its auth accepted URL to <code class="nowrap">{{ ebay_callback }}</code>, and enter the RuName below.</li>
+      <li>eBay won't switch a keyset on for real orders until you deal with its account deletion notices. Trammel can't stand at a public address for them; see "Account deletion notices" below.</li>
+      <li>Save, then press Connect eBay and approve Trammel on eBay. eBay sends you back here.</li>
+    </ol>
+    <p class="small">If eBay can't send you back, copy the address it sent you to and paste it below. A connection lasts about 18 months; after that, connect again.</p>
+  </details>
+  <form method="post" action="{% url 'imports:ebay_settings' %}" class="stack" novalidate>{% csrf_token %}
+    {% include "partials/form_body.html" with form=ebay_form %}
+    <div class="actions"><button type="submit" class="primary">Save</button></div>
+  </form>
+  {% if ebay.enabled and ebay.client_id and ebay.ru_name %}
+  <h3>Connection</h3>
+  {% if ebay.is_connected %}
+  <p>Connected{% if ebay.sandbox %} to the eBay sandbox{% endif %} since {{ ebay.connected_at|d }}{% if ebay.refresh_token_expires_at %}, until {{ ebay.refresh_token_expires_at|d }}{% endif %}.</p>
+  <div class="actions">
+    <form method="post" action="{% url 'imports:ebay_test' %}" class="inline">{% csrf_token %}<button type="submit">Test the connection</button></form>
+    <form method="post" action="{% url 'imports:ebay_disconnect' %}" class="inline">{% csrf_token %}<button type="submit" class="danger">Disconnect</button></form>
+  </div>
+  {% else %}
+  {% if ebay.has_expired %}<p class="message warning">The eBay connection has expired. Connect eBay again.</p>{% endif %}
+  <form method="post" action="{% url 'imports:ebay_connect' %}">{% csrf_token %}<button type="submit" class="primary">Connect eBay</button></form>
+  {% if ebay_waiting %}
+  <form method="post" action="{% url 'imports:ebay_paste' %}" class="stack">{% csrf_token %}
+    <div class="field"><label for="ebay-code">eBay didn't send you back? Paste the address it sent you to, or just the code</label>
+      <input type="text" id="ebay-code" name="code" class="secret-box" autocomplete="off" spellcheck="false" autocapitalize="off" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other" required></div>
+    <div class="actions"><button type="submit">Finish connecting</button></div>
+  </form>
+  {% endif %}
+  {% endif %}
+  {% endif %}
+
+  <h3>Account deletion notices</h3>
+  <p class="small">eBay tells every app when an eBay account closes, and the buyer's data has to go. eBay needs a public HTTPS address that answers its challenge, which Trammel doesn't host: a small relay on the internet can take eBay's notices and forward each one to Trammel's API (<code class="nowrap">POST /api/v1/imports/ebay/deletion-notices</code>, with an API key holding only "Forward eBay account deletion notices"). You can also enter a notice by hand.</p>
+  <p class="small">When a notice arrives, the buyer's details in the stored eBay orders are wiped at once. Their customer record waits for you to anonymize it or dismiss the request; sales and tax figures always stay.</p>
+  <p><a class="button" href="{% url 'imports:deletions' %}">Deletion requests{% if deletion_requests %} ({{ deletion_requests }} to review){% endif %}</a></p>
+</section>
+{% endif %}
+</div>
 {% endblock %}

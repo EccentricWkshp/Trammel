@@ -19,4 +19,18 @@ urlpatterns = [
     path("settings/etsy/disconnect/", views.etsy_disconnect, name="etsy_disconnect"),
     path("settings/etsy/test/", views.etsy_test, name="etsy_test"),
     path("etsy/callback/", views.etsy_callback, name="etsy_callback"),
+    path("settings/ebay/", views.ebay_settings, name="ebay_settings"),
+    path("settings/ebay/connect/", views.ebay_connect, name="ebay_connect"),
+    path("settings/ebay/paste/", views.ebay_paste, name="ebay_paste"),
+    path("settings/ebay/disconnect/", views.ebay_disconnect, name="ebay_disconnect"),
+    path("settings/ebay/test/", views.ebay_test, name="ebay_test"),
+    path("ebay/callback/", views.ebay_callback, name="ebay_callback"),
+    path("deletions/", views.deletion_list, name="deletions"),
+    path("deletions/new/", views.deletion_new, name="deletion_new"),
+    path(
+        "deletions/<uuid:pk>/anonymize/<uuid:customer>/",
+        views.deletion_anonymize,
+        name="deletion_anonymize",
+    ),
+    path("deletions/<uuid:pk>/dismiss/", views.deletion_dismiss, name="deletion_dismiss"),
 ]

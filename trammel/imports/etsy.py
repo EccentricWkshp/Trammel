@@ -38,7 +38,7 @@ from django.utils import timezone
 
 from trammel.core import secrets
 
-from .http import HttpProblem, StoreError, call
+from .http import HttpProblem, StoreError, call, pasted_code
 from .models import EtsySettings
 from .regions import state_code
 
@@ -138,14 +138,7 @@ def begin(config: EtsySettings, redirect_uri: str) -> str:
     return f"{AUTHORIZE_URL}?{query}"
 
 
-def code_from(pasted: str) -> tuple[str, str | None]:
-    """(code, state) from what the seller pasted: the code alone, or the whole
-    address Etsy sent them to."""
-    text = (pasted or "").strip()
-    if "code=" in text:
-        query = urllib.parse.parse_qs(urllib.parse.urlparse(text).query or text.split("?")[-1])
-        return (query.get("code") or [""])[0].strip(), (query.get("state") or [None])[0]
-    return text, None
+code_from = pasted_code
 
 
 def complete(config: EtsySettings, code: str, state: str | None) -> EtsySettings:

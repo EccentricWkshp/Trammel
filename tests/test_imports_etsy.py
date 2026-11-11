@@ -248,7 +248,7 @@ def test_connecting_etsy_with_pkce_and_the_callback(module_on, admin_client, mon
     assert config.shop_name == "Eccentric Workshop"
     assert secrets.get(etsy.REFRESH_TOKEN_KEY) == "7001.def"
     assert not secrets.is_set(etsy.PENDING_KEY)
-    page = admin_client.get("/imports/settings/").content.decode()
+    page = admin_client.get("/imports/settings/?tab=etsy").content.decode()
     assert "Connected to <strong>Eccentric Workshop</strong>" in page
     assert "7001.abc" not in page and "sh4red" not in page
 

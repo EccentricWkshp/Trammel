@@ -7,6 +7,7 @@ import json
 import urllib.error
 import urllib.parse
 import urllib.request
+from urllib.parse import parse_qs, unquote, urlparse
 
 from django.conf import settings
 
@@ -32,6 +33,11 @@ def _explain(body: bytes) -> tuple[str, str]:
         if isinstance(data, dict):
             error = str(data.get("error") or "")
             detail = data.get("error_description") or data.get("errors") or data.get("error")
+            if isinstance(detail, list) and all(isinstance(d, dict) for d in detail):
+                # eBay: [{"errorId": 1100, "message": "...", "longMessage": "..."}]
+                detail = " ".join(
+                    str(d.get("longMessage") or d.get("message") or "") for d in detail
+                )
             if isinstance(detail, (list, dict)):
                 detail = json.dumps(detail)[:300]
             return error, str(detail or "")
@@ -65,3 +71,14 @@ def call(label: str, method: str, url: str, *, data: dict | None = None, headers
         raise StoreError(f"Couldn't reach {label}: {getattr(exc, 'reason', exc)}") from None
     except ValueError:
         raise StoreError(f"{label} sent back something that isn't JSON.") from None
+
+
+def pasted_code(pasted: str) -> tuple[str, str | None]:
+    """(code, state) from what a seller pasted after approving Trammel: the code
+    alone (as shown, or still URL-encoded, as eBay's is), or the whole address the
+    store sent them to."""
+    text = (pasted or "").strip()
+    if "code=" in text:
+        query = parse_qs(urlparse(text).query or text.split("?")[-1])
+        return (query.get("code") or [""])[0].strip(), (query.get("state") or [None])[0]
+    return (unquote(text) if "%" in text else text), None

@@ -10,12 +10,13 @@ class ImportsConfig(ModuleConfig):
         key="imports",
         name="Online orders",
         version="0.1.0",
-        description="Orders from online stores (Shopify, Etsy) brought in as paid sales, with "
-        "their customers, and a job when they need making.",
+        description="Orders from online stores (Shopify, Etsy, eBay) brought in as paid sales, "
+        "with their customers, and a job when they need making.",
         # Off until someone connects a store.
         default_enabled=False,
         depends_on=("billing", "catalog", "quotes", "jobs"),
         urls="trammel.imports.urls",
+        api_router="trammel.imports.api.router",
         url_prefix="imports",
         # Its webhook is an address on the internet; while the module is off it
         # doesn't exist (FR-IMP-4).
@@ -27,7 +28,14 @@ class ImportsConfig(ModuleConfig):
                 "Fetch online orders, complete ones waiting for a customer, and make jobs "
                 "from them",
             ),
-            Permission("imports.manage", "Connect online stores"),
+            Permission(
+                "imports.manage",
+                "Connect online stores, and deal with their requests to delete a buyer's data",
+            ),
+            Permission(
+                "imports.deletion_notices",
+                "Forward eBay account deletion notices to the API (for a relay's API key)",
+            ),
         ),
         menu=(
             MenuEntry("Online orders", "imports:list", "imports.view", "main", 75),

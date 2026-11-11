@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Deletion requests{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{% url 'imports:list' %}">Online orders</a> · <a href="{% url 'imports:settings' %}?tab=ebay">eBay settings</a></p>
+<h1>Deletion requests</h1>
+<p class="lede">When an eBay account closes, eBay asks for the buyer's data to be deleted. The buyer's details in the stored eBay orders are already wiped. For each customer below, anonymize them, or dismiss the request if you keep their details for your own business with them. Sales and tax figures stay either way.</p>
+
+<section aria-labelledby="open-heading">
+  <h2 id="open-heading">To review</h2>
+  {% for row, people in open %}
+  <article class="card">
+    <h3>eBay user {{ row.username|default:row.user_id }}</h3>
+    <p class="small muted">{{ row.get_via_display }}, {{ row.received_at|d }}. Details wiped from {{ row.orders }} stored eBay order{{ row.orders|pluralize }}.</p>
+    {% if people %}
+    <div class="table-wrap"><table>
+      <thead><tr><th scope="col">Customer</th><th scope="col">Their business with you</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+      <tbody>{% for p in people %}
+        <tr><td>{% if p.done %}<span class="muted">{{ p.customer.name }}</span>{% else %}<a href="{{ p.customer.get_absolute_url }}">{{ p.customer.name }}</a>{% endif %}</td>
+          <td>{{ p.platform_orders }} eBay order{{ p.platform_orders|pluralize }}{% if p.other_store_orders %}, {{ p.other_store_orders }} from other online stores{% endif %}{% if p.other_invoices %}, <strong>{{ p.other_invoices }} other invoice{{ p.other_invoices|pluralize }}</strong>{% endif %}{% if p.jobs %}, <strong>{{ p.jobs }} job{{ p.jobs|pluralize }}</strong>{% endif %}{% if not p.other_store_orders and not p.other_invoices and not p.jobs %} only{% endif %}</td>
+          <td>{% if p.done %}Anonymized{% else %}<form method="post" action="{% url 'imports:deletion_anonymize' row.pk p.customer.pk %}" class="inline">{% csrf_token %}<button type="submit" class="danger">Anonymize</button></form>{% endif %}</td></tr>
+      {% endfor %}</tbody>
+    </table></div>
+    {% else %}<p class="muted">The orders have no customer yet.</p>{% endif %}
+    <form method="post" action="{% url 'imports:deletion_dismiss' row.pk %}" class="filters">{% csrf_token %}
+      <label>Dismiss, because <input type="text" name="note" maxlength="2000" required></label>
+      <button type="submit">Dismiss</button>
+    </form>
+  </article>
+  {% empty %}
+  <p class="muted">Nothing to review.</p>
+  {% endfor %}
+</section>
+
+<section class="card" aria-labelledby="new-heading">
+  <h2 id="new-heading">Enter a notice by hand</h2>
+  <form method="post" action="{% url 'imports:deletion_new' %}" class="filters">{% csrf_token %}
+    <label>eBay username <input type="text" name="username" maxlength="100" autocomplete="off"></label>
+    <label>eBay user ID <input type="text" name="user_id" maxlength="100" autocomplete="off"></label>
+    <button type="submit" class="primary">Record it</button>
+  </form>
+  <p class="muted small">Orders are matched by username. Notices for people who never bought from you are closed straight away{% if unmatched %} ({{ unmatched }} so far){% endif %}.</p>
+</section>
+
+{% if closed %}
+<section aria-labelledby="closed-heading">
+  <h2 id="closed-heading">Dealt with</h2>
+  <ul class="plain">{% for row in closed %}
+    <li>eBay user {{ row.username|default:row.user_id }}: {{ row.get_status_display|lower }} {{ row.resolved_at|d }}{% if row.resolved_by %} by {{ row.resolved_by }}{% endif %}{% if row.note %} ({{ row.note }}){% endif %}</li>
+  {% endfor %}</ul>
+</section>
+{% endif %}
+{% endblock %}
