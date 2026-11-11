@@ -1,0 +1,11 @@
+<section class="card" aria-labelledby="online-order-heading">
+  <h2 id="online-order-heading">{{ ctx.row.get_source_display }} order {{ ctx.row.order_number }}</h2>
+  <p class="small">Imported {{ ctx.row.imported_at|d }}{% if ctx.row.financial_status %} · payment {{ ctx.row.payment_label }}{% endif %}{% if ctx.row.shipped_on %} · shipped {{ ctx.row.shipped_on|d }}{% if ctx.row.carrier %} by {{ ctx.row.carrier }}{% endif %}{% if ctx.row.tracking %}, tracking {{ ctx.row.tracking }}{% endif %}{% endif %}.</p>
+  {% if ctx.row.problem %}<p class="message warning prewrap">{{ ctx.row.problem }}</p>{% endif %}
+  {% if ctx.row.job %}<p>Being made in <a href="{{ ctx.row.job.get_absolute_url }}">{{ ctx.row.job.number }}</a>.</p>
+  {% elif ctx.can_make_job %}
+  <form method="post" action="{% url 'imports:make_job' ctx.row.pk %}">{% csrf_token %}
+    <button type="submit">Make a job</button> <span class="muted small">For an order that has to be made: an approved job with the order's lines, ready for a work order.</span>
+  </form>
+  {% endif %}
+</section>

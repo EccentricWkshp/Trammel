@@ -29,6 +29,21 @@
     box.addEventListener("change", follow);
     follow();
   });
+  // Settings that only matter for one choice of a radio group
+  // ([data-shown-for="<field name>=<value>"]). The server hides them for the saved
+  // choice; this follows the choice as it changes, before saving.
+  document.querySelectorAll("[data-shown-for]").forEach(function (group) {
+    var parts = group.dataset.shownFor.split("=");
+    var form = group.closest("form");
+    if (!form || parts.length !== 2) return;
+    var radios = form.querySelectorAll("input[type=radio][name='" + parts[0] + "']");
+    function follow() {
+      var chosen = form.querySelector("input[type=radio][name='" + parts[0] + "']:checked");
+      group.hidden = !chosen || chosen.value !== parts[1];
+    }
+    radios.forEach(function (r) { r.addEventListener("change", follow); });
+    follow();
+  });
   // Script-driven tabs ([data-tabs]): without script every panel shows, one after another.
   document.querySelectorAll("[data-tabs]").forEach(function (bar) {
     var tabs = Array.prototype.slice.call(bar.querySelectorAll("[role=tab]"));

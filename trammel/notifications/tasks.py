@@ -19,14 +19,15 @@ def overdue_reminders(payload):
     from trammel.billing.services import document_context
 
     from .models import EmailLog, SmtpSettings
-    from .services import notify
+    from .services import notify, reminder_filters
 
     interval = timedelta(days=SmtpSettings.load().overdue_reminder_days or 7)
-    for invoice in (
-        Invoice.objects.filter(status__in=OPEN, due_date__lt=timezone.localdate())
-        .exclude(kind=Invoice.Kind.CREDIT_NOTE)
-        .select_related("customer")
-    ):
+    due = Invoice.objects.filter(status__in=OPEN, due_date__lt=timezone.localdate()).exclude(
+        kind=Invoice.Kind.CREDIT_NOTE
+    )
+    for narrow in reminder_filters:
+        due = narrow(due)
+    for invoice in due.select_related("customer"):
         if not invoice.customer.email:
             continue
         recent = EmailLog.objects.filter(

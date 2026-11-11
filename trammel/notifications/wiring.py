@@ -28,6 +28,10 @@ def quote_declined(revision, reason=""):
 def payment_recorded(payment):
     if not payment.customer.email or payment.amount <= 0:
         return
+    # Paid through an online store: the store sends its own receipt, and its
+    # buyers are never emailed from Trammel.
+    if payment.method == payment.Method.ONLINE:
+        return
     from trammel.core import templating
 
     notify(

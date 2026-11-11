@@ -340,6 +340,7 @@ class Payment(AppendOnlyModel):
         CHECK = "check", "Check"
         CARD = "card", "Card"
         BANK = "bank", "Bank transfer"
+        ONLINE = "online", "Online store"
         OTHER = "other", "Other"
 
     customer = models.ForeignKey(

@@ -1,0 +1,46 @@
+{% extends "settings_base.html" %}
+{% block title %}Online stores{% endblock %}
+{% block settings_content %}
+<h1>Online stores</h1>
+<p class="lede">Connect Shopify to bring its orders in as paid sales: on the Online orders page, fetch any range of dates.</p>
+
+<section class="panel" aria-labelledby="shopify-heading">
+  <h2 id="shopify-heading">Shopify</h2>
+  <details>
+    <summary>Setting up the app in Shopify</summary>
+    <ol class="small">
+      <li>Make an app for your store: a custom app in the store's admin (Settings, Apps and sales channels, Develop apps), or an app in the Dev Dashboard.</li>
+      <li>Give it these Admin API scopes: <code>read_orders</code>, <code>read_customers</code>, <code>read_fulfillments</code> and <code>read_products</code>. Shopify gives the last 60 days of orders; for older ones, ask for <code>read_all_orders</code> too.</li>
+      <li>In the Dev Dashboard, release that version and install the app on the store, so the scopes are approved.</li>
+      <li>Enter the Dev Dashboard app's client ID and secret here, or the custom app's access token.</li>
+    </ol>
+    <p class="small">Use the Dev Dashboard app with its client ID and secret if you can: below Shopify's Advanced plan, a custom app made in the store's admin gets no buyer names, emails or addresses, while a Dev Dashboard app does. Orders without their buyer wait on the Online orders page for you to give them a customer.</p>
+  </details>
+  <form method="post" class="stack" novalidate>{% csrf_token %}
+    {% if form.non_field_errors %}
+    <div class="form-errors" role="alert">{% for e in form.non_field_errors %}<p>{{ e }}</p>{% endfor %}</div>
+    {% endif %}
+    {% with mode=form.auth_mode.value %}
+    <div class="field field-check">{{ form.enabled.as_field_group }}</div>
+    <div class="field">{{ form.shop_domain.as_field_group }}</div>
+    <div class="field">{{ form.auth_mode.as_field_group }}</div>
+    <div class="stack" data-shown-for="auth_mode=token"{% if mode != "token" %} hidden{% endif %}>
+      <div class="field">{{ form.token.as_field_group }}</div>
+      <div class="field">{{ form.api_secret.as_field_group }}</div>
+    </div>
+    <div class="stack" data-shown-for="auth_mode=client_credentials"{% if mode != "client_credentials" %} hidden{% endif %}>
+      <div class="field">{{ form.client_id.as_field_group }}</div>
+      <div class="field">{{ form.client_secret.as_field_group }}</div>
+    </div>
+    <div class="field field-check">{{ form.webhooks_enabled.as_field_group }}</div>
+    {% endwith %}
+    <div class="actions"><button type="submit" class="primary">Save</button></div>
+  </form>
+  {% if config.enabled and config.shop_domain %}
+  <form method="post" action="{% url 'imports:test' %}">{% csrf_token %}<button type="submit">Test the connection</button></form>
+  {% endif %}
+  {% if webhook_url %}
+  <p class="small">Webhook address for Shopify (Settings, Notifications, Webhooks; topics orders/create, orders/updated and orders/fulfilled, JSON): <code class="nowrap">{{ webhook_url }}</code>. Only this address needs to be reachable from the internet.</p>
+  {% endif %}
+</section>
+{% endblock %}

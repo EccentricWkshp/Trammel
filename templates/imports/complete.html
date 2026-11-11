@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}{{ row }}{% endblock %}
+{% block main_class %}page narrow{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{% url 'imports:list' %}">Online orders</a></p>
+<h1>Give {{ row }} its customer</h1>
+<dl class="facts-inline">
+  <div><dt>Date</dt><dd>{{ row.order_date|d }}</dd></div>
+  <div><dt>Total</dt><dd>{{ row.total|money }}</dd></div>
+  {% with h=row.hints %}{% if h.region or h.country %}<div><dt>Where</dt><dd>{{ h.city }}{% if h.city %}, {% endif %}{{ h.region }} {{ h.postal_code }} {{ h.country }}</dd></div>{% endif %}{% endwith %}
+</dl>
+{% if lines %}
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Item</th><th scope="col" class="num">Qty</th><th scope="col" class="num">Each</th></tr></thead>
+  <tbody>{% for l in lines %}<tr><td>{{ l.title }}{% if l.variant %} — {{ l.variant }}{% endif %}{% if l.sku %} <span class="muted small">{{ l.sku }}</span>{% endif %}</td><td class="num">{{ l.quantity }}</td><td class="num">{{ l.unit_price|money }}</td></tr>{% endfor %}</tbody>
+</table></div>
+{% endif %}
+<p class="muted small">Look the order up in the store's admin, where you can see the buyer. Then choose them below, or enter them as a new customer. The sale is made at the store's prices and tax.</p>
+
+<form method="post" class="stack" novalidate>{% csrf_token %}
+  {% if form.non_field_errors %}<div class="form-errors" role="alert">{% for e in form.non_field_errors %}<p>{{ e }}</p>{% endfor %}</div>{% endif %}
+  <section class="card">
+    <h2>An existing customer</h2>
+    <div class="field"><label for="customer">Customer</label>
+      <select id="customer" name="customer"><option value="">— a new customer, below —</option>{% for c in customers %}<option value="{{ c.pk }}">{{ c.name }}{% if c.email %} &lt;{{ c.email }}&gt;{% endif %}</option>{% endfor %}</select></div>
+  </section>
+  <section class="card">
+    <h2>Or a new customer</h2>
+    {% include "partials/form_body.html" %}
+  </section>
+  <div class="actions"><button type="submit" class="primary">Make the sale</button> <a href="{% url 'imports:list' %}">Cancel</a></div>
+</form>
+{% endblock %}

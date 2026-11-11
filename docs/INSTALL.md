@@ -189,3 +189,24 @@ WSL2's clock can drift after the host sleeps, which breaks two-factor codes and
 certificate checks. With systemd enabled, turn on time sync inside the
 distribution: `sudo timedatectl set-ntp true` (install `systemd-timesyncd` if it
 is missing). `wsl --shutdown` also resets the clock.
+
+## Shopify order webhooks
+
+Fetching orders by date needs nothing from the internet. Webhooks, which bring
+each order in within seconds, need Shopify to reach Trammel over HTTPS. If you
+switch them on, make only the webhook address public, never the rest of
+Trammel: the public proxy or tunnel forwards `/imports/shopify/webhook/` and
+answers everything else with "not found". For nginx:
+
+```nginx
+location = /imports/shopify/webhook/ {
+    proxy_pass https://trammel.home.arpa:8727;   # Trammel's own address
+    proxy_set_header Host trammel.home.arpa;     # a name in ALLOWED_HOSTS
+    proxy_set_header X-Forwarded-Proto https;
+}
+location / { return 404; }
+```
+
+The address answers "not found" until the Online orders module and its
+webhooks are switched on, and only accepts requests Shopify has signed. Fetch
+by date now and then anyway: Shopify gives up on a webhook it can't deliver.

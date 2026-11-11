@@ -96,6 +96,10 @@ SETUP_TOKEN = env("SETUP_TOKEN", "")
 # shutting the portal at once, even without signing in (FR-PRT-8).
 PORTAL_OFF = env_bool("PORTAL_OFF", False)
 
+# The Shopify Admin API version the order importer asks for. Shopify supports
+# each for a year; Trammel releases move it on.
+SHOPIFY_API_VERSION = env("SHOPIFY_API_VERSION", "2026-01")
+
 # API rate limit per authenticated principal (FR-API-3), e.g. "120/m".
 API_RATE_LIMIT = env("API_RATE_LIMIT", "120/m")
 
@@ -144,6 +148,7 @@ INSTALLED_APPS = [
     "trammel.reports.apps.ReportsConfig",
     "trammel.notifications.apps.NotificationsConfig",
     "trammel.portal.apps.PortalConfig",
+    "trammel.imports.apps.ImportsConfig",
     "trammel.api",
 ]
 

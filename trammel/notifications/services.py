@@ -62,6 +62,11 @@ def _from() -> str:
     return f"{smtp.from_name} <{smtp.from_address}>" if smtp.from_name else smtp.from_address
 
 
+#: Callables that narrow the invoices overdue reminders go to. A module whose
+#: sales are collected elsewhere (an online store) leaves its own out.
+reminder_filters: list = []
+
+
 def notify(
     event: str,
     *,

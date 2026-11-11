@@ -367,15 +367,27 @@ def recalculate(invoice: Invoice, determination: tax.Determination | None = None
 
 
 @transaction.atomic
-def issue(invoice: Invoice, *, actor) -> Invoice:
-    """Number, date, tax snapshot, freeze (FR-BIL-2, FR-TAX-7)."""
+def issue(
+    invoice: Invoice,
+    *,
+    actor,
+    collected_tax: Decimal | None = None,
+    collected_by: str = "",
+) -> Invoice:
+    """Number, date, tax snapshot, freeze (FR-BIL-2, FR-TAX-7).
+
+    `collected_tax` is tax an online store already charged and collected for
+    this sale (an imported order): the invoice records exactly that amount,
+    attributed to the location Trammel looks up, and is flagged for review when
+    Trammel's own rates give a different figure or no location is found.
+    """
     invoice = Invoice.objects.select_for_update().get(pk=invoice.pk)
     _require_draft(invoice)
     if not invoice.lines.exists():
         raise ValidationError("Add at least one line before issuing.")
     on = invoice.invoice_date or timezone.localdate()
     det = determine_tax(invoice, on)
-    if not det.resolved:
+    if not det.resolved and collected_tax is None:
         raise ValidationError(
             f"{det.note or 'The tax rate could not be determined.'} Choose a tax jurisdiction "
             "by hand; the invoice will be flagged for review."
@@ -392,12 +404,15 @@ def issue(invoice: Invoice, *, actor) -> Invoice:
             gross_receipts_classification=line.gross_receipts_classification,
         )
     recalculate(invoice, det)
-    if det.resolved and det.components:
-        taxable = invoice.taxable_total
-        for t in tax.calculate(taxable, det):
-            InvoiceTax.objects.create(
-                invoice=invoice, code=t.code, name=t.name, rate=t.rate, base=t.base, amount=t.amount
-            )
+    parts = tax.calculate(invoice.taxable_total, det) if det.resolved and det.components else []
+    flagged, note = det.method == "manual", det.note
+    if collected_tax is not None:
+        parts, flagged, note = _collected(invoice, det, parts, Decimal(collected_tax), collected_by)
+        flagged = flagged or det.method == "manual"
+    for t in parts:
+        InvoiceTax.objects.create(
+            invoice=invoice, code=t.code, name=t.name, rate=t.rate, base=t.base, amount=t.amount
+        )
     key = "credit_note" if invoice.is_credit_note else "invoice"
     method = (
         det.method
@@ -414,8 +429,8 @@ def issue(invoice: Invoice, *, actor) -> Invoice:
         tax_location_code=det.location_code,
         tax_postal_code=det.postal_code,
         tax_rate_total=det.total_rate,
-        tax_flagged=det.method == "manual",
-        tax_note=det.note[:300],
+        tax_flagged=flagged,
+        tax_note=note[:300],
         exemption_number=invoice.customer.tax_exempt_number if det.method == "exempt" else "",
         ship_to_text="\n".join(invoice.ship_to.lines()) if invoice.ship_to else "",
     )
@@ -429,6 +444,41 @@ def issue(invoice: Invoice, *, actor) -> Invoice:
     for fn in on_issued:
         fn(invoice)
     return invoice
+
+
+def _collected(invoice: Invoice, det, parts, collected: Decimal, by: str):
+    """Tax rows for tax a store already collected: Trammel's own rows for the
+    location, scaled to add up to exactly what was collected (or one row when no
+    location was found). Returns (rows, flagged, note) and sets the invoice's
+    totals to the collected tax."""
+    own = sum((t.amount for t in parts), ZERO)
+    by = by or "the store"
+    if parts and own:
+        rows, left = [], collected
+        for t in parts[:-1]:
+            share = round_money(collected * t.amount / own)
+            rows.append(tax.TaxLine(t.code, t.name, t.rate, t.base, share))
+            left -= share
+        last = parts[-1]
+        rows.append(tax.TaxLine(last.code, last.name, last.rate, last.base, left))
+    elif collected:
+        rows = [tax.TaxLine("", f"Collected by {by}", ZERO, invoice.taxable_total, collected)]
+    else:
+        rows = []
+    if not det.resolved:
+        flagged = True
+        note = f"Tax collected by {by}; {det.note or 'the location could not be found.'}"
+    elif abs(own - collected) > Decimal("0.01"):
+        flagged = True
+        note = f"{by} collected {collected}; Trammel's rates for this location give {own}."
+    else:
+        flagged, note = False, det.note
+    invoice.tax_total = collected
+    invoice.total = invoice.subtotal + (invoice.shipping or ZERO) + collected
+    Invoice.all_objects.filter(pk=invoice.pk).update(
+        tax_total=collected, total=invoice.total, balance=invoice.total
+    )
+    return rows, flagged, note
 
 
 @transaction.atomic

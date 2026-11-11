@@ -140,7 +140,7 @@ label.check input[type="checkbox"] { margin: 0; flex: none; }
 .stack > .actions, form.stack > button[type="submit"] { margin-top: var(--space-5); }
 ul.errorlist { list-style: none; margin: .25rem 0; padding: 0; color: var(--err-text); font-size: .92rem; }
 input[aria-invalid="true"], select[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--danger); }
-.copyable { font-family: ui-monospace, Consolas, monospace; max-width: 100% !important; }
+.copyable, .secret-box { font-family: ui-monospace, Consolas, monospace; max-width: 100% !important; }
 
 /* Grouped checkboxes (role permissions) */
 .permissions-form div[id$="permissions"], .permissions-form div[id$="scopes"] { display: grid; grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr)); gap: 1rem; }

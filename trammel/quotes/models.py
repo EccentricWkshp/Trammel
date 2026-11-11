@@ -399,6 +399,7 @@ class Approval(AppendOnlyModel):
         MANUAL = "manual", "Recorded by staff"
         PORTAL = "portal", "Customer portal"
         SIGNED = "signed", "Signed in the shop"
+        ONLINE = "online", "Paid online"
 
     class How(models.TextChoices):
         IN_PERSON = "in_person", "In person"
