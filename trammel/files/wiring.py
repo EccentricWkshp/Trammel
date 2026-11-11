@@ -11,6 +11,14 @@ from . import services
 from .models import ShopDocument
 
 
+@panels.tab_count("files")
+def file_count(request, obj):
+    """The Files tab counts the files it lists, for those who can see them."""
+    if not access.has_perm(request.actor, "files.view"):
+        return None
+    return services.attachments_for(obj).count()
+
+
 @panels.register("customers.customer")
 def exemption_certificate(request, customer):
     link = services.certificate_for(customer)

@@ -28,12 +28,18 @@ from django.views.decorators.http import require_POST
 from trammel.core import access, audit, modules, templating
 from trammel.core.lifecycle import TransitionError
 from trammel.core.middleware import client_ip
-from trammel.core.web import document_response, document_view, permission_required
+from trammel.core.web import (
+    admin_required,
+    document_response,
+    document_view,
+    permission_required,
+)
 from trammel.customers.models import Customer
 from trammel.jobs.models import Job
 from trammel.quotes.models import Approval, QuoteRevision
 
 from . import services
+from .models import Upload
 
 #: What the customer sees of a job's status.
 JOB_STATUS = {
@@ -271,8 +277,27 @@ def home(request):
             waiting=waiting,
             open_invoices=[i for i in invoices if i.status != "paid"],
             files=_shared_files(actor, request.visitor.customer),
+            **_sending(request, None),
         ),
     )
+
+
+def _sending(request, job) -> dict:
+    """What the customer has sent (on a job, or all of it from the account
+    page), and whether they can send more (FR-PRT-7)."""
+    from . import uploads
+
+    customer = request.visitor.customer
+    sent = Upload.objects.filter(customer=customer).select_related("job", "document__current__blob")
+    if job is not None:
+        sent = sent.filter(job=job)
+    return {
+        "sent": list(sent[:30]),
+        "can_send": uploads.is_on(),
+        "send_limit_mb": uploads.limit_mb(),
+        "send_kinds": uploads.KINDS_LABEL,
+        "send_per": uploads.PER_SEND,
+    }
 
 
 @portal_view
@@ -291,6 +316,7 @@ def job(request, pk):
             agreements=_agreements(actor, job=found),
             files=_shared_files(actor, found),
             updates=_updates(actor, found),
+            **_sending(request, found),
         ),
     )
 
@@ -306,6 +332,116 @@ def _updates(actor, job) -> list:
         .filter(work_order__job=job, shared_with_customer=True)
         .select_related("author", "document")
         .order_by("-created_at")
+    )
+
+
+@portal_view
+@require_POST
+def send_files(request):
+    """Files the customer sends, to wait for review (FR-PRT-7)."""
+    from . import uploads
+
+    job = None
+    if request.POST.get("job"):
+        job = access.get_or_404(
+            request.actor, "jobs.view", Job.objects.all(), pk=request.POST["job"]
+        )
+    back = reverse("portal:job", args=[job.pk]) if job else reverse("portal:home")
+    try:
+        made, problems = uploads.send(
+            request.visitor,
+            request.FILES.getlist("files"),
+            job=job,
+            note=request.POST.get("note", ""),
+            ip=client_ip(request),
+        )
+    except ValidationError as exc:
+        messages.error(request, " ".join(exc.messages))
+    else:
+        if made:
+            count = f"{len(made)} file{'s' if len(made) != 1 else ''}"
+            messages.success(request, f"Thank you. We've received {count} and will look soon.")
+        for problem in problems:
+            messages.error(request, problem)
+    return redirect(f"{back}#send-files")
+
+
+def _sent(request, pk) -> Upload:
+    sent = get_object_or_404(
+        Upload.objects.select_related("document__current__blob"),
+        pk=pk,
+        customer=request.visitor.customer,
+    )
+    if sent.status == Upload.Status.DECLINED or sent.document.current is None:
+        raise Http404
+    return sent
+
+
+@portal_view
+def sent_file(request, pk):
+    """A file the customer sent, back to them."""
+    from trammel.files import services as files
+    from trammel.files.views import _serve
+
+    revision = _sent(request, pk).document.current
+    return _serve(
+        files.blob_path(revision.blob),
+        mime=revision.blob.mime,
+        filename=revision.original_name,
+        # Pictures and PDFs can be viewed in the browser.
+        inline=request.GET.get("inline") == "1" and revision.blob.is_previewable_inline,
+    )
+
+
+@portal_view
+def sent_thumbnail(request, pk):
+    return _thumbnail(_sent(request, pk).document.current.blob)
+
+
+@portal_view
+def sent_thumbnail_status(request, pk):
+    from trammel.files import services as files
+
+    return files.status_response(_sent(request, pk).document.current.blob)
+
+
+def _shared_document(request, pk):
+    from trammel.files.models import Document
+
+    if not modules.is_enabled("files"):
+        raise Http404
+    document = get_object_or_404(Document.objects.select_related("current__blob"), pk=pk)
+    if document.current is None or not _shared_with(request.actor, document):
+        raise Http404
+    return document
+
+
+@portal_view
+def file_thumbnail(request, pk):
+    """The preview of a file shared with the customer."""
+    return _thumbnail(_shared_document(request, pk).current.blob)
+
+
+@portal_view
+def file_thumbnail_status(request, pk):
+    from trammel.files import services as files
+
+    return files.status_response(_shared_document(request, pk).current.blob)
+
+
+def _thumbnail(blob):
+    from trammel.files import services as files
+    from trammel.files.views import _serve
+
+    if blob.kind == "svg":
+        return _serve(files.blob_path(blob), mime=blob.mime, filename="preview.svg", inline=True)
+    if not blob.thumbnail:
+        raise Http404
+    return _serve(
+        files.media_root() / blob.thumbnail,
+        mime=files.thumbnail_mime(blob),
+        filename="preview",
+        inline=True,
     )
 
 
@@ -575,7 +711,7 @@ def file(request, pk):
         files.blob_path(revision.blob),
         mime=revision.blob.mime,
         filename=revision.original_name,
-        inline=False,
+        inline=request.GET.get("inline") == "1" and revision.blob.is_previewable_inline,
     )
 
 
@@ -665,6 +801,102 @@ def cancel_code(request, customer_pk):
     if services.cancel_codes(customer, why=f"Canceled the portal sign-in code for {customer}"):
         messages.success(request, "The sign-in code is canceled.")
     return redirect("customers:detail", pk=customer.pk)
+
+
+def _reviewable(request):
+    """Uploads of customers this staff member can see."""
+    return Upload.objects.filter(
+        customer__in=access.scoped(request.actor, "customers.view", Customer.objects.all())
+    ).select_related("customer", "job", "reviewed_by", "document__current__blob")
+
+
+@permission_required("files.upload")
+def review_list(request):
+    """Files customers have sent: those waiting for review, then the latest reviewed."""
+    from . import uploads
+
+    found = _reviewable(request)
+    return render(
+        request,
+        "portal/review_list.html",
+        {
+            "waiting": list(uploads.waiting(found).order_by("sent_at")),
+            "reviewed": list(
+                found.exclude(status=Upload.Status.PENDING).order_by("-reviewed_at")[:20]
+            ),
+        },
+    )
+
+
+@permission_required("files.upload")
+def review(request, pk):
+    """Accept a customer's file onto a job or the customer, or decline it."""
+    from trammel.files.models import DocumentType
+
+    from . import uploads
+
+    found = get_object_or_404(_reviewable(request), pk=pk)
+    customer = found.customer
+    jobs = list(customer.jobs.order_by("-created_at")[:50])
+    if request.method == "POST" and found.status == Upload.Status.PENDING:
+        try:
+            if request.POST.get("action") == "decline":
+                uploads.decline(found, reason=request.POST.get("reason", ""), user=request.user)
+                messages.success(request, f"Declined {found.document.title}.")
+            else:
+                where = request.POST.get("target", "")
+                target = next((j for j in jobs if str(j.pk) == where), None) or customer
+                doc_type = DocumentType.objects.filter(
+                    pk=request.POST.get("doc_type") or None, is_active=True
+                ).first()
+                uploads.accept(
+                    found,
+                    target=target,
+                    doc_type=doc_type,
+                    title=request.POST.get("title", ""),
+                    shared=request.POST.get("shared") == "1",
+                    user=request.user,
+                )
+                messages.success(request, f"Accepted {found.document.title} onto {target}.")
+        except ValidationError as exc:
+            messages.error(request, " ".join(exc.messages))
+            return redirect("portal:review", pk=found.pk)
+        following = uploads.waiting(_reviewable(request)).order_by("sent_at").first()
+        return (
+            redirect("portal:review", pk=following.pk)
+            if following
+            else redirect("portal:review_list")
+        )
+    return render(
+        request,
+        "portal/review.html",
+        {
+            "upload": found,
+            "revision": found.document.current,
+            "jobs": jobs,
+            "types": DocumentType.objects.filter(is_active=True),
+            "others": uploads.waiting(_reviewable(request)).exclude(pk=found.pk).count(),
+        },
+    )
+
+
+@admin_required
+@require_POST
+def upload_settings(request):
+    """Whether customers can send files, and how large (System page)."""
+    from .forms import UploadSettingsForm
+    from .models import PortalSettings
+
+    form = UploadSettingsForm(request.POST, instance=PortalSettings.load())
+    if form.is_valid():
+        from trammel.core.services import save_audited
+
+        before = audit.snapshot(PortalSettings.load())
+        save_audited(form.instance, before=before)
+        messages.success(request, "Portal file settings saved.")
+    else:
+        messages.error(request, " ".join(e for errors in form.errors.values() for e in errors))
+    return redirect("core:system")
 
 
 @login_required

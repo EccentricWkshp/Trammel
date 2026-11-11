@@ -19,6 +19,14 @@
     <input type="hidden" name="back" value="system">
     <button type="submit"{% if portal.on %} class="danger"{% else %} class="primary"{% endif %}>{% if portal.on %}Turn off the customer portal{% else %}Turn on the customer portal{% endif %}</button>
   </form>
+  {% if portal.upload_form %}
+  <h3>Files from customers</h3>
+  <form method="post" action="{% url 'portal:upload_settings' %}" class="stack">{% csrf_token %}
+    <div class="field field-check">{{ portal.upload_form.uploads_enabled.as_field_group }}</div>
+    <div class="field">{{ portal.upload_form.upload_limit_mb.as_field_group }}</div>
+    <div class="actions"><button type="submit">Save</button></div>
+  </form>
+  {% endif %}
   {% endif %}
 </section>
 {% endif %}

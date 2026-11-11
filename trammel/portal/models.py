@@ -1,4 +1,5 @@
-"""The customer portal (FR-PRT): who may sign in, and their one-time codes."""
+"""The customer portal (FR-PRT): who may sign in, their one-time codes, and the
+files customers send."""
 
 from __future__ import annotations
 
@@ -9,7 +10,74 @@ from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
-from trammel.core.models import uuid7
+from trammel.core.models import SingletonModel, uuid7
+
+
+class PortalSettings(SingletonModel):
+    """How the portal behaves, beyond its on/off switch (FR-PRT-8)."""
+
+    uploads_enabled = models.BooleanField(
+        "customers can send files",
+        default=True,
+        help_text="Drawings, sketches and photos, held for you to accept before they are "
+        "attached to anything.",
+    )
+    upload_limit_mb = models.PositiveSmallIntegerField(
+        "largest file a customer can send (MB)",
+        default=25,
+        help_text="No larger than the limit for files staff upload.",
+    )
+
+    class Meta:
+        verbose_name = "portal settings"
+        verbose_name_plural = "portal settings"
+
+    def __str__(self) -> str:
+        return "Portal settings"
+
+
+class Upload(models.Model):
+    """A file a customer sent through the portal (FR-PRT-7). It waits here, attached
+    to nothing, until staff accept it onto a job or the customer, or decline it."""
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Waiting for review"
+        ACCEPTED = "accepted", "Accepted"
+        DECLINED = "declined", "Declined"
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    customer = models.ForeignKey(
+        "customers.Customer", on_delete=models.CASCADE, related_name="portal_uploads"
+    )
+    #: The job it was sent for; none when sent from the account page.
+    job = models.ForeignKey(
+        "jobs.Job", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    document = models.ForeignKey("files.Document", on_delete=models.PROTECT, related_name="+")
+    note = models.TextField(blank=True)
+    sent_by = models.CharField(max_length=150)
+    sent_at = models.DateTimeField(default=timezone.now, db_index=True)
+    ip = models.GenericIPAddressField(null=True, blank=True)
+    status = models.CharField(max_length=8, choices=Status.choices, default=Status.PENDING)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    #: Why it was declined, shown to the customer.
+    reason = models.CharField(max_length=300, blank=True)
+    #: Where it was accepted to.
+    attachment = models.ForeignKey(
+        "files.Attachment", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+
+    customer_scope_path = "customer_id"
+
+    class Meta:
+        ordering = ["-sent_at"]
+        indexes = [models.Index(fields=["status", "sent_at"])]
+
+    def __str__(self) -> str:
+        return f"{self.document} from {self.customer}"
 
 
 class Access(models.Model):

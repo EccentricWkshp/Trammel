@@ -1,4 +1,4 @@
-{% if can_see %}
+{% load files %}{% if can_see %}
 <section class="attachments" aria-label="{{ title }}">
   <h2>{{ title }}</h2>
   {% if links %}
@@ -8,13 +8,10 @@
   <ul class="file-grid">
     {% for link in group.list %}{% with doc=link.document rev=link.document.current %}
     <li class="file-card">
-      {% if rev.blob.thumb_state == "ready" or rev.blob.kind == "svg" %}
-        <a href="{% url 'files:download' rev.pk %}?inline=1"><img src="{% url 'files:thumbnail' doc.pk %}" alt="" loading="lazy"></a>
-      {% else %}
-        <span class="file-kind">{{ rev.blob.kind|upper }}</span>
-      {% endif %}
+      {% url 'files:download' rev.pk as file_url %}{% url 'files:thumbnail' doc.pk as thumb_url %}{% url 'files:thumbnail_status' doc.pk as status_url %}
+      {% file_preview rev file_url thumb_url status_url doc.title %}
       <div>
-        <a href="{% url 'files:download' rev.pk %}{% if rev.blob.is_previewable_inline %}?inline=1{% endif %}">{{ doc.title }}</a>
+        <a href="{% url 'files:download' rev.pk %}{% if rev.blob.is_previewable_inline %}?inline=1" target="_blank" rel="noopener{% endif %}">{{ doc.title }}</a>
         <span class="muted">r{{ rev.number }} · {{ rev.blob.size|filesizeformat }}</span>
         {% if doc.doc_type and groups|length == 1 %}<span class="badge">{{ doc.doc_type }}</span>{% endif %}
         {% if link.shared_with_customer %}<span class="badge">shared</span>{% endif %}

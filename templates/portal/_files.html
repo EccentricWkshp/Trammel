@@ -1,5 +1,8 @@
-<ul class="plain portal-list">
-  {% for link in files %}
-  <li><a href="{% url 'portal:file' link.document.pk %}">{{ link.document.title|default:link.document.current.original_name }}</a> <span class="muted small">{{ link.document.current.original_name }}</span></li>
-  {% endfor %}
+{% load files %}<ul class="file-grid">
+  {% for link in files %}{% with doc=link.document rev=link.document.current %}
+  <li class="file-card">
+    {% url 'portal:file' doc.pk as file_url %}{% url 'portal:file_thumbnail' doc.pk as thumb_url %}{% url 'portal:file_thumbnail_status' doc.pk as status_url %}{% file_preview rev file_url thumb_url status_url doc.title %}
+    <div><a href="{% url 'portal:file' doc.pk %}">{{ doc.title|default:rev.original_name }}</a> <span class="muted small">{{ rev.original_name }}</span></div>
+  </li>
+  {% endwith %}{% endfor %}
 </ul>

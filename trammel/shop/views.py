@@ -8,7 +8,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 
-from trammel.core import access, archive, audit, panels
+from trammel.core import access, archive, audit, panels, sorting
 from trammel.core.services import save_audited
 from trammel.core.web import permission_required
 
@@ -43,6 +43,28 @@ def machine_list(request):
     )
 
 
+MATERIAL_SORTS = sorting.Sorts(
+    {
+        "name": sorting.By("Material", "name"),
+        "category": sorting.By(
+            "Category", sorting.in_order("category", Material.Category.values), "name"
+        ),
+        "vendor": sorting.By("Vendor", "vendor__name", "name"),
+        "cost": sorting.By("Cost", "unit_cost", newest_first=True),
+    },
+    default="name",
+)
+VENDOR_SORTS = sorting.Sorts(
+    {
+        "name": sorting.By("Vendor", "name"),
+        "contact": sorting.By("Contact", "contact_name", "name"),
+        "lead_time": sorting.By("Lead time", "lead_time_days", "name"),
+        "materials": sorting.By("Materials", "material_count", newest_first=True),
+    },
+    default="name",
+)
+
+
 @permission_required("shop.view")
 def material_list(request):
     home = hooks.materials_home()
@@ -59,10 +81,12 @@ def material_list(request):
             | qs.filter(sku__icontains=term)
             | qs.filter(vendor__name__icontains=term)
         )
+    qs, sort = MATERIAL_SORTS.apply(request, qs)
     return render(
         request,
         "shop/materials.html",
         {
+            **sort,
             "materials": qs,
             "categories": Material.Category.choices,
             "category": category,
@@ -79,10 +103,16 @@ def vendor_list(request):
     )
     if term := request.GET.get("q", "").strip():
         qs = qs.filter(Q(name__icontains=term) | Q(contact_name__icontains=term))
+    qs, sort = VENDOR_SORTS.apply(request, qs)
     return render(
         request,
         "shop/vendors.html",
-        {"vendors": qs, "q": term, "can_edit": access.has_perm(request.actor, PERMS["vendor"])},
+        {
+            "vendors": qs,
+            "q": term,
+            "can_edit": access.has_perm(request.actor, PERMS["vendor"]),
+            **sort,
+        },
     )
 
 

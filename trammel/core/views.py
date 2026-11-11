@@ -296,11 +296,18 @@ def _portal_state() -> dict | None:
         manifest = modules.get_manifest("portal")
     except LookupError:
         return None
-    return {
+    state = {
         "name": manifest.name,
         "on": modules.is_enabled("portal"),
         "forced_off": "portal" in modules.forced_off(),
     }
+    if state["on"]:
+        # Whether customers can send files, and how large (FR-PRT-7).
+        from trammel.portal.forms import UploadSettingsForm
+        from trammel.portal.models import PortalSettings
+
+        state["upload_form"] = UploadSettingsForm(instance=PortalSettings.load())
+    return state
 
 
 @permission_required("core.manage_business")

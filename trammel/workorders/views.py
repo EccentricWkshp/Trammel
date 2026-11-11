@@ -16,7 +16,7 @@ from django.utils.http import content_disposition_header, url_has_allowed_host_a
 from django.utils.timezone import localtime, now
 from django.views.decorators.http import require_POST
 
-from trammel.core import access, audit, modules, panels, templating, units
+from trammel.core import access, audit, modules, panels, sorting, templating, units
 from trammel.core.lifecycle import TransitionError
 from trammel.core.money import MoneyInput
 from trammel.core.services import save_audited
@@ -31,7 +31,7 @@ from trammel.jobs.models import Job
 from trammel.shop.models import Machine, Material
 
 from . import hooks, services
-from .models import Operation, WorkOrder
+from .models import Operation, Status, WorkOrder
 
 
 class WorkOrderForm(forms.ModelForm):
@@ -122,6 +122,19 @@ def qr_svg(data: str) -> str:
     return svg(data)
 
 
+SORTS = sorting.Sorts(
+    {
+        "target": sorting.By("Target date", "target_completion", "created_at"),
+        "number": sorting.By("Work order number", "number"),
+        "job": sorting.By("Job", "job__number"),
+        "customer": sorting.By("Customer", "job__customer__name"),
+        "status": sorting.By("Status", sorting.in_order("status", Status.values)),
+        "created": sorting.By("Date created", "created_at", newest_first=True),
+    },
+    default="target",
+)
+
+
 @permission_required("workorders.view")
 def wo_list(request):
     qs = WorkOrder.objects.select_related("job__customer")
@@ -130,13 +143,14 @@ def wo_list(request):
         qs = qs.filter(status__in=["open", "in_progress", "waiting"])
     elif status:
         qs = qs.filter(status=status)
-    qs = access.scoped(request.actor, "workorders.view", qs).order_by(
-        "target_completion", "created_at"
-    )
+    qs, sort = SORTS.apply(request, access.scoped(request.actor, "workorders.view", qs))
+    params = request.GET.copy()
+    params.pop("page", None)
+    params["status"] = status
     return render(
         request,
         "workorders/list.html",
-        {"page": paginate(request, qs), "status": status, "query": f"status={status}"},
+        {"page": paginate(request, qs), "status": status, "query": params.urlencode(), **sort},
     )
 
 
@@ -227,6 +241,7 @@ def wo_detail(request, pk):
                 panels.for_object(request, wo),
                 first=(("operations", "Operations"), ("materials", "Materials")),
                 last=(("notes", "Notes and photos"), ("files", "Files")),
+                obj=wo,
             ),
         },
     )
@@ -527,7 +542,7 @@ def materials_confirm(request, pk):
 
 
 def _traveler_context(request, wo: WorkOrder) -> dict:
-    from trammel.files.services import attachments_for, media_root
+    from trammel.files.services import attachments_for, media_root, thumbnail_mime
 
     images, files = [], []
     for link in [*attachments_for(wo.job), *attachments_for(wo)]:
@@ -551,7 +566,7 @@ def _traveler_context(request, wo: WorkOrder) -> dict:
             images.append(
                 {
                     "title": link.document.title,
-                    "src": "data:image/webp;base64," + base64.b64encode(data).decode(),
+                    "src": f"data:{thumbnail_mime(blob)};base64," + base64.b64encode(data).decode(),
                 }
             )
     url = floor_url(wo)

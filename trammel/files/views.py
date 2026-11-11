@@ -170,12 +170,22 @@ def thumbnail(request, pk):
         return _serve(services.blob_path(blob), mime=blob.mime, filename="preview.svg", inline=True)
     if not blob.thumbnail:
         raise Http404
+    mime = services.thumbnail_mime(blob)
     return _serve(
         services.media_root() / blob.thumbnail,
-        mime="image/webp",
-        filename="thumbnail.webp",
+        mime=mime,
+        filename=f"preview.{mime.rsplit('/', 1)[-1].split('+')[0]}",
         inline=True,
     )
+
+
+@permission_required("files.view")
+def thumbnail_status(request, pk):
+    """Whether the file's preview is ready yet, for a page waiting on it."""
+    document = get_object_or_404(Document.objects.select_related("current__blob"), pk=pk)
+    if not _may_see(request, document) or document.current is None:
+        raise Http404
+    return services.status_response(document.current.blob)
 
 
 def _chosen_type(value) -> DocumentType | None:

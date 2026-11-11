@@ -1,0 +1,34 @@
+{% load files %}{% if can_send or sent %}
+<section class="card" id="send-files" aria-labelledby="send-heading">
+  <h2 id="send-heading">{% if not can_send %}Files you've sent{% elif job %}Send us files for this job{% else %}Send us files{% endif %}</h2>
+  {% if can_send %}
+  <p class="muted small">{% if job %}Drawings, sketches or photos for {{ job.title }}.{% else %}Drawings, sketches or photos, such as for something new you'd like made. For a job you already have with us, send them from the job's page.{% endif %} Up to {{ send_per }} files at a time, {{ send_limit_mb }} MB each: {{ send_kinds }}. We look at each one before it's added.</p>
+  <form method="post" action="{% url 'portal:send_files' %}" enctype="multipart/form-data" class="stack" novalidate>{% csrf_token %}
+    {% if job %}<input type="hidden" name="job" value="{{ job.pk }}">{% endif %}
+    <div class="field"><label for="send-files-input">Files</label>
+      <input type="file" id="send-files-input" name="files" multiple required accept=".jpg,.jpeg,.png,.gif,.webp,.heic,.pdf,.svg,.dxf,.lbrn,.lbrn2,.stl,.3mf,.step,.stp,image/*,application/pdf"></div>
+    <div class="field"><label for="send-note">A note about them (optional)</label>
+      <textarea id="send-note" name="note" rows="2" maxlength="2000"></textarea></div>
+    <div class="actions"><button type="submit" class="primary"{% if visitor.is_preview %} disabled{% endif %}>Send</button></div>
+  </form>
+  {% endif %}
+  {% if sent %}
+  {% if can_send %}<h3>{% if job %}Files you've sent for this job{% else %}Files you've sent{% endif %}</h3>{% endif %}
+  <ul class="file-grid sent-files">
+    {% for u in sent %}{% with rev=u.document.current %}
+    <li class="file-card">
+      {% if u.status == "declined" %}<span class="file-kind">{{ rev.blob.kind|upper }}</span>
+      {% else %}{% url 'portal:sent_file' u.pk as file_url %}{% url 'portal:sent_thumbnail' u.pk as thumb_url %}{% url 'portal:sent_thumbnail_status' u.pk as status_url %}{% file_preview rev file_url thumb_url status_url rev.original_name %}{% endif %}
+      <div>
+        {% if u.status != "declined" %}<a href="{% url 'portal:sent_file' u.pk %}">{{ rev.original_name }}</a>{% else %}{{ rev.original_name }}{% endif %}
+        <span class="muted small">{{ u.sent_at|d }}{% if not job and u.job %} · {{ u.job.number }}{% endif %}</span>
+        {% if u.status == "pending" %}<span class="badge">Waiting for review</span>
+        {% elif u.status == "accepted" %}<span class="badge">Received</span>
+        {% else %}<span class="badge warn">Not accepted</span>{% if u.reason %}<span class="small">{{ u.reason }}</span>{% endif %}{% endif %}
+      </div>
+    </li>
+    {% endwith %}{% endfor %}
+  </ul>
+  {% endif %}
+</section>
+{% endif %}

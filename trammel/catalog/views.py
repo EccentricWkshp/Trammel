@@ -9,7 +9,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 
-from trammel.core import access, archive, audit, panels
+from trammel.core import access, archive, audit, panels, sorting
 from trammel.core.web import csv_response, paginate, permission_required
 from trammel.shop.models import Machine
 
@@ -86,6 +86,18 @@ class RoutingStepForm(forms.ModelForm):
         return self.cleaned_data.get("wait_hours") or Decimal("0")
 
 
+SORTS = sorting.Sorts(
+    {
+        "name": sorting.By("Name", "name"),
+        "sku": sorting.By("SKU", "sku"),
+        "kind": sorting.By("Type", sorting.in_order("kind", Product.Kind.values), "name"),
+        "price": sorting.By("Price", "price", newest_first=True),
+        "tax": sorting.By("Tax category", "tax_category__name", "name"),
+    },
+    default="name",
+)
+
+
 def _products(request):
     qs = Product.objects.select_related("tax_category")
     if term := request.GET.get("q", "").strip():
@@ -99,13 +111,15 @@ def _products(request):
 def product_list(request):
     params = request.GET.copy()
     params.pop("page", None)
+    qs, sort = SORTS.apply(request, _products(request))
     return render(
         request,
         "catalog/list.html",
         {
-            "page": paginate(request, _products(request)),
+            "page": paginate(request, qs),
             "q": request.GET.get("q", ""),
             "query": params.urlencode(),
+            **sort,
             "can_edit": access.has_perm(request.actor, "catalog.edit"),
         },
     )
@@ -176,6 +190,7 @@ def product_detail(request, pk):
             panels.for_object(request, product),
             first=(("details", "Details"), ("routing", "Routing")),
             last=(*([("cost", "Cost")] if can_costs else []), ("files", "Files")),
+            obj=product,
         ),
     }
     for tab in context["tabs"]:

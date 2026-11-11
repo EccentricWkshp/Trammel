@@ -16,7 +16,7 @@ from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme, urlencode
 from django.views.decorators.http import require_POST
 
-from trammel.core import access, archive, audit, templating
+from trammel.core import access, archive, audit, sorting, templating
 from trammel.core.services import save_audited
 from trammel.core.web import (
     csv_response,
@@ -70,6 +70,32 @@ SHOW = (
 )
 
 
+SORTS = sorting.Sorts(
+    {
+        "name": sorting.By("Material", "name"),
+        "category": sorting.By(
+            "Category", sorting.in_order("category", Material.Category.values), "name"
+        ),
+        "cost": sorting.By("Cost", "unit_cost", newest_first=True),
+        "kept": sorting.By("Kept in", "kept_in", "name"),
+        "on_hand": sorting.By("On hand", "on_hand", newest_first=True),
+        "restock": sorting.By("Restock at", "min_quantity", "name"),
+        "value": sorting.By("Value", "value", newest_first=True),
+    },
+    default="name",
+)
+
+
+def _hidden_sorts(actor) -> set[str]:
+    """Sorts by columns this person doesn't see on the stock list."""
+    hide = set()
+    if not access.has_perm(actor, "core.see_costs"):
+        hide |= {"cost", "value"}
+    if not access.has_perm(actor, "stock.view"):
+        hide |= {"kept", "on_hand", "restock", "value"}
+    return hide
+
+
 def _filtered_materials(request):
     """Every material, with what is on hand for those tracked in stock."""
     qs = Material.objects.select_related("vendor").annotate(
@@ -100,7 +126,8 @@ def _filtered_materials(request):
         qs = qs.filter(tracked=False)
     elif show == "low":
         qs = qs.filter(tracked=True, min_quantity__isnull=False, on_hand__lte=F("min_quantity"))
-    return qs.order_by("name"), term, category, show
+    qs, _ = SORTS.apply(request, qs, hide=_hidden_sorts(request.actor))
+    return qs, term, category, show
 
 
 @permission_required("shop.view")
@@ -132,6 +159,7 @@ def stock_list(request):
             "total_value": total or Decimal("0"),
             "can_manage": access.has_perm(actor, "stock.manage"),
             "can_add_material": access.has_perm(actor, "shop.manage_materials"),
+            **SORTS.apply(request, Material.objects.none(), hide=_hidden_sorts(actor))[1],
         },
     )
 

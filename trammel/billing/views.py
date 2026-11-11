@@ -17,7 +17,17 @@ from django.views.decorators.http import require_POST
 
 from trammel.catalog import services as catalog
 from trammel.catalog.models import Product
-from trammel.core import access, archive, audit, modules, panels, placeholders, templating, units
+from trammel.core import (
+    access,
+    archive,
+    audit,
+    modules,
+    panels,
+    placeholders,
+    sorting,
+    templating,
+    units,
+)
 from trammel.core.lifecycle import TransitionError
 from trammel.core.money import MoneyInput
 from trammel.core.services import save_audited
@@ -137,6 +147,21 @@ def _invoice(request, perm, pk) -> Invoice:
     )
 
 
+SORTS = sorting.Sorts(
+    {
+        "created": sorting.By("Date created", "created_at", newest_first=True),
+        "number": sorting.By("Invoice number", "number"),
+        "customer": sorting.By("Customer", "customer__name"),
+        "status": sorting.By("Status", sorting.in_order("status", Status.values)),
+        "date": sorting.By("Invoice date", "invoice_date", newest_first=True),
+        "due": sorting.By("Due date", "due_date"),
+        "total": sorting.By("Total", "total", newest_first=True),
+        "balance": sorting.By("Balance", "balance", newest_first=True),
+    },
+    default="created",
+)
+
+
 def _filtered(request):
     qs = Invoice.objects.select_related("customer", "job")
     f = request.GET
@@ -151,7 +176,8 @@ def _filtered(request):
         qs = qs.filter(kind=f["kind"])
     if term := f.get("q", "").strip():
         qs = qs.filter(number__icontains=term) | qs.filter(customer__name__icontains=term)
-    return access.scoped(request.actor, "billing.view", qs).order_by("-created_at"), status
+    qs, _ = SORTS.apply(request, access.scoped(request.actor, "billing.view", qs))
+    return qs, status
 
 
 @permission_required("billing.view")
@@ -169,6 +195,7 @@ def invoice_list(request):
             "kinds": Invoice.Kind.choices,
             "filters": request.GET,
             "query": params.urlencode(),
+            **SORTS.apply(request, Invoice.objects.none())[1],
         },
     )
 
@@ -306,6 +333,7 @@ def invoice_detail(request, pk):
                     ("preview", "Preview"),
                     ("files", "Files"),
                 ],
+                obj=invoice,
             ),
         },
     )

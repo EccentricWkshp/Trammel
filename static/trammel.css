@@ -301,7 +301,21 @@ a.day-number:hover { text-decoration: underline; }
 .file-grid { list-style: none; padding: 0; margin: .5rem 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); gap: .75rem; }
 .file-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: .6rem; display: flex; flex-direction: column; gap: .4rem; }
 .file-card img { width: 100%; height: 8rem; object-fit: contain; background: var(--bg); border-radius: 4px; }
+.sent-files .file-card div { display: flex; flex-direction: column; gap: .2rem; align-items: flex-start; }
+dialog.lightbox { padding: 0; border: 0; border-radius: var(--radius); max-width: 96vw; max-height: 96vh; background: var(--surface); color: var(--text); box-shadow: 0 10px 40px rgb(0 0 0 / .35); overflow: hidden; }
+dialog.lightbox::backdrop { background: rgb(0 0 0 / .72); }
+dialog.lightbox img { display: block; width: min(92vw, 64rem); max-height: 82vh; object-fit: contain; background: #fff; }
+.lightbox-close { position: absolute; top: .4rem; right: .4rem; width: 2.25rem; height: 2.25rem; padding: 0; border-radius: 999px; font-size: 1.4rem; line-height: 1; }
+.lightbox-caption { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin: 0; padding: .55rem .9rem; font-size: .9rem; }
+.review-preview img { max-width: 100%; max-height: 32rem; object-fit: contain; background: #fff; border: 1px solid var(--border); border-radius: var(--radius); }
 .file-kind { display: grid; place-items: center; height: 8rem; background: var(--bg); border-radius: 4px; font-weight: 700; color: var(--muted); letter-spacing: .05em; }
+.preview-wait { align-content: center; gap: .25rem; }
+/* Sortable column headings (core/sorting.py) */
+th .sort-link { color: inherit; text-decoration: none; display: inline-flex; gap: .3rem; align-items: baseline; }
+th .sort-link:hover, th .sort-link:focus-visible { text-decoration: underline; }
+th[aria-sort] { color: var(--text); }
+.preview-wait small { font-weight: 400; letter-spacing: 0; }
+.review-preview .file-kind { height: 16rem; max-width: 32rem; }
 .file-actions summary { cursor: pointer; color: var(--accent); font-size: .9rem; }
 .file-actions form { margin: .4rem 0; }
 .upload-row { display: flex; gap: .75rem; align-items: end; flex-wrap: wrap; margin-top: .5rem; }

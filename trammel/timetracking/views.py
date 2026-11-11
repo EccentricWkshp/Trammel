@@ -8,7 +8,7 @@ from django.shortcuts import redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from trammel.core import access, audit
+from trammel.core import access, audit, sorting
 from trammel.core.web import csv_response, paginate, permission_required, safe_next
 from trammel.shop.models import Machine
 from trammel.workorders.models import WorkOrder
@@ -156,12 +156,28 @@ def _filtered(request):
     return access.scoped(request.actor, "time.view", qs)
 
 
+SORTS = sorting.Sorts(
+    {
+        "started": sorting.By("Started", "started_at", newest_first=True),
+        "work_order": sorting.By("Work order", "work_order__number", "-started_at"),
+        "who": sorting.By("Who or machine", "user__full_name", "machine__name"),
+        "minutes": sorting.By("Minutes", "minutes", newest_first=True),
+        "cost": sorting.By("Cost", "cost", newest_first=True),
+    },
+    default="started",
+)
+
+
+def _hidden_sorts(actor) -> set[str]:
+    return set() if access.has_perm(actor, "core.see_costs") else {"cost"}
+
+
 @permission_required("time.view")
 def entry_list(request):
     from trammel.accounts.models import User
 
     try:
-        qs = _filtered(request)
+        qs, _ = SORTS.apply(request, _filtered(request), hide=_hidden_sorts(request.actor))
         page = paginate(request, qs, 100)
     except ValidationError:
         messages.error(request, "One of the filters is not valid.")
@@ -180,6 +196,7 @@ def entry_list(request):
             "can_manage": access.has_perm(request.actor, "time.manage"),
             "can_costs": access.has_perm(request.actor, "core.see_costs"),
             "running": services.running_for(request.user).select_related("work_order").first(),
+            **SORTS.apply(request, TimeEntry.objects.none(), hide=_hidden_sorts(request.actor))[1],
         },
     )
 

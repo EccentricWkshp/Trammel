@@ -8,6 +8,27 @@ from ..models import DocumentType
 register = template.Library()
 
 
+@register.inclusion_tag("files/_preview.html")
+def file_preview(revision, file_url, thumb_url, status_url, title="", alt="", lazy=True):
+    """A file's preview on a card: its picture, opening over the page (a PDF in a
+    new tab); while it is being made, a placeholder the page swaps for it when
+    it's ready (previews.js); otherwise the kind of file."""
+    blob = revision.blob
+    inline = blob.kind in ("image", "svg", "pdf")
+    return {
+        "ready": blob.thumb_state == "ready" or blob.kind == "svg",
+        "waiting": blob.thumb_state == "pending",
+        "kind": blob.kind,
+        "href": f"{file_url}?inline=1" if inline else thumb_url,
+        "lightbox": blob.kind != "pdf",
+        "thumb": thumb_url,
+        "status": status_url,
+        "title": title,
+        "alt": alt,
+        "lazy": lazy,
+    }
+
+
 @register.inclusion_tag("files/_attachments.html", takes_context=True)
 def attachments(context, obj, title="Files"):
     request = context["request"]

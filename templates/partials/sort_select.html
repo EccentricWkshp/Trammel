@@ -1,0 +1,5 @@
+{% if sorting %}<label>Sort by
+    <select name="sort">
+      {% for value, label in sorting.options %}<option value="{{ value }}"{% if value == sorting.value %} selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </label>{% endif %}

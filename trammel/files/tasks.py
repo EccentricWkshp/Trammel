@@ -1,47 +1,40 @@
-"""Background thumbnails for images and PDFs (FR-DOC-4)."""
+"""Background previews of stored files (FR-DOC-4): see previews.py."""
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from trammel.core.tasks import task
 
-THUMB_PX = 480
+log = logging.getLogger(__name__)
 
 
 @task("files.thumbnail")
 def make_thumbnail(payload: dict) -> None:
-    from PIL import Image, ImageOps
-
+    from . import previews
     from .models import Blob
     from .services import blob_path, media_root
 
     blob = Blob.objects.filter(pk=payload["blob"]).first()
     if blob is None or blob.thumb_state == Blob.Thumb.READY:
         return
-    source = blob_path(blob)
-    relative = Path("thumbs") / blob.sha256[:2] / f"{blob.sha256}.webp"
+    try:
+        made = previews.render(blob.kind, blob_path(blob))
+    except Exception:
+        # A file its reader can't make sense of has no preview; trying again
+        # won't change that.
+        log.warning("No preview for %s (%s)", blob.sha256[:12], blob.kind, exc_info=True)
+        Blob.objects.filter(pk=blob.pk).update(thumb_state=Blob.Thumb.FAILED)
+        return
+    if made is None:
+        Blob.objects.filter(pk=blob.pk).update(thumb_state=Blob.Thumb.NONE)
+        return
+    data, ext = made
+    relative = Path("thumbs") / blob.sha256[:2] / f"{blob.sha256}.{ext}"
     target = media_root() / relative
     target.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        if blob.kind == "pdf":
-            import pypdfium2
-
-            pdf = pypdfium2.PdfDocument(str(source))
-            try:
-                image = pdf[0].render(scale=1.5).to_pil()
-            finally:
-                pdf.close()
-        else:
-            image = Image.open(source)
-            image = ImageOps.exif_transpose(image)
-        image.thumbnail((THUMB_PX, THUMB_PX))
-        if image.mode not in ("RGB", "RGBA"):
-            image = image.convert("RGBA")
-        image.save(target, "WEBP", quality=80)
-    except Exception:
-        Blob.objects.filter(pk=blob.pk).update(thumb_state=Blob.Thumb.FAILED)
-        raise
+    target.write_bytes(data)
     Blob.objects.filter(pk=blob.pk).update(
         thumbnail=str(relative).replace("\\", "/"), thumb_state=Blob.Thumb.READY
     )

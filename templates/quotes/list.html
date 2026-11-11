@@ -22,10 +22,11 @@
       {% for value, label in statuses %}<option value="{{ value }}"{% if status == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
     </select>
   </label>
+  {% sort_select %}
   <button type="submit">Filter</button>
 </form>
 <div class="table-wrap"><table>
-  <thead><tr><th scope="col">{% if kind == "change_order" %}Change order{% else %}Quote{% endif %}</th><th scope="col">Customer</th><th scope="col">Status</th><th scope="col">Valid until</th><th scope="col" class="num">Total</th></tr></thead>
+  <thead><tr>{% if kind == "change_order" %}{% sort_th "number" "Change order" %}{% else %}{% sort_th "number" "Quote" %}{% endif %}{% sort_th "customer" "Customer" %}{% sort_th "status" "Status" %}{% sort_th "valid" "Valid until" %}{% sort_th "total" "Total" "num" %}</tr></thead>
   <tbody>
   {% for r in page %}
     <tr>

@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Files from customers{% endblock %}
+{% block content %}
+<h1>Files from customers</h1>
+<p class="muted">Files customers sent through the portal wait here, attached to nothing, until you accept each onto a job or the customer, or decline it.</p>
+<section aria-labelledby="waiting-heading">
+  <h2 id="waiting-heading">Waiting for review</h2>
+  {% if waiting %}
+  <div class="table-wrap"><table>
+    <thead><tr><th scope="col">File</th><th scope="col">Customer</th><th scope="col">For</th><th scope="col">Sent</th></tr></thead>
+    <tbody>{% for u in waiting %}
+      <tr><td><a href="{% url 'portal:review' u.pk %}">{{ u.document.current.original_name }}</a> <span class="muted small">{{ u.document.current.blob.kind|upper }} · {{ u.document.current.blob.size|filesizeformat }}</span></td>
+        <td>{{ u.customer.name }}</td><td>{% if u.job %}{{ u.job.number }} {{ u.job.title }}{% else %}<span class="muted">Not a job yet</span>{% endif %}</td>
+        <td>{{ u.sent_at|mdt }} <span class="muted small">by {{ u.sent_by }}</span></td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% else %}<p class="muted">Nothing waiting.</p>{% endif %}
+</section>
+{% if reviewed %}
+<section aria-labelledby="reviewed-heading">
+  <h2 id="reviewed-heading">Reviewed lately</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th scope="col">File</th><th scope="col">Customer</th><th scope="col">Outcome</th></tr></thead>
+    <tbody>{% for u in reviewed %}
+      <tr><td>{{ u.document.current.original_name }}</td><td>{{ u.customer.name }}</td>
+        <td>{{ u.get_status_display }}{% if u.reviewed_by %} by {{ u.reviewed_by.get_short_name }}{% endif %} {{ u.reviewed_at|mdt }}{% if u.reason %} <span class="muted small">— {{ u.reason }}</span>{% endif %}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+</section>
+{% endif %}
+{% endblock %}

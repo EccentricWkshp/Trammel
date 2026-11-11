@@ -7,12 +7,13 @@
 </div>
 <form method="get" class="filters" role="search">
   <label>Search <input type="search" name="q" value="{{ q }}" placeholder="Name, company, email or phone"></label>
+  {% sort_select %}
   <button type="submit">Search</button>
   <a href="{% url 'customers:csv' %}{% if q %}?q={{ q|urlencode }}{% endif %}">Export CSV</a>
 </form>
 <div class="table-wrap">
 <table>
-  <thead><tr><th scope="col">Name</th><th scope="col">Email</th><th scope="col">Phone</th><th scope="col">Notes</th></tr></thead>
+  <thead><tr>{% sort_th "name" "Name" %}{% sort_th "email" "Email" %}{% sort_th "phone" "Phone" %}<th scope="col">Notes</th></tr></thead>
   <tbody>
   {% for c in page %}
     <tr>

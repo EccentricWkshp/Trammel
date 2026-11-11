@@ -5,13 +5,13 @@ import datetime as dt
 
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db.models import F, Q
+from django.db.models import Q
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from trammel.core import access, agenda, audit, panels
+from trammel.core import access, agenda, audit, panels, sorting
 from trammel.core.lifecycle import TransitionError
 from trammel.core.models import AuditEvent
 from trammel.core.web import csv_response, paginate, permission_required
@@ -23,6 +23,19 @@ from .models import OPEN_STATES, TERMINAL, Job, Priority, Status
 # ---------------------------------------------------------------------------
 # Lists and calendar (FR-JOB-9)
 # ---------------------------------------------------------------------------
+
+
+SORTS = sorting.Sorts(
+    {
+        "due": sorting.By("Due date", "due_date", "-created_at"),
+        "priority": sorting.By("Priority, then due date", "-priority", "due_date"),
+        "number": sorting.By("Job number", "number"),
+        "customer": sorting.By("Customer", "customer__name"),
+        "status": sorting.By("Status", sorting.in_order("status", Status.values)),
+        "created": sorting.By("Date created", "created_at", newest_first=True),
+    },
+    default="due",
+)
 
 
 def _filtered(request):
@@ -46,11 +59,7 @@ def _filtered(request):
         qs = qs.filter(priority__gte=Priority.HIGH)
     elif priority.isdigit() and int(priority) in Priority.values:
         qs = qs.filter(priority=int(priority))
-    by_due = (F("due_date").asc(nulls_last=True), "-created_at")
-    if request.GET.get("sort") == "priority":
-        qs = qs.order_by("-priority", *by_due)
-    else:
-        qs = qs.order_by(*by_due)
+    qs, _ = SORTS.apply(request, qs)
     return access.scoped(request.actor, "jobs.view", qs), status
 
 
@@ -74,8 +83,8 @@ def job_list(request):
             "tag": request.GET.get("tag", ""),
             "priority": request.GET.get("priority", ""),
             "priorities": [(str(v), label) for v, label in Priority.choices],
-            "sort": request.GET.get("sort", ""),
             "query": params.urlencode(),
+            **SORTS.apply(request, Job.objects.none())[1],
         },
     )
 
@@ -337,6 +346,7 @@ def job_detail(request, pk):
                 request,
                 panels.for_object(request, job),
                 last=(("files", "Files"), ("history", "History")),
+                obj=job,
             ),
         },
     )

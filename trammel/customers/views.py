@@ -6,12 +6,22 @@ from django.http import Http404
 from django.shortcuts import redirect, render
 from django.views.decorators.http import require_POST
 
-from trammel.core import access, audit, panels
+from trammel.core import access, audit, panels, sorting
 from trammel.core.web import csv_response, paginate, permission_required
 
 from . import services
 from .forms import AddressForm, ContactForm, CustomerForm
 from .models import Address, Contact, Customer
+
+SORTS = sorting.Sorts(
+    {
+        "name": sorting.By("Name", "name"),
+        "email": sorting.By("Email", "email"),
+        "phone": sorting.By("Phone", "phone"),
+        "created": sorting.By("Date added", "created_at", newest_first=True),
+    },
+    default="name",
+)
 
 
 def _customers(request):
@@ -24,12 +34,18 @@ def _customers(request):
 @permission_required("customers.view")
 def customer_list(request):
     qs = access.scoped(request.actor, "customers.view", _customers(request))
+    qs, sort = SORTS.apply(request, qs)
     params = request.GET.copy()
     params.pop("page", None)
     return render(
         request,
         "customers/list.html",
-        {"page": paginate(request, qs), "q": request.GET.get("q", ""), "query": params.urlencode()},
+        {
+            "page": paginate(request, qs),
+            "q": request.GET.get("q", ""),
+            "query": params.urlencode(),
+            **sort,
+        },
     )
 
 
@@ -83,7 +99,10 @@ def customer_detail(request, pk):
             "can_delete": access.has_perm(request.actor, "customers.delete", customer)
             and not (customer.is_placeholder or customer.is_internal),
             **panels.tabbed(
-                request, panels.for_object(request, customer), last=(("files", "Files"),)
+                request,
+                panels.for_object(request, customer),
+                last=(("files", "Files"),),
+                obj=customer,
             ),
         },
     )

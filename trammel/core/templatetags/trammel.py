@@ -124,3 +124,40 @@ def pct(value):
     from trammel.tax.services import rate_text
 
     return rate_text(value)
+
+
+# ---------------------------------------------------------------------------
+# Sorting list pages (core/sorting.py)
+# ---------------------------------------------------------------------------
+
+
+@register.simple_tag(takes_context=True)
+def sort_th(context, key: str, label: str, css: str = ""):
+    """A column heading that sorts the list by its column; a second click reverses."""
+    from django.utils.html import format_html
+    from django.utils.safestring import mark_safe
+
+    link = (context.get("sorting") or {}).get("links", {}).get(key)
+    classes = format_html(' class="{}"', css) if css else mark_safe("")
+    if link is None:
+        return format_html('<th scope="col"{}>{}</th>', classes, label)
+    aria = format_html(' aria-sort="{}"', link["aria"]) if link["aria"] else mark_safe("")
+    arrow = (
+        format_html(' <span aria-hidden="true">{}</span>', link["arrow"])
+        if link["arrow"]
+        else mark_safe("")
+    )
+    return format_html(
+        '<th scope="col"{}{}><a class="sort-link" href="{}">{}{}</a></th>',
+        classes,
+        aria,
+        link["url"],
+        label,
+        arrow,
+    )
+
+
+@register.inclusion_tag("partials/sort_select.html", takes_context=True)
+def sort_select(context):
+    """The list's sorts as a menu, for its filter form."""
+    return {"sorting": context.get("sorting")}

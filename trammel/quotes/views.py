@@ -14,7 +14,16 @@ from django.utils.http import content_disposition_header
 from django.views.decorators.http import require_POST
 
 from trammel.catalog import services as catalog
-from trammel.core import access, archive, audit, modules, panels, placeholders, templating
+from trammel.core import (
+    access,
+    archive,
+    audit,
+    modules,
+    panels,
+    placeholders,
+    sorting,
+    templating,
+)
 from trammel.core.lifecycle import TransitionError
 from trammel.core.services import save_audited
 from trammel.core.web import document_response, document_view, paginate, permission_required
@@ -70,6 +79,19 @@ def _handles_redirect(view):
     return wrapped
 
 
+SORTS = sorting.Sorts(
+    {
+        "number": sorting.By("Number", "quote__number"),
+        "customer": sorting.By("Customer", "quote__job__customer__name"),
+        "status": sorting.By("Status", sorting.in_order("status", Status.values)),
+        "valid": sorting.By("Valid until", "valid_until"),
+        "total": sorting.By("Total", "total", newest_first=True),
+        "created": sorting.By("Date created", "created_at", newest_first=True),
+    },
+    default="created",
+)
+
+
 @permission_required("quotes.view")
 def quote_list(request):
     kind = request.GET.get("kind", Quote.Kind.QUOTE)
@@ -86,7 +108,7 @@ def quote_list(request):
             | qs.filter(quote__title__icontains=term)
             | qs.filter(quote__job__customer__name__icontains=term)
         )
-    qs = access.scoped(request.actor, "quotes.view", qs).order_by("-created_at")
+    qs, sort = SORTS.apply(request, access.scoped(request.actor, "quotes.view", qs))
     params = request.GET.copy()
     params.pop("page", None)
     return render(
@@ -103,6 +125,7 @@ def quote_list(request):
             "statuses": Status.choices,
             "q": request.GET.get("q", ""),
             "query": params.urlencode(),
+            **sort,
         },
     )
 
@@ -215,6 +238,7 @@ def revision_detail(request, pk):
                     *([("revisions", "Revisions")] if revision.quote.revisions.count() > 1 else []),
                     ("files", "Files"),
                 ],
+                obj=revision.quote,
             ),
         },
     )

@@ -1,0 +1,9 @@
+<section class="card" aria-labelledby="sent-panel-heading">
+  <h2 id="sent-panel-heading">Files the customer sent{% if ctx.waiting %} <span class="badge warn">{{ ctx.waiting }} to review</span>{% endif %}</h2>
+  <ul class="plain">
+  {% for u in ctx.sent %}
+    <li>{% if u.status == "pending" %}<a href="{% url 'portal:review' u.pk %}">{{ u.document.current.original_name }}</a> <span class="badge warn">Review</span>{% else %}{{ u.document.current.original_name }} <span class="muted small">{{ u.get_status_display|lower }}</span>{% endif %}
+      <span class="muted small">{{ u.sent_at|md }}{% if u.job %} · {{ u.job.number }}{% endif %}</span></li>
+  {% endfor %}
+  </ul>
+</section>

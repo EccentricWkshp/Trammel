@@ -6,7 +6,7 @@ Customers, quoting, jobs and work orders, time and material tracking, invoicing
 and closeout for a 0–5 person job shop — woodworking, metal fabrication, 3D
 printing, laser work. Self-hosted: the data stays on the shop's own hardware.
 
-**Status:** Phases 1 and 2 are built; Phase 3 (outside the shop) is under way.
+**Status:** Phases 1 to 3 are built; Phase 4 (breadth) is under way.
 
 - **Customers, jobs and calendar** — contacts and addresses, tax exemptions, job
   lifecycle with holds, reopen and forced closeout, dates and a calendar.
@@ -14,8 +14,9 @@ printing, laser work. Self-hosted: the data stays on the shop's own hardware.
   3D printing, laser jobs and profile cutting (plasma, CNC); revisions,
   templates, approval with customer agreements, deposits, and a shipping or
   delivery charge. Lines can be offered as options or as alternatives (walnut
-  or maple), picked by the customer when they approve. Anything priced after a job is approved is a change order,
-  with the same detail and optional amended terms and deposit.
+  or maple), picked by the customer when they approve. Anything priced after
+  a job is approved is a change order, with the same detail and optional
+  amended terms and deposit.
 - **Products** — a catalog of made, resold and service items, each with a
   routing (the steps it takes to make one, with machines and time) and a bill
   of materials, and a cost calculated from them unless set by hand.
@@ -23,6 +24,10 @@ printing, laser work. Self-hosted: the data stays on the shop's own hardware.
   as steps, planned and used materials, approved change orders added as
   operations, printable travelers with a QR code, and a phone/tablet
   shop-floor app.
+- **Files** — drawings, photos, DXF, LightBurn, STL/3MF and G-code on
+  customers, jobs, quotes, work orders and products, with revisions and
+  previews: DXF drawings, STL and 3MF models, and the thumbnails LightBurn and
+  G-code files carry.
 - **Machines, materials and vendors** — a machine rate calculator, a materials
   price list linked to vendors with product pages and files.
 - **Time** — timers and manual entries for people and machines, costed at each
@@ -35,8 +40,9 @@ printing, laser work. Self-hosted: the data stays on the shop's own hardware.
   gross receipts (B&O), time and machine use.
 - **Customer portal** — off until you turn it on. Customers you give access
   sign in with an emailed code, or one you give them, to see their jobs,
-  quotes, invoices, shared files and updates, and approve or decline quotes,
-  signing to accept the agreement. Customers can also sign on a shop tablet.
+  quotes, invoices, shared files and updates, approve or decline quotes,
+  signing to accept the agreement, and send files, which wait for staff to
+  accept them. Customers can also sign on a shop tablet.
   Staff can view the portal as a customer sees it, read-only. One switch, or
   the `PORTAL_OFF` setting, turns the portal off without touching anything
   else.

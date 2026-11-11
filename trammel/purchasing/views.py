@@ -14,7 +14,7 @@ from django.utils import timezone
 from django.utils.http import content_disposition_header, urlencode
 from django.views.decorators.http import require_POST
 
-from trammel.core import access, templating
+from trammel.core import access, sorting, templating
 from trammel.core.lifecycle import TransitionError
 from trammel.core.services import delete_audited
 from trammel.core.web import (
@@ -52,6 +52,19 @@ SHOW = (
 )
 
 
+SORTS = sorting.Sorts(
+    {
+        "created": sorting.By("Date created", "created_at", newest_first=True),
+        "number": sorting.By("Order number", "number"),
+        "vendor": sorting.By("Vendor", "vendor__name"),
+        "status": sorting.By("Status", sorting.in_order("status", Status.values)),
+        "ordered": sorting.By("Ordered", "ordered_on", newest_first=True),
+        "expected": sorting.By("Expected", "expected_on"),
+    },
+    default="created",
+)
+
+
 @permission_required("purchasing.view")
 def order_list(request):
     qs = PurchaseOrder.objects.select_related("vendor").prefetch_related("lines")
@@ -71,7 +84,8 @@ def order_list(request):
             | Q(vendor__name__icontains=term)
             | Q(lines__description__icontains=term)
         ).distinct()
-    page = paginate(request, qs.order_by("-created_at"))
+    qs, sort = SORTS.apply(request, qs)
+    page = paginate(request, qs)
     for po in page:
         po.total = services.totals(po)["total"]
         po.state = services.receipt_state(po) if po.status == Status.ORDERED else ""
@@ -87,6 +101,7 @@ def order_list(request):
             "q": term,
             "query": urlencode({k: v for k, v in request.GET.items() if k != "page" and v}),
             "can_create": access.has_perm(request.actor, "purchasing.create"),
+            **sort,
         },
     )
 

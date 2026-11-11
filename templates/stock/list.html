@@ -30,15 +30,16 @@
     <select name="show">{% for value, label in shows %}<option value="{{ value }}"{% if value == show %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
   </label>{% endif %}
   <label class="choice"><input type="checkbox" name="inactive" value="1"{% if inactive %} checked{% endif %}> Include archived</label>
+  {% sort_select %}
   <button type="submit">Filter</button>
 </form>
 
 <div class="table-wrap">
 <table>
   <thead><tr>
-    <th scope="col">Material</th><th scope="col">Category</th>
-    {% if can_costs %}<th scope="col" class="num">Cost</th>{% endif %}
-    {% if can_stock %}<th scope="col">Kept in</th><th scope="col" class="num">On hand</th><th scope="col" class="num">Restock at</th>{% if can_costs %}<th scope="col" class="num">Value</th>{% endif %}{% endif %}
+    {% sort_th "name" "Material" %}{% sort_th "category" "Category" %}
+    {% if can_costs %}{% sort_th "cost" "Cost" "num" %}{% endif %}
+    {% if can_stock %}{% sort_th "kept" "Kept in" %}{% sort_th "on_hand" "On hand" "num" %}{% sort_th "restock" "Restock at" "num" %}{% if can_costs %}{% sort_th "value" "Value" "num" %}{% endif %}{% endif %}
   </tr></thead>
   <tbody>
   {% for m in page %}

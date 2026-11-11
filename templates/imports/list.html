@@ -54,7 +54,7 @@
   <h2 id="imported-heading">Imported</h2>
   {% if page.object_list %}
   <div class="table-wrap"><table>
-    <thead><tr><th scope="col">Order</th><th scope="col">Date</th><th scope="col">Customer</th><th scope="col">Sale</th><th scope="col" class="num">Total</th><th scope="col">Shipped</th><th scope="col">Job</th></tr></thead>
+    <thead><tr>{% sort_th "order" "Order" %}{% sort_th "date" "Date" %}{% sort_th "customer" "Customer" %}{% sort_th "sale" "Sale" %}{% sort_th "total" "Total" "num" %}{% sort_th "shipped" "Shipped" %}{% sort_th "job" "Job" %}</tr></thead>
     <tbody>{% for row in page.object_list %}
       <tr><td>{{ row.get_source_display }} {{ row.order_number }}{% if row.cancelled_at %} <span class="badge">canceled</span>{% endif %}</td>
         <td>{{ row.order_date|d }}</td>

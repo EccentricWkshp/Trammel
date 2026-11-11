@@ -146,6 +146,18 @@ EVENTS: dict[str, Event] = {
             "{% for line in lines %}- {{ line }}\n{% endfor %}\n{{ link }}\n",
             module="purchasing",
         ),
+        Event(
+            "portal_files",
+            "Files sent by a customer in the portal",
+            "staff",
+            "Files from {{ customer.name }}",
+            "{{ sender }} sent {{ files|length }} file{% if files|length != 1 %}s{% endif %} "
+            "through the portal{% if job %} for job {{ job.number }}, {{ job.title }}{% endif %}:\n\n"
+            "{% for name in files %}- {{ name }}\n{% endfor %}"
+            "{% if note %}\nTheir note: {{ note }}\n{% endif %}"
+            "\nThey wait for you to accept or decline them: {{ link }}\n",
+            module="portal",
+        ),
     ]
 }
 

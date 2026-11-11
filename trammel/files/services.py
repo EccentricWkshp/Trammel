@@ -37,12 +37,16 @@ def media_root() -> Path:
     return Path(settings.MEDIA_ROOT)
 
 
-def _store(data_path: Path, name: str) -> Blob:
-    """Hash, sniff and store a temp file; reuse an identical blob if one exists."""
+def _store(data_path: Path, name: str, kinds: frozenset[str] | None = None) -> Blob:
+    """Hash, sniff and store a temp file; reuse an identical blob if one exists.
+    With `kinds`, a file of any other kind is refused before it is stored."""
     size = data_path.stat().st_size
     with data_path.open("rb") as fh:
         head = fh.read(_SNIFF_BYTES)
     detected = sniff.detect(head, name, size, path=data_path)
+    if kinds is not None and detected.kind not in kinds:
+        data_path.unlink(missing_ok=True)
+        raise ValidationError(f"{name}: this kind of file can't be sent here.")
 
     if detected.mime == "image/jpeg" and settings.STRIP_GPS_EXIF:
         original = data_path.read_bytes()
@@ -65,8 +69,15 @@ def _store(data_path: Path, name: str) -> Blob:
     relative = Path("blobs") / sha[:2] / sha[2:4] / sha
     final = media_root() / relative
     final.parent.mkdir(parents=True, exist_ok=True)
-    os.replace(data_path, final)
-    thumb = Blob.Thumb.PENDING if detected.kind in ("image", "pdf") else Blob.Thumb.NONE
+    if final.exists():
+        # Named by its SHA-256, so the bytes are already there (left by a row
+        # that was rolled back, say); on Windows an open copy can't be replaced.
+        data_path.unlink(missing_ok=True)
+    else:
+        os.replace(data_path, final)
+    from .previews import KINDS
+
+    thumb = Blob.Thumb.PENDING if detected.kind in KINDS else Blob.Thumb.NONE
     try:
         with transaction.atomic():
             blob = Blob.objects.create(
@@ -84,9 +95,10 @@ def _store(data_path: Path, name: str) -> Blob:
     return blob
 
 
-def _spool(upload) -> Path:
+def _spool(upload, limit_mb: int | None = None) -> Path:
     """Copy an upload to a temp file, enforcing the size limit while reading."""
-    limit = settings.MAX_UPLOAD_MB * 1024 * 1024
+    limit_mb = min(limit_mb or settings.MAX_UPLOAD_MB, settings.MAX_UPLOAD_MB)
+    limit = limit_mb * 1024 * 1024
     tmp_dir = media_root() / "tmp"
     tmp_dir.mkdir(parents=True, exist_ok=True)
     fd, name = tempfile.mkstemp(dir=tmp_dir)
@@ -102,7 +114,7 @@ def _spool(upload) -> Path:
             if written > limit:
                 out.close()
                 Path(name).unlink(missing_ok=True)
-                raise ValidationError(f"Files are limited to {settings.MAX_UPLOAD_MB} MB.")
+                raise ValidationError(f"Files are limited to {limit_mb} MB.")
             out.write(chunk)
     return Path(name)
 
@@ -118,12 +130,15 @@ def upload(
     note: str = "",
     doc_type: DocumentType | None = None,
     user=None,
+    kinds: frozenset[str] | None = None,
+    limit_mb: int | None = None,
 ) -> DocumentRevision:
     """Store an upload as a new document, or as the next revision of `document`.
 
-    A new document without a type gets the one its file name suggests.
+    A new document without a type gets the one its file name suggests. `kinds`
+    and `limit_mb` narrow what is accepted (files customers send, FR-PRT-7).
     """
-    blob = _store(_spool(upload), name)
+    blob = _store(_spool(upload, limit_mb), name, kinds)
     creating = document is None
     if creating:
         document = Document.objects.create(
@@ -275,3 +290,24 @@ def keep_shop_document(key: str, file, *, user=None) -> DocumentRevision:
 
 def blob_path(blob: Blob) -> Path:
     return media_root() / blob.path
+
+
+def preview_status(blob: Blob) -> dict:
+    """For a page waiting on a preview: whether it's ready, or still coming."""
+    return {
+        "ready": blob.thumb_state == Blob.Thumb.READY or blob.kind == "svg",
+        "waiting": blob.thumb_state == Blob.Thumb.PENDING,
+    }
+
+
+def status_response(blob: Blob):
+    from django.http import JsonResponse
+
+    response = JsonResponse(preview_status(blob))
+    response["Cache-Control"] = "no-store"
+    return response
+
+
+def thumbnail_mime(blob: Blob) -> str:
+    """A preview is a WebP picture, or an SVG drawing for a DXF."""
+    return "image/svg+xml" if blob.thumbnail.endswith(".svg") else "image/webp"

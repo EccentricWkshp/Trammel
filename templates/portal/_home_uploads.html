@@ -1,0 +1,9 @@
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">File</th><th scope="col">Customer</th><th scope="col">Sent</th></tr></thead>
+  <tbody>
+  {% for u in section.rows %}
+    <tr><td><a href="{% url 'portal:review' u.pk %}"><strong>{{ u.document.current.original_name }}</strong></a>{% if u.job %} <span class="muted small">{{ u.job.number }}</span>{% endif %}</td>
+      <td>{{ u.customer.name }}</td><td>{{ u.sent_at|md }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table></div>

@@ -148,3 +148,29 @@ def test_cannot_attach_to_unregistered_models(admin_client, admin):
         f"/files/attach/accounts.user/{admin.pk}/", {"file": SimpleUploadedFile("x.txt", b"x")}
     )
     assert response.status_code == 404
+
+
+@pytest.mark.django_db
+def test_the_files_tab_counts_its_files(admin_client, admin, customer):
+    from trammel.jobs import services as jobs
+    from trammel.jobs.models import Job
+
+    job = jobs.create_job(Job(title="Sign", customer=customer))
+    page = admin_client.get(f"/jobs/{job.pk}/").content.decode()
+    assert '?tab=files">Files</a>' in page  # none yet: no count
+    for name in ("a.pdf", "b.pdf"):
+        services.upload(
+            SimpleUploadedFile(name, f"%PDF-1.4 {name}".encode()),
+            name=name,
+            attach_to=job,
+            user=admin,
+        )
+    page = admin_client.get(f"/jobs/{job.pk}/").content.decode()
+    assert '?tab=files">Files <span class="tab-count">2</span>' in page
+    page = admin_client.get(f"/customers/{customer.pk}/").content.decode()
+    assert '?tab=files">Files</a>' in page  # the job's files are the job's
+    # Without permission to see files, no count either.
+    viewer = make_user("viewer@example.com", "jobs.view")
+    admin_client.force_login(viewer)
+    page = admin_client.get(f"/jobs/{job.pk}/").content.decode()
+    assert '<span class="tab-count">2</span>' not in page

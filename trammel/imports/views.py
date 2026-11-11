@@ -13,7 +13,7 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
-from trammel.core import access, audit, secrets, tasks
+from trammel.core import access, audit, secrets, sorting, tasks
 from trammel.core.services import save_audited
 from trammel.core.web import paginate, permission_required
 from trammel.customers.models import Customer
@@ -60,6 +60,20 @@ def _stores() -> list[dict]:
     ]
 
 
+SORTS = sorting.Sorts(
+    {
+        "date": sorting.By("Order date", "order_date", newest_first=True),
+        "order": sorting.By("Order number", "source", "order_number"),
+        "customer": sorting.By("Customer", "customer__name", "-order_date"),
+        "sale": sorting.By("Sale", "invoice__number"),
+        "total": sorting.By("Total", "total", newest_first=True),
+        "shipped": sorting.By("Shipped", "shipped_on", newest_first=True),
+        "job": sorting.By("Job", "job__number", "-order_date"),
+    },
+    default="date",
+)
+
+
 @permission_required("imports.view")
 def order_list(request):
     stores = _stores()
@@ -69,13 +83,18 @@ def order_list(request):
         "invoice", "customer", "job"
     )
     today = timezone.localdate()
+    params = request.GET.copy()
+    params.pop("page", None)
+    sorted_rows, sort = SORTS.apply(request, imported)
     return render(
         request,
         "imports/list.html",
         {
             "stores": connected,
             "pending": pending,
-            "page": paginate(request, imported, 50),
+            "page": paginate(request, sorted_rows, 50),
+            "query": params.urlencode(),
+            **sort,
             "needs_attention": imported.exclude(problem=""),
             "deletion_requests": deletions.open_count()
             if access.has_perm(request.actor, "imports.manage")

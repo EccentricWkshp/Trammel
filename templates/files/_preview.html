@@ -1,0 +1,3 @@
+{% if ready %}<a href="{{ href }}" target="_blank" rel="noopener"{% if lightbox %} data-lightbox="{{ title }}"{% endif %}><img src="{{ thumb }}" alt="{{ alt }}"{% if lazy %} loading="lazy"{% endif %}></a>
+{% elif waiting %}<span class="file-kind preview-wait" data-preview-wait="{{ status }}" data-preview-src="{{ thumb }}" data-preview-href="{{ href }}" data-preview-title="{{ title }}" data-preview-alt="{{ alt }}"{% if lightbox %} data-preview-lightbox="1"{% endif %}>{{ kind|upper }} <small>Making the preview…</small></span>
+{% else %}<span class="file-kind">{{ kind|upper }}</span>{% endif %}

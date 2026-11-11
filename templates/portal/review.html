@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% load files %}
+{% block title %}Review {{ revision.original_name }}{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{% url 'portal:review_list' %}">Files from customers</a>{% if others %} · {{ others }} more waiting{% endif %}</p>
+<h1>{{ revision.original_name }}</h1>
+<dl class="facts-inline">
+  <div><dt>From</dt><dd><a href="{{ upload.customer.get_absolute_url }}">{{ upload.customer.name }}</a> <span class="muted small">sent by {{ upload.sent_by }}</span></dd></div>
+  <div><dt>For</dt><dd>{% if upload.job %}<a href="{{ upload.job.get_absolute_url }}">{{ upload.job.number }} {{ upload.job.title }}</a>{% else %}Not a job yet{% endif %}</dd></div>
+  <div><dt>Sent</dt><dd>{{ upload.sent_at|mdt }}</dd></div>
+  <div><dt>File</dt><dd>{{ revision.blob.kind|upper }} · {{ revision.blob.size|filesizeformat }}</dd></div>
+</dl>
+{% if upload.note %}<section class="card"><h2>Their note</h2><p class="prewrap">{{ upload.note }}</p></section>{% endif %}
+
+<div class="review-preview">
+  {% url 'files:download' revision.pk as file_url %}{% url 'files:thumbnail' upload.document.pk as thumb_url %}{% url 'files:thumbnail_status' upload.document.pk as status_url %}
+  {% with alt="Preview of "|add:revision.original_name %}{% file_preview revision file_url thumb_url status_url revision.original_name alt False %}{% endwith %}
+  <p><a href="{% url 'files:download' revision.pk %}">Download it</a> <span class="muted small">Open it only if you trust it: it came from outside the shop.</span></p>
+</div>
+
+{% if upload.status == "pending" %}
+<div class="overview-grid">
+  <section class="card" aria-labelledby="accept-heading">
+    <h2 id="accept-heading">Accept</h2>
+    <form method="post" class="stack">{% csrf_token %}
+      <input type="hidden" name="action" value="accept">
+      <div class="field"><label for="review-target">Attach it to</label>
+        <select id="review-target" name="target">
+          <option value="">{{ upload.customer.name }} (the customer)</option>
+          {% for j in jobs %}<option value="{{ j.pk }}"{% if j.pk == upload.job_id %} selected{% endif %}>{{ j.number }} {{ j.title }}</option>{% endfor %}
+        </select></div>
+      <div class="field"><label for="review-title">Title</label>
+        <input type="text" id="review-title" name="title" value="{{ upload.document.title }}" maxlength="200"></div>
+      <div class="field"><label for="review-type">Type</label>
+        <select id="review-type" name="doc_type"><option value="">None</option>
+          {% for t in types %}<option value="{{ t.pk }}"{% if t.pk == upload.document.doc_type_id %} selected{% endif %}>{{ t }}</option>{% endfor %}
+        </select></div>
+      <div class="field field-check"><label><input type="checkbox" name="shared" value="1" checked> Show it to the customer with their files</label></div>
+      <div class="actions"><button type="submit" class="primary">Accept</button></div>
+    </form>
+  </section>
+  <section class="card" aria-labelledby="decline-heading">
+    <h2 id="decline-heading">Decline</h2>
+    <form method="post" class="stack">{% csrf_token %}
+      <input type="hidden" name="action" value="decline">
+      <div class="field"><label for="review-reason">Why (the customer sees this)</label>
+        <input type="text" id="review-reason" name="reason" maxlength="300" placeholder="For example: it's blurry; please send a sharper photo"></div>
+      <div class="actions"><button type="submit">Decline</button></div>
+    </form>
+  </section>
+</div>
+{% else %}
+<p class="status-line"><span class="status {% if upload.status == 'accepted' %}status-approved{% else %}status-declined{% endif %}">{{ upload.get_status_display }}</span>
+  {% if upload.reviewed_by %}by {{ upload.reviewed_by.get_short_name }}{% endif %} {{ upload.reviewed_at|mdt }}{% if upload.reason %} — {{ upload.reason }}{% endif %}</p>
+{% endif %}
+{% endblock %}
