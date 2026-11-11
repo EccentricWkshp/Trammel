@@ -2,7 +2,7 @@
 {% block title %}Online stores{% endblock %}
 {% block settings_content %}
 <h1>Online stores</h1>
-<p class="lede">Connect Shopify to bring its orders in as paid sales: on the Online orders page, fetch any range of dates.</p>
+<p class="lede">Connect your online stores to bring their orders in as paid sales: on the Online orders page, fetch any range of dates.</p>
 
 <section class="panel" aria-labelledby="shopify-heading">
   <h2 id="shopify-heading">Shopify</h2>
@@ -41,6 +41,45 @@
   {% endif %}
   {% if webhook_url %}
   <p class="small">Webhook address for Shopify (Settings, Notifications, Webhooks; topics orders/create, orders/updated and orders/fulfilled, JSON): <code class="nowrap">{{ webhook_url }}</code>. Only this address needs to be reachable from the internet.</p>
+  {% endif %}
+</section>
+
+<section class="panel" aria-labelledby="etsy-heading">
+  <h2 id="etsy-heading">Etsy</h2>
+  <p class="small">Etsy collects and pays the sales tax on its sales as the marketplace facilitator. Etsy sales show that tax, and the tax report lists it as paid by Etsy, not as tax you owe.</p>
+  <details>
+    <summary>Setting up the app on Etsy</summary>
+    <ol class="small">
+      <li>On the Etsy developer site (Your apps), create an app for your shop. It gives a keystring and a shared secret.</li>
+      <li>Add this callback address to the app: <code class="nowrap">{{ etsy_callback }}</code></li>
+      <li>Enter the keystring and shared secret below, tick Connect Etsy, and save.</li>
+      <li>Press Connect Etsy and approve Trammel on Etsy. Etsy sends you back here.</li>
+    </ol>
+    <p class="small">If Etsy can't send you back (this browser can't reach Trammel at that address), copy the address Etsy sent you to and paste it below. Etsy keeps the connection for 90 days after it was last used; after that, connect again.</p>
+  </details>
+  <form method="post" action="{% url 'imports:etsy_settings' %}" class="stack" novalidate>{% csrf_token %}
+    {% include "partials/form_body.html" with form=etsy_form %}
+    <div class="actions"><button type="submit" class="primary">Save</button></div>
+  </form>
+  {% if etsy.enabled and etsy.keystring %}
+  <h3>Connection</h3>
+  {% if etsy.is_connected %}
+  <p>Connected to <strong>{{ etsy.shop_name|default:etsy.shop_id }}</strong> since {{ etsy.connected_at|d }}. Kept until {{ etsy.refresh_token_expires_at|d }} unless it is used before then.</p>
+  <div class="actions">
+    <form method="post" action="{% url 'imports:etsy_test' %}" class="inline">{% csrf_token %}<button type="submit">Test the connection</button></form>
+    <form method="post" action="{% url 'imports:etsy_disconnect' %}" class="inline">{% csrf_token %}<button type="submit" class="danger">Disconnect</button></form>
+  </div>
+  {% else %}
+  {% if etsy.has_expired %}<p class="message warning">The Etsy connection has expired. Connect Etsy again.</p>{% endif %}
+  <form method="post" action="{% url 'imports:etsy_connect' %}">{% csrf_token %}<button type="submit" class="primary">Connect Etsy</button></form>
+  {% if etsy_waiting %}
+  <form method="post" action="{% url 'imports:etsy_paste' %}" class="stack">{% csrf_token %}
+    <div class="field"><label for="etsy-code">Etsy didn't send you back? Paste the address it sent you to, or just the code</label>
+      <input type="text" id="etsy-code" name="code" class="secret-box" autocomplete="off" spellcheck="false" autocapitalize="off" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other" required></div>
+    <div class="actions"><button type="submit">Finish connecting</button></div>
+  </form>
+  {% endif %}
+  {% endif %}
   {% endif %}
 </section>
 {% endblock %}

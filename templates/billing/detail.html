@@ -28,7 +28,7 @@
     {% endif %}
   </div>
 </header>
-{% if invoice.tax_flagged %}<aside class="callout warn">The tax rate was chosen by hand because the address could not be resolved ({{ invoice.tax_note }}). Review it before filing.</aside>{% endif %}
+{% if invoice.tax_flagged %}<aside class="callout warn">{% if invoice.tax_method == "manual" %}The tax rate was chosen by hand because the address could not be resolved ({{ invoice.tax_note }}).{% else %}The tax needs review: {{ invoice.tax_note }}{% endif %} Review it before filing.</aside>{% endif %}
 {% include "partials/panels.html" %}
 
 {% if draft %}
@@ -81,7 +81,7 @@
     {% elif invoice.shipping %}
     <tr><th scope="row">{{ invoice.shipping_label }}</th><td class="num">{{ invoice.shipping|money }}</td></tr>
     {% endif %}
-    <tr><th scope="row">{% if invoice.is_draft and not preview.resolved %}Sales tax <span class="flag flag-risk">not resolved</span>{% else %}{{ tax_label }}{% endif %}
+    <tr><th scope="row">{% if invoice.is_draft and not preview.resolved %}Sales tax <span class="flag flag-risk">not resolved</span>{% else %}{{ tax_label }}{% endif %}{% if invoice.tax_remitted_by %} <span class="muted small">collected and paid by {{ invoice.tax_remitted_by }}</span>{% endif %}
       {% if tax_lines|length > 1 %}<a href="?tab=details" class="small muted">breakdown</a>{% endif %}</th><td class="num">{{ invoice.tax_total|money }}</td></tr>
     {% if invoice.exemption_number %}<tr><th scope="row" colspan="2">Exempt — {{ invoice.exemption_number }}</th></tr>{% endif %}
     <tr class="grand"><th scope="row">Total</th><td class="num">{{ invoice.total|money }}</td></tr>
@@ -125,6 +125,7 @@
       {% if invoice.tax_location_code %}<dt>Location code</dt><dd>{{ invoice.tax_location_code }}</dd>{% endif %}
       {% if invoice.tax_postal_code %}<dt>ZIP code</dt><dd>{{ invoice.tax_postal_code }}</dd>{% endif %}
       {% if invoice.tax_note %}<dt>Note</dt><dd>{{ invoice.tax_note }}</dd>{% endif %}
+      {% if invoice.tax_remitted_by %}<dt>Filed and paid by</dt><dd>{{ invoice.tax_remitted_by }}, as the marketplace facilitator. The tax is part of what the buyer paid, but you don't owe it.</dd>{% endif %}
       {% endif %}
       <dt>Taxable amount</dt><dd>{{ invoice.taxable_total|money }}{% if invoice.shipping_taxable %} <span class="muted">(includes {{ invoice.shipping_taxable|money }} of {{ invoice.shipping_label|lower }})</span>{% endif %}</dd>
     </dl>

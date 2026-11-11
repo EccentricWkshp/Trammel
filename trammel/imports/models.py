@@ -52,6 +52,46 @@ class ShopifySettings(SingletonModel):
         return "Shopify settings"
 
 
+class EtsySettings(SingletonModel):
+    """One Etsy shop, connected by the seller approving Trammel on Etsy (OAuth with
+    PKCE). The shared secret and the tokens are encrypted secrets, never here."""
+
+    enabled = models.BooleanField("connect Etsy", default=False)
+    keystring = models.CharField(
+        "keystring",
+        max_length=120,
+        blank=True,
+        help_text="Your app's keystring, from Your apps on the Etsy developer site.",
+    )
+    #: Found from the account that approved Trammel.
+    shop_id = models.CharField(max_length=40, blank=True, editable=False)
+    shop_name = models.CharField(max_length=120, blank=True, editable=False)
+    connected_at = models.DateTimeField(null=True, blank=True, editable=False)
+    #: The hour-long access token's end, and the refresh token's: Etsy keeps a
+    #: connection for 90 days after it was last renewed.
+    access_token_expires_at = models.DateTimeField(null=True, blank=True, editable=False)
+    refresh_token_expires_at = models.DateTimeField(null=True, blank=True, editable=False)
+
+    class Meta:
+        verbose_name = "Etsy settings"
+
+    def __str__(self) -> str:
+        return "Etsy settings"
+
+    @property
+    def is_connected(self) -> bool:
+        return bool(self.connected_at) and not self.has_expired
+
+    @property
+    def has_expired(self) -> bool:
+        return bool(
+            self.refresh_token_expires_at and self.refresh_token_expires_at <= timezone.now()
+        )
+
+
+SOURCES = {"shopify": "Shopify", "etsy": "Etsy"}
+
+
 class ImportedOrder(models.Model):
     """An order brought in from an online store: its sale, or, while the store
     withheld the buyer's details, the order waiting for a customer (FR-IMP-3).
@@ -116,7 +156,7 @@ class ImportedOrder(models.Model):
         return self.financial_status.replace("_", " ")
 
     def get_source_display(self) -> str:
-        return {"shopify": "Shopify"}.get(self.source, self.source.title())
+        return SOURCES.get(self.source, self.source.title())
 
     @property
     def hints(self) -> dict:

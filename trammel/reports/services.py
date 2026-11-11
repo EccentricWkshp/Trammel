@@ -245,6 +245,8 @@ def tax_report(start: dt.date, end: dt.date) -> dict:
         status__in=ISSUED, invoice_date__gte=start, invoice_date__lte=end
     ).exclude(kind=Invoice.Kind.DEPOSIT)
     by_place: dict = {}
+    facilitated: dict[str, Decimal] = defaultdict(lambda: ZERO)
+    facilitated_gross: dict[str, Decimal] = defaultdict(lambda: ZERO)
     deposit_lines = dict(
         InvoiceLine.objects.filter(invoice__in=invoices, category="deposit")
         .values_list("invoice")
@@ -263,6 +265,7 @@ def tax_report(start: dt.date, end: dt.date) -> dict:
                 "taxable": ZERO,
                 "exempt": ZERO,
                 "tax": ZERO,
+                "marketplace": ZERO,
                 "invoices": 0,
                 "flagged": 0,
             },
@@ -270,11 +273,15 @@ def tax_report(start: dt.date, end: dt.date) -> dict:
         row["gross"] += s * gross
         row["taxable"] += s * inv.taxable_total
         row["exempt"] += s * (gross - inv.taxable_total)
-        row["tax"] += s * inv.tax_total
+        # Tax a marketplace facilitator collected and pays itself isn't owed.
+        row["marketplace" if inv.tax_remitted_by else "tax"] += s * inv.tax_total
+        if inv.tax_remitted_by:
+            facilitated[inv.tax_remitted_by] += s * (gross + inv.tax_total)
+            facilitated_gross[inv.tax_remitted_by] += s * gross
         row["invoices"] += 1
         row["flagged"] += int(inv.tax_flagged)
     components = (
-        InvoiceTax.objects.filter(invoice__in=invoices)
+        InvoiceTax.objects.filter(invoice__in=invoices, invoice__tax_remitted_by="")
         .values("code", "name")
         .annotate(tax=Sum("amount"), base=Sum("base"))
     )
@@ -320,13 +327,22 @@ def tax_report(start: dt.date, end: dt.date) -> dict:
             }
         )
     rows = sorted(by_place.values(), key=lambda r: r["code"])
-    totals = {k: sum((r[k] for r in rows), ZERO) for k in ("gross", "taxable", "exempt", "tax")}
+    totals = {
+        k: sum((r[k] for r in rows), ZERO)
+        for k in ("gross", "taxable", "exempt", "tax", "marketplace")
+    }
     return {
         "rows": rows,
         "totals": totals,
         "components": list(components),
         "bo": bo,
         "bad_debt": bad_debt,
+        # Sales a marketplace facilitator collected the tax on, by marketplace:
+        # the gross (before tax) and what the buyer paid in all.
+        "marketplaces": [
+            {"name": name, "gross": facilitated_gross[name], "paid": facilitated[name]}
+            for name in sorted(facilitated)
+        ],
         "write_offs": write_offs.select_related("invoice"),
     }
 

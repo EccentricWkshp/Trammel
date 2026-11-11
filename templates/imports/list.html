@@ -5,26 +5,29 @@
   <h1>Online orders</h1>
   {% if can_manage %}<div class="actions"><a class="button" href="{% url 'imports:settings' %}">Online stores…</a></div>{% endif %}
 </div>
-<p class="lede">Orders from your online store come in as paid sales, at the prices, shipping and tax the store charged, with their customers. Fetching a range again is safe: nothing is imported twice.</p>
+<p class="lede">Orders from your online stores come in as paid sales, at the prices, shipping and tax the store charged, with their customers. Fetching a range again is safe: nothing is imported twice.</p>
 
-{% if not connected %}
-<p class="message warning">Shopify isn't connected yet.{% if can_manage %} <a href="{% url 'imports:settings' %}">Connect it</a>.{% endif %}</p>
+{% if not stores %}
+<p class="message warning">No online store is connected yet.{% if can_manage %} <a href="{% url 'imports:settings' %}">Connect one</a>.{% endif %}</p>
 {% elif can_run %}
-<section class="card" aria-labelledby="fetch-heading">
-  <h2 id="fetch-heading">Fetch Shopify orders</h2>
+{% for store in stores %}
+<section class="card" aria-labelledby="fetch-{{ store.key }}-heading">
+  <h2 id="fetch-{{ store.key }}-heading">Fetch {{ store.label }} orders</h2>
   <form method="post" action="{% url 'imports:fetch' %}" class="filters">{% csrf_token %}
+    <input type="hidden" name="source" value="{{ store.key }}">
     <label>From <input type="date" name="start" value="{{ start }}" required></label>
     <label>Through <input type="date" name="end" value="{{ end }}" required></label>
     <button type="submit" class="primary">Fetch orders</button>
   </form>
-  <p class="muted small">Shopify gives the last 60 days unless the app has been allowed all orders (read_all_orders).</p>
+  <p class="muted small">{{ store.hint }}</p>
 </section>
+{% endfor %}
 {% endif %}
 
 {% if pending %}
 <section aria-labelledby="pending-heading">
   <h2 id="pending-heading">Waiting for a customer</h2>
-  <p class="muted small">The store withheld these buyers' names and addresses (on Shopify, below the Advanced plan, when connected with a custom app's access token; connecting with a Dev Dashboard app's client ID and secret brings them in). Nothing here counts toward any total until it has a customer. Look the order up in Shopify, then give it its customer.</p>
+  <p class="muted small">The store withheld these buyers' names and addresses (on Shopify, below the Advanced plan, when connected with a custom app's access token; connecting with a Dev Dashboard app's client ID and secret brings them in). Nothing here counts toward any total until it has a customer. Look the order up in the store, then give it its customer.</p>
   <div class="table-wrap"><table>
     <thead><tr><th scope="col">Order</th><th scope="col">Date</th><th scope="col">Where</th><th scope="col" class="num">Total</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
     <tbody>{% for row in pending %}

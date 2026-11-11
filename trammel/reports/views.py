@@ -130,19 +130,42 @@ def tax(request):
                 r["taxable"],
                 r["exempt"],
                 r["tax"],
+                r["marketplace"],
                 r["flagged"],
             )
             for r in data["rows"]
         ]
         rows += [
-            ("Gross receipts: " + b["classification"], "", b["basis"], "", "", b["tax"] or "", "")
+            (
+                "Gross receipts: " + b["classification"],
+                "",
+                b["basis"],
+                "",
+                "",
+                b["tax"] or "",
+                "",
+                "",
+            )
             for b in data["bo"]
         ]
-        rows.append(("Bad debt deduction", "", data["bad_debt"], "", "", "", ""))
+        rows += [
+            ("Marketplace facilitator: " + m["name"], "", m["gross"], "", "", "", m["paid"], "")
+            for m in data["marketplaces"]
+        ]
+        rows.append(("Bad debt deduction", "", data["bad_debt"], "", "", "", "", ""))
         return _csv(
             request,
             "tax",
-            ["jurisdiction", "invoices", "gross", "taxable", "exempt", "tax", "flagged"],
+            [
+                "jurisdiction",
+                "invoices",
+                "gross",
+                "taxable",
+                "exempt",
+                "tax",
+                "paid_by_marketplace",
+                "flagged",
+            ],
             rows,
         )
     return render(request, "reports/tax.html", {**data, "start": start, "end": end})

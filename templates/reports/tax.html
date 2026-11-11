@@ -8,16 +8,25 @@
 {% include "reports/_period.html" %}
 <h2>Sales tax collected, by jurisdiction</h2>
 <div class="table-wrap"><table>
-  <thead><tr><th scope="col">Location</th><th scope="col" class="num">Invoices</th><th scope="col" class="num">Gross</th><th scope="col" class="num">Taxable</th><th scope="col" class="num">Exempt / not taxed</th><th scope="col" class="num">Tax collected</th></tr></thead>
+  <thead><tr><th scope="col">Location</th><th scope="col" class="num">Invoices</th><th scope="col" class="num">Gross</th><th scope="col" class="num">Taxable</th><th scope="col" class="num">Exempt / not taxed</th><th scope="col" class="num">Tax you owe</th><th scope="col" class="num">Paid by a marketplace</th></tr></thead>
   <tbody>
-  {% for r in rows %}<tr><td><code>{{ r.code }}</code>{% if r.flagged %} <span class="badge warn">{{ r.flagged }} chosen by hand</span>{% endif %}</td><td class="num">{{ r.invoices }}</td><td class="num">{{ r.gross|money }}</td><td class="num">{{ r.taxable|money }}</td><td class="num">{{ r.exempt|money }}</td><td class="num">{{ r.tax|money }}</td></tr>
-  {% empty %}<tr><td colspan="6" class="muted">No invoices in this period.</td></tr>{% endfor %}
-  {% if rows %}<tr><th scope="row">Total</th><td></td><td class="num">{{ totals.gross|money }}</td><td class="num">{{ totals.taxable|money }}</td><td class="num">{{ totals.exempt|money }}</td><td class="num"><strong>{{ totals.tax|money }}</strong></td></tr>{% endif %}
+  {% for r in rows %}<tr><td><code>{{ r.code }}</code>{% if r.flagged %} <span class="badge warn">{{ r.flagged }} to review</span>{% endif %}</td><td class="num">{{ r.invoices }}</td><td class="num">{{ r.gross|money }}</td><td class="num">{{ r.taxable|money }}</td><td class="num">{{ r.exempt|money }}</td><td class="num">{{ r.tax|money }}</td><td class="num">{{ r.marketplace|money }}</td></tr>
+  {% empty %}<tr><td colspan="7" class="muted">No invoices in this period.</td></tr>{% endfor %}
+  {% if rows %}<tr><th scope="row">Total</th><td></td><td class="num">{{ totals.gross|money }}</td><td class="num">{{ totals.taxable|money }}</td><td class="num">{{ totals.exempt|money }}</td><td class="num"><strong>{{ totals.tax|money }}</strong></td><td class="num">{{ totals.marketplace|money }}</td></tr>{% endif %}
   </tbody>
 </table></div>
 {% if components %}
 <h3>By rate component</h3>
 <ul>{% for c in components %}<li>{{ c.name }} ({{ c.code }}): {{ c.tax|money }} on {{ c.base|money }}</li>{% endfor %}</ul>
+{% endif %}
+
+{% if marketplaces %}
+<h2>Sales through a marketplace facilitator</h2>
+<p class="muted">The marketplace collected the sales tax on these and files and pays it itself. They are in the totals above and in the gross receipts below; on the excise return they are usually a deduction from retail sales tax. Check your state's rules.</p>
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Marketplace</th><th scope="col" class="num">Gross</th><th scope="col" class="num">With the tax the buyer paid</th></tr></thead>
+  <tbody>{% for m in marketplaces %}<tr><td>{{ m.name }}</td><td class="num">{{ m.gross|money }}</td><td class="num">{{ m.paid|money }}</td></tr>{% endfor %}</tbody>
+</table></div>
 {% endif %}
 
 <h2>Gross receipts tax basis, by classification</h2>

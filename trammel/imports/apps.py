@@ -10,7 +10,7 @@ class ImportsConfig(ModuleConfig):
         key="imports",
         name="Online orders",
         version="0.1.0",
-        description="Orders from online stores (Shopify) brought in as paid sales, with "
+        description="Orders from online stores (Shopify, Etsy) brought in as paid sales, with "
         "their customers, and a job when they need making.",
         # Off until someone connects a store.
         default_enabled=False,

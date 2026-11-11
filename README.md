@@ -37,15 +37,16 @@ printing, laser work. Self-hosted: the data stays on the shop's own hardware.
   files and updates, and approve or decline quotes, signing to accept the
   agreement. Customers can also sign on a shop tablet. One switch, or the
   `PORTAL_OFF` setting, turns the portal off without touching anything else.
-- **Online orders** — Shopify orders fetched by date come in once each, as paid
-  sales at the store's prices and tax, with their customers. Orders whose buyer
+- **Online orders** — Shopify and Etsy orders fetched by date come in once each,
+  as paid sales at the store's prices and tax, with their customers; tax Etsy
+  pays as the marketplace facilitator is kept apart from tax you owe. Orders whose buyer
   the store withheld wait for a customer; one that has to be made becomes a job.
 - **Running it** — users and roles, audit log, email notifications, the REST
   API, scheduled backups with off-site copies (a network folder or
   S3-compatible storage), restore and export, and an update check.
 
-Not yet: anything in the specification's later phases (Etsy and eBay orders,
-online payments).
+Not yet: anything in the specification's later phases (eBay orders, online
+payments).
 
 - [docs/INSTALL.md](docs/INSTALL.md) — install it with Docker.
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — run it locally, run the tests,

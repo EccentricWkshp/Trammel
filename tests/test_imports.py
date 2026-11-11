@@ -194,7 +194,7 @@ def test_customers_are_matched_by_email_and_left_as_they_are(module_on, tacoma):
     known = Customer.objects.create(name="Rear Admiral Hopper", email="GRACE@example.com")
     other = Customer.objects.create(name="Navy Yard")
     Contact.objects.create(customer=other, name="Ada", email="ada@example.com")
-    bring_in(order(1), order(2, email="ada@example.com"))
+    bring_in(order(1), order(2, email="ada@example.com", customer={"id": 2, "first_name": "Ada"}))
     first, second = ImportedOrder.objects.order_by("order_number")
     assert first.customer == known and second.customer == other
     known.refresh_from_db()

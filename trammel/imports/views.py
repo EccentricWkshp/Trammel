@@ -18,16 +18,38 @@ from trammel.core.services import save_audited
 from trammel.core.web import paginate, permission_required
 from trammel.customers.models import Customer
 
-from . import services, shopify
-from .models import ImportedOrder, ShopifySettings
+from . import etsy, services, shopify
+from .models import EtsySettings, ImportedOrder, ShopifySettings
 
 #: The most a webhook body may be; a Shopify order is a few kilobytes.
 MAX_WEBHOOK_BYTES = 2 * 1024 * 1024
 
 
+def _stores() -> list[dict]:
+    """Every store Trammel can fetch from, and whether it is connected."""
+    shopify_config, etsy_config = ShopifySettings.load(), EtsySettings.load()
+    return [
+        {
+            "key": "shopify",
+            "label": "Shopify",
+            "connected": shopify_config.enabled and bool(shopify_config.shop_domain),
+            "hint": "Shopify gives the last 60 days unless the app has been allowed all "
+            "orders (read_all_orders).",
+        },
+        {
+            "key": "etsy",
+            "label": "Etsy",
+            "connected": etsy_config.enabled and etsy_config.is_connected,
+            "hint": "Etsy collects and pays the sales tax on these sales; they are recorded "
+            "that way.",
+        },
+    ]
+
+
 @permission_required("imports.view")
 def order_list(request):
-    config = ShopifySettings.load()
+    stores = _stores()
+    connected = [store for store in stores if store["connected"]]
     pending = ImportedOrder.objects.filter(status=ImportedOrder.Status.PENDING)
     imported = ImportedOrder.objects.filter(status=ImportedOrder.Status.IMPORTED).select_related(
         "invoice", "customer", "job"
@@ -37,8 +59,7 @@ def order_list(request):
         request,
         "imports/list.html",
         {
-            "config": config,
-            "connected": config.enabled and bool(config.shop_domain),
+            "stores": connected,
             "pending": pending,
             "page": paginate(request, imported, 50),
             "needs_attention": imported.exclude(problem=""),
@@ -46,20 +67,29 @@ def order_list(request):
             "can_manage": access.has_perm(request.actor, "imports.manage"),
             "start": (today - dt.timedelta(days=7)).isoformat(),
             "end": today.isoformat(),
-            "customers": Customer.objects.filter(is_internal=False, is_placeholder=False)
-            .order_by("name")
-            .only("pk", "name", "email"),
         },
     )
+
+
+#: How each store fetches and reads its orders.
+READERS = {
+    "shopify": (ShopifySettings, lambda c, a, b: shopify.fetch(c, a, b), shopify.read),
+    "etsy": (EtsySettings, lambda c, a, b: etsy.fetch(c, a, b), etsy.read),
+}
+STORE_ERRORS = (shopify.ShopifyError, etsy.EtsyError, ValidationError)
 
 
 @permission_required("imports.run")
 @require_POST
 def fetch(request):
-    """Fetch and bring in a date range of Shopify orders (FR-IMP-1)."""
-    config = ShopifySettings.load()
-    if not config.enabled:
-        messages.error(request, "Connect Shopify in Settings, Online stores, first.")
+    """Fetch and bring in a date range of one store's orders (FR-IMP-1)."""
+    source = request.POST.get("source") or "shopify"
+    store = next((s for s in _stores() if s["key"] == source), None)
+    if store is None:
+        raise Http404
+    label = store["label"]
+    if not store["connected"]:
+        messages.error(request, f"Connect {label} in Settings, Online stores, first.")
         return redirect("imports:list")
     try:
         start = dt.date.fromisoformat(request.POST.get("start", ""))
@@ -69,25 +99,24 @@ def fetch(request):
         return redirect("imports:list")
     if end < start:
         start, end = end, start
+    model, fetch_orders, read = READERS[source]
     try:
-        raw = shopify.fetch(config, start, end)
-    except (shopify.ShopifyError, ValidationError) as exc:
+        raw = fetch_orders(model.load(), start, end)
+    except STORE_ERRORS as exc:
         messages.error(request, " ".join(getattr(exc, "messages", [str(exc)])))
         return redirect("imports:list")
-    result = services.import_orders(
-        [shopify.read(order) for order in raw], "shopify", user=request.user
-    )
+    result = services.import_orders([read(order) for order in raw], source, user=request.user)
     audit.record(
         "import.fetch",
-        entity_type="imports.shopifysettings",
+        entity_type=f"imports.{model.__name__.lower()}",
         entity_id="1",
-        summary=f"Fetched {len(raw)} Shopify order(s) from {start} to {end}",
+        summary=f"Fetched {len(raw)} {label} order(s) from {start} to {end}",
     )
     if not raw:
-        messages.info(request, f"Shopify has no orders from {start:%m/%d/%Y} to {end:%m/%d/%Y}.")
+        messages.info(request, f"{label} has no orders from {start:%m/%d/%Y} to {end:%m/%d/%Y}.")
     else:
         (messages.warning if result.errors or result.pending else messages.success)(
-            request, result.summary("Shopify")
+            request, result.summary(label)
         )
         for error in result.errors[:10]:
             messages.error(request, error)
@@ -281,15 +310,24 @@ def settings_view(request):
             shopify.forget_token()
         messages.success(request, "Shopify settings saved.")
         return redirect("imports:settings")
+    return _settings_page(request, shopify_form=form)
+
+
+def _settings_page(request, *, shopify_form=None, etsy_form=None):
+    config, etsy_config = ShopifySettings.load(), EtsySettings.load()
     return render(
         request,
         "imports/settings.html",
         {
-            "form": form,
+            "form": shopify_form or ShopifyForm(instance=config),
             "config": config,
             "webhook_url": request.build_absolute_uri(reverse("imports:shopify_webhook"))
             if config.webhooks_enabled
             else "",
+            "etsy_form": etsy_form or EtsyForm(instance=etsy_config, prefix="etsy"),
+            "etsy": etsy_config,
+            "etsy_callback": _etsy_callback_url(request),
+            "etsy_waiting": secrets.is_set(etsy.PENDING_KEY),
         },
     )
 
@@ -346,3 +384,148 @@ def shopify_webhook(request):
         return HttpResponse(status=200)  # nothing to import; don't make Shopify retry
     tasks.enqueue("imports.shopify_order", {"order": order})
     return HttpResponse(status=200)
+
+
+# ---------------------------------------------------------------------------
+# Connecting Etsy (FR-IMP-5)
+# ---------------------------------------------------------------------------
+
+
+class EtsyForm(forms.ModelForm):
+    shared_secret = forms.CharField(
+        label="Shared secret",
+        required=False,
+        widget=_secret_box(),
+        help_text="Shown with the keystring under Your apps on the Etsy developer site.",
+    )
+
+    class Meta:
+        model = EtsySettings
+        fields = ["enabled", "keystring"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if secrets.is_set(etsy.SHARED_SECRET_KEY):
+            self.fields["shared_secret"].help_text += " Saved; leave blank to keep it."
+
+    def clean(self):
+        data = super().clean()
+        if data.get("enabled") and not (data.get("keystring") or "").strip():
+            self.add_error("keystring", "Enter the app's keystring to connect Etsy.")
+        return data
+
+
+def _etsy_callback_url(request) -> str:
+    return request.build_absolute_uri(reverse("imports:etsy_callback"))
+
+
+@permission_required("imports.manage")
+@require_POST
+def etsy_settings(request):
+    config = EtsySettings.load()
+    before = audit.snapshot(config)
+    form = EtsyForm(request.POST, instance=config, prefix="etsy")
+    if not form.is_valid():
+        return _settings_page(request, etsy_form=form)
+    app_changed = "keystring" in form.changed_data
+    save_audited(form.save(commit=False), before=before, summary="Edited Etsy settings")
+    if value := form.cleaned_data.get("shared_secret", "").strip():
+        secrets.put(etsy.SHARED_SECRET_KEY, value)
+        app_changed = True
+        audit.record(
+            "credential.set",
+            entity_type="core.credential",
+            entity_id=etsy.SHARED_SECRET_KEY,
+            summary="Changed the Etsy shared secret",
+        )
+    if app_changed and config.connected_at:
+        # Tokens belong to the app that was approved: another app starts over.
+        etsy.disconnect()
+        messages.warning(request, "Etsy settings saved. The app changed, so connect Etsy again.")
+    else:
+        messages.success(request, "Etsy settings saved.")
+    return redirect("imports:settings")
+
+
+@permission_required("imports.manage")
+@require_POST
+def etsy_connect(request):
+    """Off to Etsy, where the seller approves Trammel."""
+    try:
+        url = etsy.begin(EtsySettings.load(), _etsy_callback_url(request))
+    except etsy.EtsyError as exc:
+        messages.error(request, str(exc))
+        return redirect("imports:settings")
+    audit.record(
+        "import.connect",
+        entity_type="imports.etsysettings",
+        entity_id="1",
+        summary="Started connecting Etsy",
+    )
+    return redirect(url)
+
+
+def _etsy_finish(request, code: str, state: str | None):
+    try:
+        config = etsy.complete(EtsySettings.load(), code, state)
+    except etsy.EtsyError as exc:
+        messages.error(request, str(exc))
+        return redirect("imports:settings")
+    audit.record(
+        "import.connect",
+        entity_type="imports.etsysettings",
+        entity_id="1",
+        summary=f"Connected Etsy shop {config.shop_name or config.shop_id}",
+    )
+    messages.success(request, f"Etsy connected: {config.shop_name or 'shop ' + config.shop_id}.")
+    return redirect("imports:settings")
+
+
+@permission_required("imports.manage")
+def etsy_callback(request):
+    """Where Etsy sends the browser back, with the code (or the refusal)."""
+    if refused := request.GET.get("error_description") or request.GET.get("error"):
+        messages.error(request, f"Etsy didn't connect: {refused}")
+        return redirect("imports:settings")
+    return _etsy_finish(request, request.GET.get("code", ""), request.GET.get("state", ""))
+
+
+@permission_required("imports.manage")
+@require_POST
+def etsy_paste(request):
+    """The code pasted by hand, when Etsy's redirect couldn't reach Trammel."""
+    code, state = etsy.code_from(request.POST.get("code", ""))
+    return _etsy_finish(request, code, state)
+
+
+@permission_required("imports.manage")
+@require_POST
+def etsy_disconnect(request):
+    etsy.disconnect()
+    audit.record(
+        "import.disconnect",
+        entity_type="imports.etsysettings",
+        entity_id="1",
+        summary="Disconnected Etsy",
+    )
+    messages.success(request, "Etsy disconnected. Its imported sales stay as they are.")
+    return redirect("imports:settings")
+
+
+@permission_required("imports.manage")
+@require_POST
+def etsy_test(request):
+    """Ask Etsy for today's receipts, to show the connection works."""
+    config = EtsySettings.load()
+    try:
+        today = timezone.localdate()
+        receipts = etsy.fetch(config, today, today)
+    except etsy.EtsyError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(
+            request,
+            f"Connected to {config.shop_name or 'Etsy shop ' + config.shop_id}: "
+            f"{len(receipts)} order(s) today.",
+        )
+    return redirect("imports:settings")

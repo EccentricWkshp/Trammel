@@ -155,6 +155,11 @@ class Invoice(LifecycleModel, BaseModel):
     )
     tax_flagged = models.BooleanField("tax needs review", default=False, editable=False)
     tax_note = models.CharField(max_length=300, blank=True, editable=False)
+    #: A marketplace facilitator (Etsy) that collected this sale's sales tax and
+    #: files and pays it itself: the tax is on the sale, but not owed by the shop.
+    tax_remitted_by = models.CharField(
+        "sales tax paid by", max_length=60, blank=True, editable=False
+    )
     exemption_number = models.CharField(max_length=80, blank=True, editable=False)
 
     subtotal = MoneyField(default=ZERO, editable=False)

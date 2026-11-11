@@ -27,11 +27,11 @@ from django.utils import timezone
 from trammel.core import audit
 from trammel.core.access import SYSTEM
 
-from .models import ImportedOrder
+from .models import SOURCES, ImportedOrder
 
 ZERO = Decimal("0")
 PAID = {"paid", "partially_refunded", "refunded"}
-LABELS = {"shopify": "Shopify"}
+LABELS = SOURCES
 
 
 @dataclass
@@ -129,7 +129,9 @@ def _import_one(order: dict, source: str, *, user) -> str:
         )
         return "pending"
     row.save()
-    customer = find_or_create_customer(order.get("customer") or {})
+    customer = find_or_create_customer(
+        order.get("customer") or {}, source=source, buyer_id=row.buyer_id
+    )
     make_sale(row, customer, user=user)
     return "created"
 
@@ -161,7 +163,9 @@ def _refresh(row: ImportedOrder, order: dict, source: str, *, user) -> None:
         row.save()
         if not order.get("customer_unavailable"):
             # The store now shares the buyer (a plan upgrade, say): finish it.
-            make_sale(row, find_or_create_customer(order.get("customer") or {}), user=user)
+            buyer = order.get("customer") or {}
+            customer = find_or_create_customer(buyer, source=source, buyer_id=row.buyer_id)
+            make_sale(row, customer, user=user)
         return
     row.carrier = (order.get("carrier") or row.carrier)[:60]
     row.tracking = (order.get("tracking") or row.tracking)[:100]
@@ -186,11 +190,23 @@ def _refresh(row: ImportedOrder, order: dict, source: str, *, user) -> None:
     row.save()
 
 
-def find_or_create_customer(buyer: dict):
-    """The buyer as a customer: matched by email (theirs or a contact's), or new.
-    An existing customer is never changed, except to add a new ship-to address."""
+def find_or_create_customer(buyer: dict, *, source: str = "", buyer_id: str = ""):
+    """The buyer as a customer: the one an earlier order from the same buyer
+    went to (by the store's buyer id), else matched by email (theirs or a
+    contact's), else new. An existing customer is never changed, except to add
+    a new ship-to address."""
     from trammel.customers.models import Customer
 
+    if source and buyer_id:
+        earlier = (
+            ImportedOrder.objects.filter(source=source, buyer_id=buyer_id)
+            .exclude(customer=None)
+            .select_related("customer")
+            .order_by("imported_at")
+            .first()
+        )
+        if earlier is not None and earlier.customer.deleted_at is None:
+            return earlier.customer
     email = (buyer.get("email") or "").strip()
     if email:
         found = (
@@ -303,7 +319,11 @@ def make_sale(row: ImportedOrder, customer, *, address=None, user=None):
         )
     actor = user if user is not None else SYSTEM
     invoice = billing.issue(
-        invoice, actor=actor, collected_tax=_d(order.get("tax")), collected_by=label
+        invoice,
+        actor=actor,
+        collected_tax=_d(order.get("tax")),
+        collected_by=label,
+        remitted_by=order.get("tax_remitted_by") or "",
     )
     problems = []
     store_total = _d(order.get("total"))

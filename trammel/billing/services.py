@@ -373,6 +373,7 @@ def issue(
     actor,
     collected_tax: Decimal | None = None,
     collected_by: str = "",
+    remitted_by: str = "",
 ) -> Invoice:
     """Number, date, tax snapshot, freeze (FR-BIL-2, FR-TAX-7).
 
@@ -380,6 +381,8 @@ def issue(
     this sale (an imported order): the invoice records exactly that amount,
     attributed to the location Trammel looks up, and is flagged for review when
     Trammel's own rates give a different figure or no location is found.
+    `remitted_by` names a marketplace facilitator that also files and pays
+    that tax: it stays on the sale, and the tax report doesn't count it as owed.
     """
     invoice = Invoice.objects.select_for_update().get(pk=invoice.pk)
     _require_draft(invoice)
@@ -407,7 +410,9 @@ def issue(
     parts = tax.calculate(invoice.taxable_total, det) if det.resolved and det.components else []
     flagged, note = det.method == "manual", det.note
     if collected_tax is not None:
-        parts, flagged, note = _collected(invoice, det, parts, Decimal(collected_tax), collected_by)
+        parts, flagged, note = _collected(
+            invoice, det, parts, Decimal(collected_tax), collected_by, bool(remitted_by)
+        )
         flagged = flagged or det.method == "manual"
     for t in parts:
         InvoiceTax.objects.create(
@@ -431,6 +436,7 @@ def issue(
         tax_rate_total=det.total_rate,
         tax_flagged=flagged,
         tax_note=note[:300],
+        tax_remitted_by=remitted_by[:60] if collected_tax is not None else "",
         exemption_number=invoice.customer.tax_exempt_number if det.method == "exempt" else "",
         ship_to_text="\n".join(invoice.ship_to.lines()) if invoice.ship_to else "",
     )
@@ -446,11 +452,12 @@ def issue(
     return invoice
 
 
-def _collected(invoice: Invoice, det, parts, collected: Decimal, by: str):
+def _collected(invoice: Invoice, det, parts, collected: Decimal, by: str, remitted: bool = False):
     """Tax rows for tax a store already collected: Trammel's own rows for the
     location, scaled to add up to exactly what was collected (or one row when no
     location was found). Returns (rows, flagged, note) and sets the invoice's
-    totals to the collected tax."""
+    totals to the collected tax. Tax the store also pays itself (`remitted`)
+    isn't owed, so a different figure from Trammel's is only noted."""
     own = sum((t.amount for t in parts), ZERO)
     by = by or "the store"
     if parts and own:
@@ -469,7 +476,7 @@ def _collected(invoice: Invoice, det, parts, collected: Decimal, by: str):
         flagged = True
         note = f"Tax collected by {by}; {det.note or 'the location could not be found.'}"
     elif abs(own - collected) > Decimal("0.01"):
-        flagged = True
+        flagged = not remitted
         note = f"{by} collected {collected}; Trammel's rates for this location give {own}."
     else:
         flagged, note = False, det.note
