@@ -6,6 +6,7 @@
 <div class="heading-row">
   <h1>Customer agreement</h1>
   <div class="actions">
+    <a class="button" href="{% url 'agreements:print' agreement.pk %}?print=1" target="_blank" rel="noopener">Print</a>
     {% if pdf %}<a class="button" href="{% url 'agreements:pdf' agreement.pk %}">Download PDF</a>{% endif %}
     {% if can_manage and agreement.status == "issued" %}<a class="button" href="{% url 'agreements:accept' agreement.pk %}">Record acceptance</a>{% endif %}
   </div>
@@ -15,6 +16,7 @@
 {% if agreement.status == "accepted" %}
 <dl class="facts">
   <dt>Accepted by</dt><dd>{{ agreement.accepted_by_name }}</dd>
+  {% if agreement.signature %}<dt>Signature</dt><dd><img class="signature-image" src="{{ agreement.signature|signature_uri }}" alt="Signature of {{ agreement.accepted_by_name }}"></dd>{% endif %}
   <dt>When</dt><dd>{{ agreement.accepted_at|dt }}</dd>
   <dt>How</dt><dd>{{ agreement.get_method_display }}{% if agreement.how %} — {{ agreement.get_how_display|lower }}{% endif %}</dd>
   {% if agreement.evidence %}<dt>Signed document</dt><dd><a href="{% url 'files:download' agreement.evidence.current_id %}">{{ agreement.evidence }}</a></dd>{% endif %}

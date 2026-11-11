@@ -66,6 +66,22 @@ AGREEMENT = ph.Group(
 )
 
 
+APPROVAL = ph.Group(
+    "Approval",
+    (
+        P("approval", "Present once it is approved; use {% if approval %} around the rest"),
+        P("approval.name", "Who approved it"),
+        P("approval.date", "The day it was approved"),
+        P("approval.method", "How it was recorded: by staff, in the portal, or signed in the shop"),
+        P("approval.how", "In person, by phone, by email…, when staff recorded it"),
+        P(
+            "approval.signature",
+            "Their drawn signature, as an image address for <img src=…>; empty unless they signed",
+        ),
+    ),
+)
+
+
 def sample_quote() -> dict:
     lines = ph.sample_lines()
     subtotal = sum((line["total"] for line in lines), Decimal("0"))
@@ -117,6 +133,7 @@ def preview() -> tuple[dict, str]:
         "job": {"number": ph.SAMPLE_JOB["number"], "title": ph.SAMPLE_JOB["title"]},
         "quote": sample_quote(),
         "agreement": "",
+        "approval": None,
     }, "sample data"
 
 
@@ -124,7 +141,7 @@ ph.register(
     ph.Kind(
         key="quote",
         title="Quotes",
-        groups=(QUOTE, LINES, JOB, ph.CUSTOMER, ph.BUSINESS, AGREEMENT),
+        groups=(QUOTE, LINES, JOB, ph.CUSTOMER, ph.BUSINESS, AGREEMENT, APPROVAL),
         preview=preview,
         module="quotes",
         permission="quotes.manage_templates",

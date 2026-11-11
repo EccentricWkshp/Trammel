@@ -9,14 +9,14 @@ from django.contrib import messages
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.http import Http404, HttpResponse
-from django.shortcuts import redirect, render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils.http import content_disposition_header, url_has_allowed_host_and_scheme
 from django.utils.timezone import localtime, now
 from django.views.decorators.http import require_POST
 
-from trammel.core import access, audit, panels, templating, units
+from trammel.core import access, audit, modules, panels, templating, units
 from trammel.core.lifecycle import TransitionError
 from trammel.core.money import MoneyInput
 from trammel.core.services import save_audited
@@ -212,6 +212,8 @@ def wo_detail(request, pk):
             else [],
             "usage": wo.material_use.select_related("material", "recorded_by"),
             "notes": wo.notes.select_related("author", "document__current__blob"),
+            # Sharing notes with the customer only means something with the portal on.
+            "portal_on": modules.is_enabled("portal"),
             "actions": [t for t in WorkOrder.lifecycle.available(wo, actor)],
             "can_edit": can_edit,
             "can_costs": access.has_perm(actor, "core.see_costs"),
@@ -416,10 +418,21 @@ def note_add(request, pk):
             text=request.POST.get("text", ""),
             upload=request.FILES.get("photo"),
             user=request.user,
+            shared=request.POST.get("shared") == "1",
         )
     except ValidationError as exc:
         messages.error(request, " ".join(exc.messages))
     return redirect(safe_next(request, wo.get_absolute_url()))
+
+
+@permission_required("workorders.edit")
+@require_POST
+def note_share(request, pk, note_pk):
+    """Show a note to the customer in the portal, or stop (FR-PRT-4)."""
+    wo = _wo(request, "workorders.edit", pk)
+    note = get_object_or_404(wo.notes.all(), pk=note_pk)
+    services.share_note(note, request.POST.get("shared") == "1")
+    return redirect(f"{wo.get_absolute_url()}?tab=notes")
 
 
 @permission_required("workorders.edit")

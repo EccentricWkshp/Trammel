@@ -7,6 +7,7 @@
   .meta { color: #555; margin-bottom: 16pt; }
   .text { white-space: pre-wrap; }
   .accepted { margin-top: 24pt; border-top: 1px solid #999; padding-top: 8pt; }
+  .signature { display: block; max-width: 3in; max-height: 1.2in; margin-top: 6pt; }
   .logo { display: block; max-height: 0.9in; max-width: 2.6in; margin-bottom: 10pt; }
 </style></head>
 <body>
@@ -16,5 +17,6 @@
 <div class="text">{{ agreement.text }}</div>
 {% if agreement.status == "accepted" %}
 <p class="accepted">Accepted by {{ agreement.accepted_by_name }} on {{ agreement.accepted_at|date:"F j, Y" }} {{ agreement.accepted_at|t }} ({{ agreement.get_method_display|lower }}).</p>
+{% if agreement.signature %}<img class="signature" src="{{ agreement.signature|signature_uri }}" alt="Signature of {{ agreement.accepted_by_name }}">{% endif %}
 {% endif %}
 </body></html>

@@ -573,8 +573,11 @@ def move_operation(op: Operation, direction: int) -> None:
 
 
 @transaction.atomic
-def add_note(wo: WorkOrder, *, text: str = "", upload=None, user=None) -> WorkOrderNote:
-    """Append a note or photo (FR-WO-6, FR-DOC-7)."""
+def add_note(
+    wo: WorkOrder, *, text: str = "", upload=None, user=None, shared: bool = False
+) -> WorkOrderNote:
+    """Append a note or photo (FR-WO-6, FR-DOC-7); `shared` shows it to the
+    customer in the portal (FR-PRT-4)."""
     if not text.strip() and upload is None:
         raise ValidationError("Write a note or attach a photo.")
     document = None
@@ -583,9 +586,31 @@ def add_note(wo: WorkOrder, *, text: str = "", upload=None, user=None) -> WorkOr
 
         document = store(upload, name=upload.name, attach_to=wo, user=user).document
     note = WorkOrderNote.objects.create(
-        work_order=wo, text=text.strip(), document=document, author=user
+        work_order=wo,
+        text=text.strip(),
+        document=document,
+        author=user,
+        shared_with_customer=shared,
     )
-    audit.record("work_order.note", wo, summary=f"Note on {wo.number}")
+    audit.record(
+        "work_order.note",
+        wo,
+        summary=f"Note on {wo.number}{' shared with the customer' if shared else ''}",
+    )
+    return note
+
+
+def share_note(note: WorkOrderNote, shared: bool) -> WorkOrderNote:
+    """Show a note to the customer in the portal, or stop (FR-PRT-4)."""
+    if note.shared_with_customer != shared:
+        note.shared_with_customer = shared
+        note.save(update_fields=["shared_with_customer"])
+        audit.record(
+            "work_order.note_share" if shared else "work_order.note_unshare",
+            note.work_order,
+            summary=f"{'Shared' if shared else 'Stopped sharing'} a note on "
+            f"{note.work_order.number} with the customer",
+        )
     return note
 
 

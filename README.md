@@ -33,10 +33,10 @@ printing, laser work. Self-hosted: the data stays on the shop's own hardware.
 - **Reports** — job profitability, sales, receivables aging, sales tax and
   gross receipts (B&O), time and machine use.
 - **Customer portal** — off until you turn it on. Customers you give access
-  sign in with an emailed code to see their jobs, quotes, invoices and shared
-  files, and approve or decline quotes, accepting the agreement online. One
-  switch, or the `PORTAL_OFF` setting, turns it off without touching anything
-  else.
+  sign in with an emailed code to see their jobs, quotes, invoices, shared
+  files and updates, and approve or decline quotes, signing to accept the
+  agreement. Customers can also sign on a shop tablet. One switch, or the
+  `PORTAL_OFF` setting, turns the portal off without touching anything else.
 - **Running it** — users and roles, audit log, email notifications, the REST
   API, scheduled backups with off-site copies (a network folder or
   S3-compatible storage), restore and export, and an update check.

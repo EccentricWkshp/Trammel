@@ -126,12 +126,14 @@
     <input type="hidden" name="next" value="{{ request.get_full_path }}">
     <div><label for="note-text">Note</label><textarea id="note-text" name="text" rows="2"></textarea></div>
     <div><label for="note-photo">Photo</label><input type="file" id="note-photo" name="photo" accept="image/*" capture="environment"></div>
+    {% if portal_on %}<div class="field-check"><label><input type="checkbox" name="shared" value="1"> Share with the customer</label> <span class="muted small">They see it as an update on their job in the customer portal.</span></div>{% endif %}
     <button type="submit">Add note</button>
   </form>
   {% endif %}
   <ol class="timeline">
   {% for n in notes %}
-    <li><time datetime="{{ n.created_at|date:'c' }}">{{ n.created_at|dt }}</time> {{ n.author.get_short_name }} — {{ n.text|linebreaksbr }}
+    <li><time datetime="{{ n.created_at|date:'c' }}">{{ n.created_at|dt }}</time> {{ n.author.get_short_name }}{% if n.shared_with_customer %} <span class="badge">shared with the customer</span>{% endif %} — {{ n.text|linebreaksbr }}
+      {% if can_edit and portal_on %}<form method="post" action="{% url 'workorders:note_share' wo.pk n.pk %}" class="inline">{% csrf_token %}<input type="hidden" name="shared" value="{{ n.shared_with_customer|yesno:'0,1' }}"><button type="submit" class="linklike small">{% if n.shared_with_customer %}Stop sharing{% else %}Share with the customer{% endif %}</button></form>{% endif %}
       {% if n.document %}<br><a href="{% url 'files:download' n.document.current_id %}?inline=1"><img class="note-photo" src="{% url 'files:thumbnail' n.document.pk %}" alt="Photo: {{ n.document.title }}"></a>{% endif %}</li>
   {% empty %}<li class="muted">No notes.</li>{% endfor %}
   </ol>

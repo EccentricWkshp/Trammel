@@ -13,5 +13,6 @@ urlpatterns = [
     path("job/<uuid:job_pk>/waive/", views.waive, name="waive"),
     path("<uuid:pk>/", views.detail, name="detail"),
     path("<uuid:pk>/pdf/", views.pdf, name="pdf"),
+    path("<uuid:pk>/print/", views.printable, name="print"),
     path("<uuid:pk>/accept/", views.accept, name="accept"),
 ]

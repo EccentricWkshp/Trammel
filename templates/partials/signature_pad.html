@@ -1,0 +1,11 @@
+{# A signature pad: needs static/signature.js on the page. `field` names the hidden input. #}
+<div class="field signature-field">
+  <span class="signature-label" id="{{ field }}-label">Your signature</span>
+  <div class="signature-box" data-signature="{{ field }}">
+    <canvas class="signature-pad" role="img" aria-labelledby="{{ field }}-label" aria-describedby="{{ field }}-help"></canvas>
+    <button type="button" class="linklike" data-signature-clear>Clear</button>
+  </div>
+  <input type="hidden" id="{{ field }}" name="{{ field }}">
+  <p class="muted small" id="{{ field }}-help">Sign with your finger, a stylus or the mouse.</p>
+  <noscript><p class="message warning">Signing needs JavaScript turned on in this browser.</p></noscript>
+</div>

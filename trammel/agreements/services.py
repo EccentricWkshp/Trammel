@@ -115,13 +115,20 @@ def accept(
     evidence=None,
     ip=None,
     user=None,
+    signature: bytes = b"",
 ) -> CustomerAgreement:
-    """Record acceptance with its evidence (FR-AGR-7)."""
+    """Record acceptance with its evidence (FR-AGR-7): for a signature, the
+    cleaned drawing (`trammel.core.signature.clean`)."""
     settings = AgreementSettings.load()
     if agreement.status != CustomerAgreement.Status.ISSUED:
         raise ValidationError(f"This agreement is {agreement.get_status_display().lower()}.")
     if method == CustomerAgreement.Method.MANUAL and not settings.manual_enabled:
         raise ValidationError("Staff-recorded acceptance is turned off.")
+    if method == CustomerAgreement.Method.SIGNATURE:
+        if not settings.signature_enabled:
+            raise ValidationError("Signature capture is turned off.")
+        if not signature:
+            raise ValidationError("Sign in the box.")
     if method == CustomerAgreement.Method.CLICK and not settings.click_enabled:
         raise ValidationError(
             "Accepting the agreement in the portal is turned off. Please contact us to approve."
@@ -141,6 +148,7 @@ def accept(
     agreement.notes = notes
     agreement.evidence = evidence
     agreement.evidence_ip = ip
+    agreement.signature = signature or b""
     agreement.recorded_by = user
     agreement.save()
     audit.record(

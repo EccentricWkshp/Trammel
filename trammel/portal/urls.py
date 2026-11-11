@@ -20,6 +20,7 @@ urlpatterns = [
     path("invoices/<uuid:pk>/pdf/", views.invoice_pdf, name="invoice_pdf"),
     path("agreements/<uuid:pk>/pdf/", views.agreement_pdf, name="agreement_pdf"),
     path("files/<uuid:pk>/", views.file, name="file"),
+    path("notes/<uuid:pk>/photo/", views.note_photo, name="note_photo"),
     # Staff
     path("access/<uuid:customer_pk>/", views.set_access, name="set_access"),
 ]

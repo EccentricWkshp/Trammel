@@ -6,6 +6,7 @@
   <meta name="robots" content="noindex, nofollow">
   <title>{% block title %}{% endblock %} · {{ business.name }}</title>
   <link rel="stylesheet" href="{% static 'trammel.css' %}">
+  {% block head %}{% endblock %}
 </head>
 <body class="portal">
 <a class="skip-link" href="#main">Skip to content</a>

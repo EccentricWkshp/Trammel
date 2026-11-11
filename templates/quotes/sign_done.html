@@ -1,0 +1,22 @@
+{% load static %}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Thank you · {{ business.name }}</title>
+  <link rel="stylesheet" href="{% static 'trammel.css' %}">
+</head>
+<body class="portal">
+<header class="topbar portal-bar">
+  <span class="brand"><span>{{ business.name }}</span></span>
+</header>
+<main id="main" class="page portal-page">
+  <section class="card portal-narrow">
+    <h1>Thank you, {{ name }}</h1>
+    <p>{{ revision.quote.get_kind_display }} {{ revision.quote.number }} is approved and signed. Please hand the device back.</p>
+    <p><a class="button" href="{{ revision.get_absolute_url }}">Back to the {{ revision.quote.noun }}</a></p>
+  </section>
+</main>
+</body>
+</html>

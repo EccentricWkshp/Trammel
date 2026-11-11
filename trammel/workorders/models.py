@@ -330,7 +330,12 @@ class WorkOrderNote(AppendOnlyModel):
     author = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )
+    #: Shown to the customer in the portal as an update on their job (FR-PRT-4).
+    #: Nothing is, unless staff choose. Who sees a note is not part of what it
+    #: says, so it can change on a note that otherwise never does.
+    shared_with_customer = models.BooleanField(default=False)
 
+    server_writable_fields = frozenset({"shared_with_customer"})
     customer_scope_path = "work_order__job__customer_id"
 
     class Meta:

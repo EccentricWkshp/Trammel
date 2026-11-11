@@ -1,5 +1,6 @@
 {% extends "portal/base.html" %}
 {% block title %}{{ revision.quote.number }}{% endblock %}
+{% block head %}{% if can_respond and signing %}{% load static %}<script src="{% static 'signature.js' %}" defer></script>{% endif %}{% endblock %}
 {% block content %}
 {% with q=revision.quote %}
 <p class="breadcrumb"><a href="{% url 'portal:home' %}">Your account</a> · <a href="{% url 'portal:job' q.job_id %}">{{ q.job.number }} {{ q.job.title }}</a></p>
@@ -27,9 +28,10 @@
     {% endif %}
     <div class="field"><label for="approve-name">Your full name</label>
       <input type="text" id="approve-name" name="name" value="{{ visitor.name }}" maxlength="150" autocomplete="name" required></div>
+    {% if signing %}{% include "partials/signature_pad.html" with field="signature" %}{% endif %}
     <div class="field"><label for="approve-comment">Comment (optional)</label>
       <textarea id="approve-comment" name="comment" rows="2" maxlength="2000"></textarea></div>
-    <p class="muted small">Approving records your name, the time, and your IP address{% if agreement %}, as your acceptance of the terms above{% endif %}.</p>
+    <p class="muted small">Approving records your name{% if signing %} and signature{% endif %}, the time, and your IP address{% if agreement %}, as your acceptance of the terms above{% endif %}.</p>
     <div class="actions"><button type="submit" class="primary">Approve {{ q.noun }} for {{ revision.total|money }}</button></div>
   </form>
 </section>

@@ -437,6 +437,7 @@ def approve(
     agreement_method: str = "manual",
     ip=None,
     user=None,
+    signature: bytes = b"",
 ) -> Approval:
     """Approve the quote and, with it, the customer agreement (FR-QUO-8, §6 step 5).
 
@@ -480,6 +481,7 @@ def approve(
                 notes=f"Accepted with change order {quote.number}",
                 ip=ip,
                 user=user,
+                signature=signature,
             )
         return _record_approval(
             revision,
@@ -490,6 +492,7 @@ def approve(
             approved_at=approved_at,
             notes=notes,
             user=user,
+            signature=signature,
         )
     agreement = agreements.accepted(job)
     if agreement is None and not agreements.satisfied(job) and not accept_agreement:
@@ -516,6 +519,7 @@ def approve(
             notes=f"Accepted with quote {revision}",
             ip=ip,
             user=user,
+            signature=signature,
         )
     approval = _record_approval(
         revision,
@@ -527,8 +531,46 @@ def approve(
         notes=notes,
         user=user,
         move_job=True,
+        signature=signature,
     )
     return approval
+
+
+def can_answer(revision: QuoteRevision) -> bool:
+    """Sent and still valid: the customer can approve or decline it."""
+    valid = revision.valid_until
+    return revision.status == S.SENT and not (valid and valid < timezone.localdate())
+
+
+def terms_to_accept(revision: QuoteRevision) -> dict | None:
+    """The terms a customer accepts by approving this quote or change order, as
+    {"title", "text", "hash"} — the exact text approve() will record — or None.
+
+    A change order's amended terms, if it carries any; a quote's customer
+    agreement, unless the job's agreement is already accepted, waived or not
+    required. The hash lets a page check, when the customer presses the
+    button, that the text they read is still the text being accepted.
+    """
+    import hashlib
+
+    from trammel.agreements import services as agreements
+
+    def found(title: str, text: str) -> dict:
+        return {"title": title, "text": text, "hash": hashlib.sha256(text.encode()).hexdigest()}
+
+    if revision.quote.is_change_order:
+        terms = revision.amended_terms.strip()
+        if not terms:
+            return None
+        return found("Amended terms", f"Amended terms — {revision.quote.number}\n\n{terms}")
+    job = revision.quote.job
+    if agreements.satisfied(job):
+        return None
+    issued = job.agreements.filter(is_primary=True, status="issued").first()
+    if issued:
+        return found("Customer agreement", issued.text)
+    percent = revision.deposit_value if revision.deposit_kind == "percent" else None
+    return found("Customer agreement", agreements.preview_text(job, deposit_percent=percent))
 
 
 def approve_permission(quote: Quote) -> str:
@@ -546,8 +588,10 @@ def _record_approval(
     notes,
     user,
     move_job: bool = False,
+    signature: bytes = b"",
 ) -> Approval:
     approval = Approval.objects.create(
+        signature=signature or b"",
         revision=revision,
         method=method,
         how=how,
@@ -654,6 +698,24 @@ def document_context(revision: QuoteRevision) -> dict:
             else None,
         },
         "agreement": agreement_text,
+        "approval": _approval_context(revision),
+    }
+
+
+def _approval_context(revision: QuoteRevision) -> dict | None:
+    """Who approved it, when and how, and their signature as a data: URL (empty
+    unless they signed), for the document; None until it is approved."""
+    from trammel.core.signature import data_uri
+
+    approval = Approval.objects.filter(revision=revision).first()
+    if approval is None:
+        return None
+    return {
+        "name": approval.approved_by_name,
+        "date": timezone.localtime(approval.approved_at).date(),
+        "method": approval.get_method_display(),
+        "how": approval.get_how_display() if approval.how else "",
+        "signature": data_uri(bytes(approval.signature)) if approval.signature else "",
     }
 
 

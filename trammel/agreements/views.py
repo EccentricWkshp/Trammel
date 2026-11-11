@@ -12,7 +12,7 @@ from django.views.decorators.http import require_POST
 from trammel.core import access, audit, placeholders, templating
 from trammel.core.middleware import client_ip
 from trammel.core.services import save_audited
-from trammel.core.web import permission_required
+from trammel.core.web import document_response, document_view, permission_required
 from trammel.jobs.models import Job
 
 from . import services
@@ -53,7 +53,13 @@ class AcceptForm(forms.Form):
 class SettingsForm(forms.ModelForm):
     class Meta:
         model = AgreementSettings
-        fields = ["required", "manual_enabled", "upload_enabled", "click_enabled"]
+        fields = [
+            "required",
+            "manual_enabled",
+            "upload_enabled",
+            "click_enabled",
+            "signature_enabled",
+        ]
 
 
 @permission_required("agreements.view")
@@ -150,19 +156,33 @@ def detail(request, pk):
     )
 
 
-@permission_required("agreements.view")
-def pdf(request, pk):
+def _printable(request, pk) -> tuple[CustomerAgreement, str]:
+    from django.template.loader import render_to_string
+
     agreement = access.get_or_404(
         request.actor,
         "agreements.view",
         CustomerAgreement.objects.select_related("job__customer"),
         pk=pk,
     )
-    from django.template.loader import render_to_string
-
     html = render_to_string(
         "agreements/print.html", {"agreement": agreement, "business": request.business}
     )
+    return agreement, html
+
+
+@permission_required("agreements.view")
+@document_view
+def printable(request, pk):
+    """The agreement as a page to print, signature and all; with ?print=1 the
+    browser's print dialog opens, so it can be saved as a PDF anywhere."""
+    _agreement, html = _printable(request, pk)
+    return document_response(request, html)
+
+
+@permission_required("agreements.view")
+def pdf(request, pk):
+    agreement, html = _printable(request, pk)
     try:
         data = templating.render_pdf(html)
     except templating.PdfUnavailable as exc:

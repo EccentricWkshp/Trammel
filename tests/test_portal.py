@@ -209,9 +209,17 @@ def test_customers_see_only_their_own_sent_records(signed_in, grace, admin):
 
 @pytest.mark.django_db
 def test_approving_in_the_portal_records_who_when_and_the_accepted_terms(signed_in, grace, admin):
+    # With signature capture off, the customer accepts by typing and ticking
+    # (signing is in test_signatures.py).
+    from trammel.agreements.models import AgreementSettings
+
+    settings_ = AgreementSettings.load()
+    settings_.signature_enabled = False
+    settings_.save()
     revision = _sent_quote(grace, admin)
     page = signed_in.get(f"/portal/quotes/{revision.pk}/").content.decode()
     assert "Customer agreement" in page and "I have read and accept" in page
+    assert "data-signature" not in page
     terms = re.search(r'name="terms" value="([0-9a-f]+)"', page).group(1)
     # Without ticking the box, nothing is approved.
     signed_in.post(

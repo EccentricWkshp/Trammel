@@ -248,7 +248,50 @@ def job(request, pk):
             invoices=_invoices(actor, job=found),
             agreements=_agreements(actor, job=found),
             files=_shared_files(actor, found),
+            updates=_updates(actor, found),
         ),
+    )
+
+
+def _updates(actor, job) -> list:
+    """Notes staff shared with the customer from the job's work orders (FR-PRT-4)."""
+    if not modules.is_enabled("workorders"):
+        return []
+    from trammel.workorders.models import WorkOrderNote
+
+    return list(
+        access.scoped(actor, "workorders.view", WorkOrderNote.objects.all())
+        .filter(work_order__job=job, shared_with_customer=True)
+        .select_related("author", "document")
+        .order_by("-created_at")
+    )
+
+
+@portal_view
+def note_photo(request, pk):
+    """The photo on a note shared with the customer."""
+    if not modules.is_enabled("workorders"):
+        raise Http404
+    from trammel.files import services as files
+    from trammel.files.views import _serve
+    from trammel.workorders.models import WorkOrderNote
+
+    note = access.get_or_404(
+        request.actor,
+        "workorders.view",
+        WorkOrderNote.objects.select_related("document__current__blob"),
+        pk=pk,
+        shared_with_customer=True,
+        document__isnull=False,
+    )
+    current = note.document.current
+    if current is None:
+        raise Http404
+    return _serve(
+        files.blob_path(current.blob),
+        mime=current.blob.mime,
+        filename=current.original_name,
+        inline=current.blob.is_previewable_inline,
     )
 
 
@@ -265,40 +308,24 @@ def _revision(request, pk) -> QuoteRevision:
 
 
 def _can_respond(revision) -> bool:
-    valid = revision.valid_until
-    return revision.status == "sent" and not (valid and valid < timezone.localdate())
+    from trammel.quotes import services as quotes
+
+    return quotes.can_answer(revision)
 
 
 def _agreement_to_accept(revision):
-    """The agreement text the customer accepts with this quote, if any."""
-    if not modules.is_enabled("agreements"):
-        return None
-    from trammel.agreements import services as agreements
+    """The terms the customer accepts with this quote, if any: the exact text
+    approving records (quotes.terms_to_accept)."""
+    from trammel.quotes import services as quotes
 
-    if revision.quote.is_change_order:
-        terms = revision.amended_terms.strip()
-        if not terms:
-            return None
-        text = f"Amended terms — {revision.quote.number}\n\n{terms}"
-        return {"title": "Amended terms", "text": text, "hash": _digest(text)}
-    job = revision.quote.job
-    if agreements.satisfied(job):
-        return None
-    # The same text quotes.approve() will record: the issued agreement, or the
-    # one it would issue now.
-    issued = job.agreements.filter(is_primary=True, status="issued").first()
-    if issued:
-        text = issued.text
-    else:
-        percent = revision.deposit_value if revision.deposit_kind == "percent" else None
-        text = agreements.preview_text(job, deposit_percent=percent)
-    return {"title": "Customer agreement", "text": text, "hash": _digest(text)}
+    return quotes.terms_to_accept(revision)
 
 
-def _digest(text: str) -> str:
-    import hashlib
+def _signing() -> bool:
+    """Customers draw a signature to approve, when signature capture is on."""
+    from trammel.agreements.models import AgreementSettings
 
-    return hashlib.sha256(text.encode()).hexdigest()
+    return AgreementSettings.load().signature_enabled
 
 
 @portal_view
@@ -312,6 +339,7 @@ def quote(request, pk):
             revision=revision,
             can_respond=_can_respond(revision),
             agreement=_agreement_to_accept(revision) if _can_respond(revision) else None,
+            signing=_signing(),
             approval=Approval.objects.filter(revision=revision).first(),
         ),
     )
@@ -339,6 +367,10 @@ def respond(request, pk):
                 )
             if agreement and request.POST.get("accept") != "1":
                 raise ValidationError(f"Tick the box to accept the {agreement['title'].lower()}.")
+            from trammel.core import signature as signatures
+
+            signing = _signing()
+            drawn = signatures.clean(request.POST.get("signature", "")) if signing else b""
             quotes.approve(
                 revision,
                 actor=request.actor,
@@ -348,8 +380,9 @@ def respond(request, pk):
                 ),
                 accept_agreement=agreement is not None,
                 method="portal",
-                agreement_method="click",
+                agreement_method="signature" if signing else "click",
                 ip=client_ip(request),
+                signature=drawn,
             )
             messages.success(request, f"Thank you. The {noun} is approved.")
         elif request.POST.get("answer") == "decline":

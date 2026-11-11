@@ -112,6 +112,8 @@ class OperationCreateIn(Schema):
 
 class NoteIn(Schema):
     text: str
+    #: Show it to the customer in the portal as an update on their job.
+    shared_with_customer: bool = False
 
 
 class MaterialUseIn(Schema):
@@ -218,7 +220,10 @@ def set_operation(request, wo_id: UUID, op_id: UUID, payload: OperationIn):
 @router.post("/{wo_id}/notes", response={201: dict})
 def add_note(request, wo_id: UUID, payload: NoteIn):
     note = services.add_note(
-        _wo(request, "workorders.edit", wo_id), text=payload.text, user=request.actor.user
+        _wo(request, "workorders.edit", wo_id),
+        text=payload.text,
+        user=request.actor.user,
+        shared=payload.shared_with_customer,
     )
     return Status(201, {"id": str(note.pk)})
 

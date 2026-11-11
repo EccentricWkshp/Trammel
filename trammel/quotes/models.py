@@ -398,6 +398,7 @@ class Approval(AppendOnlyModel):
     class Method(models.TextChoices):
         MANUAL = "manual", "Recorded by staff"
         PORTAL = "portal", "Customer portal"
+        SIGNED = "signed", "Signed in the shop"
 
     class How(models.TextChoices):
         IN_PERSON = "in_person", "In person"
@@ -416,6 +417,8 @@ class Approval(AppendOnlyModel):
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )
     notes = models.TextField(blank=True)
+    #: The customer's drawn signature, as a cropped PNG, when they signed.
+    signature = models.BinaryField(blank=True, default=b"", editable=False)
     snapshot = models.JSONField(default=dict)
     agreement = models.ForeignKey(
         "agreements.CustomerAgreement",

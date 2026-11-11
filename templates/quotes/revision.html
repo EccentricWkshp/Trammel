@@ -28,7 +28,8 @@
 <aside class="callout">
   Approved by <strong>{{ approval.approved_by_name }}</strong> on {{ approval.approved_at|dt }} ({{ approval.get_how_display|lower }}){% if approval.recorded_by %}, recorded by {{ approval.recorded_by }}{% endif %}.
   {% if approval.agreement %}{% if quote.is_change_order %}Its amended terms were accepted with it.{% else %}The customer agreement was accepted with it.{% endif %}{% endif %}
-  {% if approval.notes %}<br>{{ approval.notes }}{% endif %}
+  {% if approval.notes %}<br>{{ approval.notes|linebreaksbr }}{% endif %}
+  {% if approval.signature %}<img class="signature-image" src="{{ approval.signature|signature_uri }}" alt="Signature of {{ approval.approved_by_name }}">{% endif %}
 </aside>
 {% endif %}
 
@@ -38,6 +39,7 @@
   {% endif %}
   {% if can_approve %}
   <a class="button primary" href="{% url 'quotes:approve' revision.pk %}">Record approval…</a>
+  {% if can_sign %}<a class="button" href="{% url 'quotes:sign' revision.pk %}">Sign on this device…</a>{% endif %}
   <form method="post" action="{% url 'quotes:decline' revision.pk %}" class="transition">{% csrf_token %}
     <label for="decline-reason">Reason (optional)</label><input type="text" id="decline-reason" name="reason">
     <button type="submit">Customer declined</button>

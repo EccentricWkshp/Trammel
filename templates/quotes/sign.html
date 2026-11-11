@@ -1,0 +1,46 @@
+{% load static %}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>{{ quote.get_kind_display }} {{ quote.number }} · {{ business.name }}</title>
+  <link rel="stylesheet" href="{% static 'trammel.css' %}">
+  <script src="{% static 'signature.js' %}" defer></script>
+</head>
+<body class="portal">
+{# Handed to the customer on a shop tablet or phone: no staff menus. #}
+<header class="topbar portal-bar">
+  <span class="brand">{% if business.show_logo and business.logo %}<img src="{{ business.logo_data_uri }}" alt="" class="portal-logo">{% endif %}<span>{{ business.name }}</span></span>
+</header>
+<main id="main" class="page portal-page">
+  <h1>{{ quote.get_kind_display }} {{ quote.number }} · {{ quote.title }}</h1>
+  <dl class="facts-inline">
+    <div><dt>For</dt><dd>{{ quote.job.customer.name }}</dd></div>
+    <div><dt>Total</dt><dd>{{ revision.total|money }}</dd></div>
+    {% if revision.deposit_amount %}<div><dt>Deposit on approval</dt><dd>{{ revision.deposit_amount|money }}</dd></div>{% endif %}
+    {% if revision.valid_until %}<div><dt>Valid until</dt><dd>{{ revision.valid_until|d }}</dd></div>{% endif %}
+  </dl>
+  <iframe class="document-preview" src="{% url 'quotes:document' revision.pk %}" sandbox title="{{ quote.get_kind_display }} {{ quote.number }}"></iframe>
+
+  <section class="card" aria-labelledby="sign-heading">
+    <h2 id="sign-heading">Approve and sign</h2>
+    {% if error %}<p class="form-errors" role="alert">{{ error }}</p>{% endif %}
+    <form method="post" class="stack" novalidate>{% csrf_token %}
+      {% if terms %}
+      <input type="hidden" name="terms" value="{{ terms.hash }}">
+      <h3>{{ terms.title }}</h3>
+      <div class="agreement-text prewrap" tabindex="0" aria-label="{{ terms.title }}">{{ terms.text }}</div>
+      <div class="field field-check"><label><input type="checkbox" name="accept" value="1" required> I have read and accept the {{ terms.title|lower }}.</label></div>
+      {% endif %}
+      <div class="field"><label for="sign-name">Your full name</label>
+        <input type="text" id="sign-name" name="name" value="{{ name }}" maxlength="150" autocomplete="off" required></div>
+      {% include "partials/signature_pad.html" with field="signature" %}
+      <p class="muted small">Signing approves this {{ quote.noun }} for {{ revision.total|money }}{% if terms %} and accepts the terms above{% endif %}. Your name, signature and the time are recorded.</p>
+      <div class="actions"><button type="submit" class="primary">Approve and sign</button></div>
+    </form>
+  </section>
+  <p class="muted small"><a href="{{ revision.get_absolute_url }}">Back to the {{ quote.noun }}</a> (for staff)</p>
+</main>
+</body>
+</html>

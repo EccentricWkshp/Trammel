@@ -90,6 +90,8 @@ class CustomerAgreement(BaseModel):
         "files.Document", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )
     evidence_ip = models.GenericIPAddressField(null=True, blank=True)
+    #: The drawn signature, as a cropped PNG, when accepted by signing.
+    signature = models.BinaryField(blank=True, default=b"", editable=False)
     notes = models.TextField(blank=True)
     recorded_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
@@ -132,6 +134,12 @@ class AgreementSettings(SingletonModel):
         default=True,
         help_text="The customer types their name and ticks a box to accept, when they approve a "
         "quote in the portal. The time and their IP address are recorded.",
+    )
+    signature_enabled = models.BooleanField(
+        "signature capture",
+        default=True,
+        help_text="The customer draws their signature to accept: in the portal (as well as typing "
+        "their name), and on a tablet or phone in the shop with Sign on this device.",
     )
 
     class Meta:

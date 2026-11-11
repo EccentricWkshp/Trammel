@@ -32,6 +32,8 @@ DEFAULT_TEMPLATE = """\
   .notes { margin-top: 18pt; white-space: pre-wrap; }
   .terms { margin-top: 24pt; font-size: 8.5pt; color: #333; white-space: pre-wrap;
            page-break-before: always; }
+  .approval { margin-top: 18pt; padding-top: 6pt; border-top: 1px solid #999; font-size: 9.5pt; }
+  .approval .signature { display: block; max-width: 3in; max-height: 1.1in; margin-top: 6pt; }
 </style>
 </head>
 <body>
@@ -96,6 +98,12 @@ DEFAULT_TEMPLATE = """\
 
 {% if quote.notes %}<div class="notes">{{ quote.notes }}</div>{% endif %}
 {% if agreement %}<div class="terms">{{ agreement }}</div>{% endif %}
+{% if approval %}
+<div class="approval">
+  Approved by {{ approval.name }} on {{ approval.date|date }}{% if approval.how %} ({{ approval.how|lower }}){% endif %}{% if agreement %}, accepting the terms above{% endif %}.
+  {% if approval.signature %}<img class="signature" src="{{ approval.signature }}" alt="Signature of {{ approval.name }}">{% endif %}
+</div>
+{% endif %}
 </body>
 </html>
 """

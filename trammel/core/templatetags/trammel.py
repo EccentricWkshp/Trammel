@@ -93,6 +93,14 @@ def minutes(value):
 
 
 @register.filter
+def signature_uri(value):
+    """A stored signature PNG as a data: URL, for an <img>."""
+    from trammel.core.signature import data_uri
+
+    return data_uri(value) if value else ""
+
+
+@register.filter
 def hours(value):
     """A time in hours for reading: 0 -> —, 1 -> 1 hour, 12 -> 12 hours, 1.5 -> 1.5 hours."""
     if value in (None, ""):

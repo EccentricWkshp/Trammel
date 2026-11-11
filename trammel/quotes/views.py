@@ -192,6 +192,9 @@ def revision_detail(request, pk):
             "can_send": revision.is_draft and access.has_perm(actor, "quotes.edit", revision),
             "can_approve": revision.status == Status.SENT
             and access.has_perm(actor, services.approve_permission(quote), revision),
+            "can_sign": services.can_answer(revision)
+            and _signing()
+            and access.has_perm(actor, services.approve_permission(quote), revision),
             "can_delete": access.has_perm(actor, "quotes.edit", revision)
             and not services.can_delete(quote),
             "can_revise": revision.status in (Status.SENT, Status.DECLINED, Status.EXPIRED)
@@ -440,6 +443,75 @@ def approve(request, pk):
             "revision": revision,
             "quote": quote,
             "needs_agreement": needs_agreement,
+        },
+    )
+
+
+def _signing() -> bool:
+    from trammel.agreements.models import AgreementSettings
+
+    return AgreementSettings.load().signature_enabled
+
+
+@permission_required("quotes.view")
+def sign(request, pk):
+    """The customer signs on this device (a shop tablet or phone) to approve,
+    accepting the terms with their signature (FR-AGR-7). A plain page with no
+    staff menus, made to hand over the counter."""
+    from trammel.core import signature as signatures
+    from trammel.core.middleware import client_ip
+
+    revision = _revision(request, "quotes.view", pk)
+    quote = revision.quote
+    access.require(request.actor, services.approve_permission(quote), revision)
+    if not _signing():
+        messages.error(request, "Signature capture is turned off in agreement settings.")
+        return redirect(revision)
+    if not services.can_answer(revision):
+        messages.error(request, f"This {quote.noun} can't be approved any more.")
+        return redirect(revision)
+    terms = services.terms_to_accept(revision)
+    error = ""
+    name = request.POST.get("name", "").strip()[:150]
+    if request.method == "POST":
+        try:
+            if terms and request.POST.get("terms") != terms["hash"]:
+                raise ValidationError(
+                    "The terms have changed since this page was opened. Please read them again."
+                )
+            if terms and request.POST.get("accept") != "1":
+                raise ValidationError(f"Tick the box to accept the {terms['title'].lower()}.")
+            if not name:
+                raise ValidationError("Write your full name.")
+            drawn = signatures.clean(request.POST.get("signature", ""))
+            services.approve(
+                revision,
+                actor=request.actor,
+                approved_by_name=name,
+                how="in_person",
+                notes=f"Signed on a device in the shop, handed over by {request.user}.",
+                accept_agreement=terms is not None,
+                method="signed",
+                agreement_method="signature",
+                ip=client_ip(request),
+                user=request.user,
+                signature=drawn,
+            )
+        except (ValidationError, TransitionError) as exc:
+            error = " ".join(getattr(exc, "problems", None) or exc.messages)
+        except PermissionDenied:
+            error = f"Your role does not allow approving {quote.noun}s."
+        else:
+            return render(request, "quotes/sign_done.html", {"revision": revision, "name": name})
+    return render(
+        request,
+        "quotes/sign.html",
+        {
+            "revision": revision,
+            "quote": quote,
+            "terms": terms,
+            "name": name or quote.job.customer.name,
+            "error": error,
         },
     )
 

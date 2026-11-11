@@ -10,6 +10,18 @@
   {% elif job.delivery_planned %}<div><dt>Delivery or pickup planned</dt><dd>{{ job.delivery_planned|d }}</dd></div>{% endif %}
 </dl>
 
+{% if updates %}
+<section aria-labelledby="updates-heading">
+  <h2 id="updates-heading">Updates</h2>
+  <ol class="timeline">
+  {% for n in updates %}
+    <li><time datetime="{{ n.created_at|date:'c' }}">{{ n.created_at|dt }}</time>{% if n.author %} {{ n.author.get_short_name }}{% endif %} — {{ n.text|linebreaksbr }}
+      {% if n.document %}<br><a href="{% url 'portal:note_photo' n.pk %}">See the photo</a>{% endif %}</li>
+  {% endfor %}
+  </ol>
+</section>
+{% endif %}
+
 <section aria-labelledby="quotes-heading">
   <h2 id="quotes-heading">Quotes and change orders</h2>
   {% if quotes %}

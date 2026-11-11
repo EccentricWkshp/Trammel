@@ -25,6 +25,7 @@ urlpatterns = [
     path("r/<uuid:pk>/estimate/<str:key>/<uuid:line_pk>/", views.estimate, name="estimate"),
     path("r/<uuid:pk>/send/", views.send, name="send"),
     path("r/<uuid:pk>/approve/", views.approve, name="approve"),
+    path("r/<uuid:pk>/sign/", views.sign, name="sign"),
     path("r/<uuid:pk>/decline/", views.decline, name="decline"),
     path("r/<uuid:pk>/revise/", views.revise, name="revise"),
     path("r/<uuid:pk>/delete/", views.quote_delete, name="delete"),
