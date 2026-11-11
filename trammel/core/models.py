@@ -224,7 +224,11 @@ class SystemSettings(SingletonModel):
         default=True, help_text="Check GitHub releases for a newer version and tell the admin."
     )
     require_mfa_for_admins = models.BooleanField(
-        "require two-factor sign-in for system admins", default=False
+        "require two-factor sign-in for system admins",
+        default=False,
+        help_text="Strongly recommended, above all once Trammel can be reached from the "
+        "internet: without it an admin can sign in with a password or an emailed link alone. "
+        "Each admin sets up an authenticator app on their profile first.",
     )
     audit_retention_days = models.PositiveIntegerField(
         default=0, help_text="Delete audit entries older than this. 0 keeps them forever."

@@ -11,7 +11,7 @@ from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.utils import timezone
-from django.utils.http import urlencode
+from django.utils.http import content_disposition_header, urlencode
 from django.views.decorators.http import require_POST
 
 from trammel.core import access, templating
@@ -455,7 +455,9 @@ def document(request, pk):
             return HttpResponse(str(exc), status=503, content_type="text/plain")
         response = HttpResponse(data, content_type="application/pdf")
         name = po.number or "draft"
-        response["Content-Disposition"] = f'attachment; filename="purchase-order-{name}.pdf"'
+        response["Content-Disposition"] = content_disposition_header(
+            True, f"purchase-order-{name}.pdf"
+        )
         return response
     return document_response(request, html)
 

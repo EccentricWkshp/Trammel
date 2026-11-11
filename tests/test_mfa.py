@@ -100,10 +100,14 @@ def test_magic_link(client, admin, django_capture_on_commit_callbacks):
     assert len(mail.outbox) == 1
     link = re.search(r"https?://\S+/accounts/email-link/\S+/", mail.outbox[0].body).group(0)
     path = link.split("8000", 1)[-1] if "8000" in link else "/" + link.split("/", 3)[3]
-    assert client.get(path).status_code == 302
+    # Opening the link only offers a button; a mail scanner opening it uses nothing.
+    assert "Sign in" in client.get(path).content.decode()
+    assert "_auth_user_id" not in client.session
+    assert client.post(path).status_code == 302
     assert client.session["_auth_user_id"] == str(admin.pk)
     client.logout()
     assert client.get(path).status_code == 400  # used up
+    assert client.post(path).status_code == 400
     assert MagicLink.objects.get().used_at is not None
 
 
@@ -111,5 +115,5 @@ def test_magic_link(client, admin, django_capture_on_commit_callbacks):
 def test_magic_link_still_needs_the_second_factor(client, enrolled):
     admin, _secret, _codes = enrolled
     token = MagicLink.issue(admin)
-    response = client.get(f"/accounts/email-link/{token}/")
+    response = client.post(f"/accounts/email-link/{token}/")
     assert response.url == "/accounts/two-factor/" and "_auth_user_id" not in client.session

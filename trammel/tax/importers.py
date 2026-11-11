@@ -428,8 +428,43 @@ def check_url(url: str) -> None:
         raise ValidationError(f"Cannot resolve {parsed.hostname}.") from exc
     for info in infos:
         address = ipaddress.ip_address(info[4][0])
+        if address.version == 6 and address.ipv4_mapped:
+            address = address.ipv4_mapped
         if not address.is_global:
             raise ValidationError("That address is on a private network.")
+
+
+class _NoRedirects(urllib.request.HTTPRedirectHandler):
+    """Redirects come back as errors, so each new address is checked first."""
+
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+MAX_REDIRECTS = 5
+
+
+def _open(url: str):
+    """Open `url`, following redirects only to addresses check_url accepts."""
+    import urllib.error
+    from urllib.parse import urljoin
+
+    opener = urllib.request.build_opener(_NoRedirects)
+    for _ in range(MAX_REDIRECTS + 1):
+        check_url(url)
+        request = urllib.request.Request(  # noqa: S310 — https checked above
+            url, headers={"User-Agent": f"Trammel/{settings.APP_VERSION} (tax import)"}
+        )
+        try:
+            return opener.open(request, timeout=60)
+        except urllib.error.HTTPError as exc:
+            location = (
+                exc.headers.get("Location") if exc.code in (301, 302, 303, 307, 308) else None
+            )
+            if not location:
+                raise
+            url = urljoin(url, location)
+    raise ValidationError("The address redirects too many times.")
 
 
 def download(url: str) -> Path:
@@ -441,9 +476,6 @@ def download(url: str) -> Path:
     check_url(url)
     target_dir = Path(settings.MEDIA_ROOT) / "tmp"
     target_dir.mkdir(parents=True, exist_ok=True)
-    request = urllib.request.Request(  # noqa: S310 — https checked above
-        url, headers={"User-Agent": f"Trammel/{settings.APP_VERSION} (tax import)"}
-    )
     fd, name = tempfile.mkstemp(dir=target_dir, suffix=Path(urlparse(url).path).suffix)
     path = Path(name)
     total = 0
@@ -451,7 +483,7 @@ def download(url: str) -> Path:
         # The file is entered first, so it is closed even when the download fails.
         with (
             open(fd, "wb") as out,
-            urllib.request.urlopen(request, timeout=60) as response,  # noqa: S310
+            _open(url) as response,
         ):
             for chunk in iter(lambda: response.read(1 << 20), b""):
                 total += len(chunk)

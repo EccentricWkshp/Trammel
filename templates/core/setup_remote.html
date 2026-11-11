@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}Setup{% endblock %}
+{% block main_class %}page narrow{% endblock %}
+{% block content %}
+<h1>Set up Trammel from your own network</h1>
+<p>Whoever completes setup becomes the system admin, so it can only be done from the network Trammel runs on, such as a computer in the shop.</p>
+<p>To set it up from somewhere else, set <code>SETUP_TOKEN</code> in Trammel's <code>.env</code> file to a long random value, restart Trammel, and enter that value on this page.</p>
+{% endblock %}

@@ -134,7 +134,12 @@ REVISION_LIFECYCLE = Lifecycle(
         # Quotes and change orders are approved under different permissions;
         # services.approve checks the right one.
         Transition(Status.SENT, Status.APPROVED, label="Approve"),
-        Transition(Status.SENT, Status.DECLINED, permission="quotes.edit", label="Declined"),
+        Transition(
+            Status.SENT,
+            Status.DECLINED,
+            permission=("quotes.edit", "quotes.respond"),
+            label="Declined",
+        ),
         Transition(Status.SENT, Status.EXPIRED, permission="quotes.edit", label="Expire"),
         Transition(
             (Status.DRAFT, Status.SENT),

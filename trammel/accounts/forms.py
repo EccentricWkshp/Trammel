@@ -50,9 +50,9 @@ class ProfileForm(forms.ModelForm):
 def permission_choices():
     """Permissions grouped by module, for the role editor."""
     return [
-        (m.name, [(p.codename, p.label) for p in m.permissions])
+        (m.name, [(p.codename, p.label) for p in m.permissions if not p.customer_only])
         for m in modules.manifests()
-        if m.permissions
+        if any(not p.customer_only for p in m.permissions)
     ]
 
 

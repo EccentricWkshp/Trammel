@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hmac
+
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import login
@@ -22,6 +24,7 @@ from .forms import (
     ShopRatesForm,
     SystemSettingsForm,
 )
+from .middleware import client_ip
 from .models import AuditEvent, BusinessProfile, DocumentSequence, ShopRates, SystemSettings
 from .navigation import menu_for
 from .web import (
@@ -40,7 +43,7 @@ def healthz(request):
 
     with connection.cursor() as cursor:
         cursor.execute("SELECT 1")
-    return JsonResponse({"status": "ok", "version": settings.APP_VERSION})
+    return JsonResponse({"status": "ok"})
 
 
 # ---------------------------------------------------------------------------
@@ -53,10 +56,16 @@ def setup(request):
     if SystemSettings.objects.filter(setup_completed_at__isnull=False).exists():
         raise Http404
     token_required = bool(settings.SETUP_TOKEN)
+    if not token_required and not _on_local_network(client_ip(request)):
+        # Whoever completes setup becomes the admin; from the internet that must
+        # not be just whoever arrives first.
+        return render(request, "core/setup_remote.html", status=403)
     form = SetupForm(request.POST or None, token_required=token_required)
     if request.method == "POST" and form.is_valid():
         data = form.cleaned_data
-        if token_required and data["setup_token"] != settings.SETUP_TOKEN:
+        if token_required and not hmac.compare_digest(
+            data["setup_token"].encode(), settings.SETUP_TOKEN.encode()
+        ):
             form.add_error("setup_token", "That is not this instance's setup token.")
         else:
             try:
@@ -71,6 +80,28 @@ def setup(request):
         request,
         "core/setup.html",
         {"form": form, "secure": request.is_secure(), "base_url": settings.BASE_URL},
+    )
+
+
+#: Networks that are someone's own: home and office ranges (RFC 1918), IPv6
+#: unique-local addresses, and Docker's own bridge networks among them.
+_LOCAL_NETWORKS = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7")
+
+
+def _on_local_network(ip: str | None) -> bool:
+    import ipaddress
+
+    try:
+        address = ipaddress.ip_address(ip or "")
+    except ValueError:
+        return False
+    if address.version == 6 and address.ipv4_mapped:
+        address = address.ipv4_mapped
+    if address.is_loopback or address.is_link_local:
+        return True
+    return any(
+        address.version == net.version and address in net
+        for net in map(ipaddress.ip_network, _LOCAL_NETWORKS)
     )
 
 
@@ -254,8 +285,22 @@ def system(request):
         title="System",
         success="System settings saved.",
         # Modules add sections here, such as the update status.
-        context={"panels": panels.for_object(request, instance)},
+        context={"panels": panels.for_object(request, instance), "portal": _portal_state()},
     )
+
+
+def _portal_state() -> dict | None:
+    """The customer portal's switch, shown on the System page whether the portal
+    is on or off (FR-PRT-8), so it can always be found and turned off."""
+    try:
+        manifest = modules.get_manifest("portal")
+    except LookupError:
+        return None
+    return {
+        "name": manifest.name,
+        "on": modules.is_enabled("portal"),
+        "forced_off": "portal" in modules.forced_off(),
+    }
 
 
 @permission_required("core.manage_business")
@@ -317,7 +362,7 @@ def module_toggle(request, key):
     else:
         name = modules.get_manifest(key).name
         messages.success(request, f"{name} {'enabled' if enable else 'disabled'}.")
-    return redirect("core:modules")
+    return redirect("core:system" if request.POST.get("back") == "system" else "core:modules")
 
 
 # ---------------------------------------------------------------------------

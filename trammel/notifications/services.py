@@ -120,8 +120,14 @@ def notify(
             "body": body,
             "attachment": attachment,
         }
+        # A sign-in link or code is cleared from the queue once sent.
+        payload["secret"] = event in SECRET_EVENTS
         transaction.on_commit(lambda: tasks.enqueue("notifications.send", payload))
     return entry
+
+
+#: Emails carrying a way to sign in: their text isn't kept once they're sent.
+SECRET_EVENTS = frozenset({"magic_link", "portal_code"})
 
 
 def send_now(payload: dict) -> None:

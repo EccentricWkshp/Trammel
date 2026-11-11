@@ -1,0 +1,31 @@
+{% load static %}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>{% block title %}{% endblock %} · {{ business.name }}</title>
+  <link rel="stylesheet" href="{% static 'trammel.css' %}">
+</head>
+<body class="portal">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="topbar portal-bar">
+  <a class="brand" href="{% url 'portal:home' %}">{% if business.show_logo and business.logo %}<img src="{{ business.logo_data_uri }}" alt="" class="portal-logo">{% endif %}<span>{{ business.name }}</span></a>
+  {% if visitor %}
+  <div class="portal-who">
+    <span>{{ visitor.name }}{% if visitor.name != visitor.customer.name %} · {{ visitor.customer.name }}{% endif %}</span>
+    <form method="post" action="{% url 'portal:sign_out' %}">{% csrf_token %}<button type="submit" class="linklike">Sign out</button></form>
+  </div>
+  {% endif %}
+</header>
+<main id="main" class="page portal-page">
+  {% if messages %}
+  <div class="messages" role="status">
+    {% for message in messages %}<p class="message {{ message.tags }}">{{ message }}</p>{% endfor %}
+  </div>
+  {% endif %}
+  {% block content %}{% endblock %}
+</main>
+<footer class="footer">{{ business.name }}{% if business.show_phone and business.phone %} · {{ business.phone }}{% endif %}{% if business.show_email and business.email %} · {{ business.email }}{% endif %}</footer>
+</body>
+</html>

@@ -1,0 +1,17 @@
+{% extends "portal/base.html" %}
+{% block title %}Sign in{% endblock %}
+{% block content %}
+<section class="card portal-narrow">
+  <h1>Sign in</h1>
+  {% if ready %}
+  <p>See your jobs, quotes and invoices with {{ business.name }}. Enter your email address and we'll send you a code to sign in with. No password needed.</p>
+  <form method="post" class="stack" novalidate>{% csrf_token %}
+    <div class="field"><label for="portal-email">Email address</label>
+      <input type="email" id="portal-email" name="email" autocomplete="email" required autofocus></div>
+    <div class="actions"><button type="submit" class="primary">Send me a code</button></div>
+  </form>
+  {% else %}
+  <p>Signing in isn't available right now. Please contact {{ business.name }} directly.</p>
+  {% endif %}
+</section>
+{% endblock %}

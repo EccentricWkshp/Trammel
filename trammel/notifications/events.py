@@ -42,6 +42,8 @@ EVENTS: dict[str, Event] = {
             "{{ quote.number }} for "
             '"{{ quote.title }}" attached. The total is {{ quote.total|money }}'
             "{% if quote.valid_until %}, valid until {{ quote.valid_until|date }}{% endif %}.\n\n"
+            "{% if portal_link %}You can also see it, and approve it, online: {{ portal_link }}"
+            "\n\n{% endif %}"
             "Reply to this email with any questions.\n\n{{ business.name }}\n{{ business.phone }}\n",
         ),
         Event(
@@ -69,6 +71,7 @@ EVENTS: dict[str, Event] = {
             "Hello {{ customer.name }},\n\nPlease find {{ invoice.kind|lower }} {{ invoice.number }}"
             " attached for {{ invoice.total|money }}"
             "{% if invoice.due_date %}, due {{ invoice.due_date|date }}{% endif %}.\n\n"
+            "{% if portal_link %}You can also see it online: {{ portal_link }}\n\n{% endif %}"
             "Thank you,\n{{ business.name }}\n",
         ),
         Event(

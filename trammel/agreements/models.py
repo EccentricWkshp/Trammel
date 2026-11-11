@@ -127,6 +127,12 @@ class AgreementSettings(SingletonModel):
     )
     manual_enabled = models.BooleanField("acceptance recorded by staff", default=True)
     upload_enabled = models.BooleanField("acceptance by uploaded signed document", default=True)
+    click_enabled = models.BooleanField(
+        "click-to-accept in the customer portal",
+        default=True,
+        help_text="The customer types their name and ticks a box to accept, when they approve a "
+        "quote in the portal. The time and their IP address are recorded.",
+    )
 
     class Meta:
         verbose_name = "agreement settings"

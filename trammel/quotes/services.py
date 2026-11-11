@@ -434,6 +434,8 @@ def approve(
     notes: str = "",
     accept_agreement: bool = False,
     method: str = Approval.Method.MANUAL,
+    agreement_method: str = "manual",
+    ip=None,
     user=None,
 ) -> Approval:
     """Approve the quote and, with it, the customer agreement (FR-QUO-8, §6 step 5).
@@ -441,12 +443,17 @@ def approve(
     A change order is approved without the customer agreement, which the job
     already has; its amended terms, if it carries any, are accepted with it
     (FR-AGR-6). It never moves the job's status.
+
+    A customer approves their own in the portal (FR-PRT-3), accepting the
+    agreement there by `agreement_method` "click", from `ip`.
     """
     from trammel.agreements import services as agreements
 
     quote = revision.quote
     noun = quote.noun
-    if not access.has_perm(actor, approve_permission(quote), revision):
+    actor = access.as_actor(actor)
+    perm = "quotes.respond" if actor.is_customer else approve_permission(quote)
+    if not access.has_perm(actor, perm, revision):
         raise PermissionDenied(f"Your role does not allow approving {noun}s.")
     if not approved_by_name.strip():
         raise ValidationError(f"Who approved the {noun}?")
@@ -466,11 +473,12 @@ def approve(
             issued.save(update_fields=["text"])
             agreement = agreements.accept(
                 issued,
-                method="manual",
+                method=agreement_method,
                 accepted_by_name=approved_by_name,
                 how=how,
                 accepted_at=approved_at,
                 notes=f"Accepted with change order {quote.number}",
+                ip=ip,
                 user=user,
             )
         return _record_approval(
@@ -501,11 +509,12 @@ def approve(
             )
         agreement = agreements.accept(
             issued,
-            method="manual",
+            method=agreement_method,
             accepted_by_name=approved_by_name,
             how=how,
             accepted_at=approved_at,
             notes=f"Accepted with quote {revision}",
+            ip=ip,
             user=user,
         )
     approval = _record_approval(

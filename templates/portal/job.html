@@ -1,0 +1,52 @@
+{% extends "portal/base.html" %}
+{% block title %}{{ job.number }}{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{% url 'portal:home' %}">Your account</a></p>
+<h1>{{ job.number }} · {{ job.title }}</h1>
+<dl class="facts-inline">
+  <div><dt>Status</dt><dd>{{ job.portal_status }}</dd></div>
+  {% if job.promised_date %}<div><dt>Promised</dt><dd>{{ job.promised_date|d }}</dd></div>{% endif %}
+  {% if job.delivery_actual %}<div><dt>Delivered or picked up</dt><dd>{{ job.delivery_actual|d }}</dd></div>
+  {% elif job.delivery_planned %}<div><dt>Delivery or pickup planned</dt><dd>{{ job.delivery_planned|d }}</dd></div>{% endif %}
+</dl>
+
+<section aria-labelledby="quotes-heading">
+  <h2 id="quotes-heading">Quotes and change orders</h2>
+  {% if quotes %}
+  <div class="table-wrap"><table>
+    <thead><tr><th scope="col">Number</th><th scope="col">For</th><th scope="col">Status</th><th scope="col" class="num">Total</th></tr></thead>
+    <tbody>{% for r in quotes %}
+      <tr><td><a href="{% url 'portal:quote' r.pk %}">{{ r.quote.get_kind_display }} {{ r.quote.number }}</a></td><td>{{ r.quote.title }}</td><td>{% if r.status == "sent" %}Waiting for you{% else %}{{ r.get_status_display }}{% endif %}</td><td class="num">{{ r.total|money }}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% else %}<p class="muted">None yet.</p>{% endif %}
+</section>
+
+{% if invoices %}
+<section aria-labelledby="invoices-heading">
+  <h2 id="invoices-heading">Invoices</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th scope="col">Number</th><th scope="col">Date</th><th scope="col">Status</th><th scope="col" class="num">Total</th><th scope="col" class="num">To pay</th></tr></thead>
+    <tbody>{% for i in invoices %}
+      <tr><td><a href="{% url 'portal:invoice' i.pk %}">{{ i.get_kind_display }} {{ i.number }}</a></td><td>{{ i.invoice_date|d }}</td><td>{{ i.get_status_display }}</td><td class="num">{{ i.total|money }}</td><td class="num">{{ i.balance|money }}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+</section>
+{% endif %}
+
+{% if agreements %}
+<section aria-labelledby="agreements-heading">
+  <h2 id="agreements-heading">Agreements</h2>
+  <ul class="plain portal-list">{% for a in agreements %}
+    <li>Accepted {{ a.accepted_at|d }} by {{ a.accepted_by_name }} · <a href="{% url 'portal:agreement_pdf' a.pk %}">Download PDF</a></li>
+  {% endfor %}</ul>
+</section>
+{% endif %}
+
+{% if files %}
+<section aria-labelledby="files-heading">
+  <h2 id="files-heading">Files</h2>
+  {% include "portal/_files.html" %}
+</section>
+{% endif %}
+{% endblock %}

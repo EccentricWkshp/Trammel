@@ -175,11 +175,13 @@ def test_import_by_url(admin_client, monkeypatch):
             else [(2, 1, 6, "", ("142.250.0.1", port))]
         ),
     )
-    monkeypatch.setattr(
-        importers.urllib.request,
-        "urlopen",
-        lambda req, timeout: requested.append(req.full_url) or FakeResponse(payload),
-    )
+
+    class FakeOpener:
+        def open(self, req, timeout):
+            requested.append(req.full_url)
+            return FakeResponse(payload)
+
+    monkeypatch.setattr(importers.urllib.request, "build_opener", lambda *handlers: FakeOpener())
     url = "https://dor.wa.gov/sites/default/files/2026-08/WAR2026Q4.zip"
     admin_client.post("/tax/import/", {"kind": "sst", "url": url})
     tasks.run_pending()
@@ -191,6 +193,33 @@ def test_import_by_url(admin_client, monkeypatch):
         url,
         "WAR2026Q4.zip",
     )
+
+
+@pytest.mark.django_db
+def test_a_redirect_into_the_local_network_is_refused(setup_done, monkeypatch):
+    import urllib.error
+    from email.message import Message
+
+    monkeypatch.setattr(
+        importers.socket,
+        "getaddrinfo",
+        lambda host, port, *rest: [
+            (2, 1, 6, "", ("10.0.0.5" if host == "router.lan" else "142.250.0.1", port))
+        ],
+    )
+    opened = []
+
+    class Redirecting:
+        def open(self, req, timeout):
+            opened.append(req.full_url)
+            headers = Message()
+            headers["Location"] = "https://router.lan/admin"
+            raise urllib.error.HTTPError(req.full_url, 302, "Found", headers, None)
+
+    monkeypatch.setattr(importers.urllib.request, "build_opener", lambda *handlers: Redirecting())
+    with pytest.raises(ValidationError, match="private"):
+        importers.download("https://example.com/rates.zip")
+    assert opened == ["https://example.com/rates.zip"]  # the LAN address is never opened
 
 
 @pytest.mark.django_db
@@ -217,10 +246,11 @@ def test_failed_download_is_reported(admin_client, monkeypatch):
         importers.socket, "getaddrinfo", lambda host, port: [(2, 1, 6, "", ("142.250.0.1", port))]
     )
 
-    def boom(req, timeout):
-        raise OSError("404 Not Found")
+    class Failing:
+        def open(self, req, timeout):
+            raise OSError("404 Not Found")
 
-    monkeypatch.setattr(importers.urllib.request, "urlopen", boom)
+    monkeypatch.setattr(importers.urllib.request, "build_opener", lambda *handlers: Failing())
     admin_client.post("/tax/import/", {"kind": "sst", "url": "https://dor.wa.gov/missing.zip"})
     tasks.run_pending()
     batch = ImportBatch.objects.get()

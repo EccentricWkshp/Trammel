@@ -367,7 +367,14 @@ ol.ops li.op-depth-3 { padding-left: 4.5rem; }
   .page.with-sidebar { grid-template-columns: 1fr; gap: 1rem; }
   .sidebar ul { display: flex; flex-wrap: wrap; gap: .25rem; }
   .topbar { gap: .5rem; }
-  .mainnav { order: 3; flex-basis: 100%; }
+  /* Name on the left and the user menu at the far right, so its dropdown opens
+     under the right edge, on screen; search, then the menu, below. */
+  .topbar .brand { order: 1; }
+  .usermenu { order: 2; margin-left: auto; }
+  .topsearch { order: 3; flex-basis: 100%; }
+  .topbar .topsearch input { width: 100%; }
+  .mainnav { order: 4; flex-basis: 100%; }
+  .usermenu ul { max-width: calc(100vw - 1.5rem); }
 }
 
 .qr-box { width: 12rem; height: 12rem; background: #fff; padding: .5rem; border-radius: var(--radius); }
@@ -486,3 +493,13 @@ button.switch:hover .switch-track { outline: 2px solid var(--accent-soft); }
 .ref-table td.muted { font-size: .9rem; max-width: 22rem; overflow-wrap: anywhere; }
 .ref-toc ul { display: flex; flex-wrap: wrap; gap: .25rem 1rem; list-style: none; padding: 0; margin: .5rem 0 1rem; }
 .ref-kind { border-top: 1px solid var(--border); margin-top: 1.5rem; padding-top: .5rem; scroll-margin-top: 1rem; }
+
+/* Customer portal */
+.portal-bar { justify-content: space-between; }
+.portal-bar .brand { display: inline-flex; align-items: center; gap: .6rem; }
+.portal-logo { max-height: 2.25rem; width: auto; }
+.portal-who { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.portal-page { max-width: 60rem; margin: 0 auto; }
+.portal-narrow { max-width: 28rem; margin: 2rem auto; }
+.portal-list li { padding: .35rem 0; }
+.portal .agreement-text { max-height: 20rem; overflow-y: auto; }

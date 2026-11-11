@@ -22,6 +22,7 @@ from __future__ import annotations
 import logging
 import traceback
 from collections.abc import Callable
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -106,6 +107,31 @@ def _claim():
         return row
 
 
+@contextmanager
+def _shop_clock():
+    """The shop's time zone and date format, as a web page would use: times in
+    emails and documents made by the worker read in local time, not UTC."""
+    import zoneinfo
+
+    from . import formats
+    from .models import BusinessProfile
+
+    business = BusinessProfile.load()
+    try:
+        zone = zoneinfo.ZoneInfo(business.timezone)
+    except zoneinfo.ZoneInfoNotFoundError, ValueError:
+        zone = None
+    token = formats.activate(business.date_format)
+    try:
+        if zone is None:
+            yield
+        else:
+            with timezone.override(zone):
+                yield
+    finally:
+        formats.deactivate(token)
+
+
 def _run(row) -> None:
     from .models import BackgroundTask
 
@@ -113,7 +139,7 @@ def _run(row) -> None:
     try:
         if handler is None:
             raise LookupError(f"No handler for task {row.name!r}.")
-        with audit.acting_as(SYSTEM, source="system"):
+        with audit.acting_as(SYSTEM, source="system"), _shop_clock():
             handler(row.payload)
     except Exception as exc:  # noqa: BLE001 — every failure is recorded, none is fatal
         log.exception("Task %s failed", row.name)
@@ -128,7 +154,13 @@ def _run(row) -> None:
         row.state = BackgroundTask.State.DONE
         row.finished_at = timezone.now()
         row.last_error = ""
-    row.save(update_fields=["state", "finished_at", "last_error", "run_after"])
+    fields = ["state", "finished_at", "last_error", "run_after"]
+    if row.payload.get("secret") and row.state != BackgroundTask.State.PENDING:
+        # Finished with, one way or the other: a sign-in link or code in it
+        # mustn't sit in the database or its backups.
+        row.payload = {"secret": True}
+        fields.append("payload")
+    row.save(update_fields=fields)
 
 
 def schedule_periodic() -> int:
@@ -172,3 +204,15 @@ def run_pending(limit: int = 1000) -> int:
         _run(row)
         ran += 1
     return ran
+
+
+@periodic("core.prune_tasks", every=timedelta(hours=24))
+def prune_tasks(payload):
+    """Clear finished background tasks older than a month."""
+    from .models import BackgroundTask
+
+    cutoff = timezone.now() - timedelta(days=30)
+    return BackgroundTask.objects.filter(
+        state__in=[BackgroundTask.State.DONE, BackgroundTask.State.FAILED],
+        finished_at__lt=cutoff,
+    ).delete()[0]

@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Sign in{% endblock %}
+{% block main_class %}page narrow{% endblock %}
+{% block content %}
+<h1>Sign in{% if business %} to {{ business.name }}{% endif %}</h1>
+<p>Press the button to sign in with this link. It works once.</p>
+<form method="post">{% csrf_token %}
+  <button type="submit" class="primary">Sign in</button>
+</form>
+<p class="muted small">If you didn't ask for a sign-in link, close this page; nothing happens unless you press the button.</p>
+{% endblock %}

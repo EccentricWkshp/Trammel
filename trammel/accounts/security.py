@@ -30,14 +30,40 @@ def _failures_since_success(**filters) -> int:
 
 
 def is_locked(email: str, ip: str | None) -> bool:
+    """Sign-in with a password is refused for now.
+
+    Failures count per address *from one IP address*, so someone guessing from
+    elsewhere can't lock the real person out; a much higher count per address
+    from anywhere still stops a guesser spread over many addresses.
+    """
     email = email.strip().lower()
-    if _failures_since_success(email=email) >= settings.LOGIN_MAX_FAILURES:
+    if ip is None:
+        if _failures_since_success(email=email) >= settings.LOGIN_MAX_FAILURES:
+            return True
+    elif _failures_since_success(email=email, ip=ip) >= settings.LOGIN_MAX_FAILURES:
         return True
+    if _failures_since_success(email=email) >= settings.LOGIN_MAX_FAILURES_PER_ACCOUNT:
+        return True
+    return ip_locked(ip)
+
+
+def ip_locked(ip: str | None) -> bool:
+    """Too many failed sign-ins from this IP address, for any account."""
     return bool(
         ip
         and LoginAttempt.objects.filter(ip=ip, succeeded=False, at__gte=_window_start()).count()
         >= settings.LOGIN_MAX_FAILURES_PER_IP
     )
+
+
+def recently_logged_lock(email: str) -> bool:
+    """A refusal for this address is already in the audit log for this window,
+    so repeated refusals don't each add a row."""
+    from trammel.core.models import AuditEvent
+
+    return AuditEvent.objects.filter(
+        action="auth.locked", entity_label=email, at__gte=_window_start()
+    ).exists()
 
 
 def record_attempt(email: str, ip: str | None, succeeded: bool) -> None:

@@ -114,7 +114,14 @@ def detach(request, pk):
 @permission_required("files.upload")
 @require_POST
 def toggle_share(request, pk):
+    """Share a file with the customer, or stop. What a customer can download in
+    the portal rests on this, so it needs the right to see the record it is
+    attached to, as detaching does."""
     link = get_object_or_404(Attachment, pk=pk)
+    target = link.target
+    perm = services.target_permission(target) if target is not None else None
+    if perm is None or not access.has_perm(request.actor, perm, target):
+        raise PermissionDenied
     link.shared_with_customer = not link.shared_with_customer
     link.save(update_fields=["shared_with_customer"])
     from trammel.core import audit

@@ -57,9 +57,17 @@ def test_chained_proxies_are_skipped():
 
 
 @override_settings(TRUSTED_PROXIES=["192.168.1.10"])
-def test_garbage_hop_is_taken_as_the_client_not_skipped():
-    request = _request(remote="192.168.1.10", forwarded="not-an-ip")
-    assert client_ip(request) == "not-an-ip"
+def test_garbage_hop_is_neither_taken_nor_skipped_past():
+    request = _request(remote="192.168.1.10", forwarded="10.9.9.9, not-an-ip")
+    assert client_ip(request) == "192.168.1.10"
+
+
+@override_settings(TRUSTED_PROXIES=["*"])
+def test_with_any_proxy_trusted_only_the_hop_it_appended_is_believed():
+    # A client that sends its own X-Forwarded-For through a proxy that appends
+    # to it can't choose its address.
+    request = _request(remote="172.18.0.4", forwarded="10.9.9.9, 198.51.100.7")
+    assert client_ip(request) == "198.51.100.7"
 
 
 def test_bad_setting_is_refused(monkeypatch):

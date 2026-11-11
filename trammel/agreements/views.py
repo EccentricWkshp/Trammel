@@ -6,6 +6,7 @@ from django.core.exceptions import ValidationError
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+from django.utils.http import content_disposition_header
 from django.views.decorators.http import require_POST
 
 from trammel.core import access, audit, placeholders, templating
@@ -52,7 +53,7 @@ class AcceptForm(forms.Form):
 class SettingsForm(forms.ModelForm):
     class Meta:
         model = AgreementSettings
-        fields = ["required", "manual_enabled", "upload_enabled"]
+        fields = ["required", "manual_enabled", "upload_enabled", "click_enabled"]
 
 
 @permission_required("agreements.view")
@@ -168,7 +169,9 @@ def pdf(request, pk):
         messages.error(request, str(exc))
         return redirect(agreement)
     response = HttpResponse(data, content_type="application/pdf")
-    response["Content-Disposition"] = f'attachment; filename="agreement-{agreement.job.number}.pdf"'
+    response["Content-Disposition"] = content_disposition_header(
+        True, f"agreement-{agreement.job.number}.pdf"
+    )
     return response
 
 

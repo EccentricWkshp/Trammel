@@ -1,0 +1,21 @@
+<section class="card" aria-labelledby="portal-heading">
+  <h2 id="portal-heading">Customer portal</h2>
+  {% if ctx.enabled %}
+  <p><span class="status status-approved">Access on</span>{% if ctx.access.last_sign_in_at %} <span class="muted small">Last signed in {{ ctx.access.last_sign_in_at|mdt }}</span>{% endif %}</p>
+  {% if ctx.signers %}
+  <p class="muted small">These addresses can sign in at <span class="nowrap">{{ ctx.portal_url }}</span> with an emailed code, and see this customer's jobs, sent quotes, issued invoices and the files you share:</p>
+  <ul class="plain small">{% for name, email in ctx.signers %}<li>{{ name }} &lt;{{ email }}&gt;</li>{% endfor %}</ul>
+  {% else %}
+  <p class="message warning">Nobody can sign in yet: add an email address to the customer or one of their contacts.</p>
+  {% endif %}
+  {% if not ctx.email_ready %}<p class="message warning">Email isn't set up, so sign-in codes can't be sent.</p>{% endif %}
+  {% else %}
+  <p class="muted small">Off. Turn it on to let this customer see their jobs, sent quotes, issued invoices and the files you share, and approve quotes online.</p>
+  {% endif %}
+  {% if ctx.can_manage %}
+  <form method="post" action="{% url 'portal:set_access' customer.pk %}">{% csrf_token %}
+    <input type="hidden" name="enabled" value="{{ ctx.enabled|yesno:'0,1' }}">
+    <button type="submit"{% if not ctx.enabled %} class="primary"{% endif %}>{% if ctx.enabled %}Turn off portal access{% else %}Turn on portal access{% endif %}</button>
+  </form>
+  {% endif %}
+</section>

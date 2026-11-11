@@ -47,6 +47,6 @@
   {% endif %}
   {% block content %}{% endblock %}
 </main>
-<footer class="footer">Trammel {{ app_version }}</footer>
+<footer class="footer">Trammel{% if user.is_authenticated %} {{ app_version }}{% endif %}</footer>
 </body>
 </html>

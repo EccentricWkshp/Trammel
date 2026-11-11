@@ -19,6 +19,12 @@ class QuotesConfig(ModuleConfig):
         attachable=(("quotes.Quote", "quotes.view"),),
         permissions=(
             Permission("quotes.view", "View quotes", read=True, portal=True),
+            Permission(
+                "quotes.respond",
+                "Approve or decline their own quotes in the customer portal",
+                portal=True,
+                customer_only=True,
+            ),
             Permission("quotes.create", "Create quotes and change orders"),
             Permission(
                 "quotes.edit",

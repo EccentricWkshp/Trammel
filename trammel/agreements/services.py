@@ -94,6 +94,15 @@ def issue(
     return agreement
 
 
+def preview_text(job, **context) -> str:
+    """The text `issue` would give the job's agreement now, without issuing it:
+    what a customer reads in the portal before accepting it."""
+    template = AgreementTemplate.default()
+    if template is None or template.current is None:
+        raise ValidationError("There is no agreement template. Create one in Settings first.")
+    return templating.render(template.current.body, context_for(job, **context), html=False)
+
+
 @transaction.atomic
 def accept(
     agreement: CustomerAgreement,
@@ -113,6 +122,10 @@ def accept(
         raise ValidationError(f"This agreement is {agreement.get_status_display().lower()}.")
     if method == CustomerAgreement.Method.MANUAL and not settings.manual_enabled:
         raise ValidationError("Staff-recorded acceptance is turned off.")
+    if method == CustomerAgreement.Method.CLICK and not settings.click_enabled:
+        raise ValidationError(
+            "Accepting the agreement in the portal is turned off. Please contact us to approve."
+        )
     if method == CustomerAgreement.Method.UPLOAD:
         if not settings.upload_enabled:
             raise ValidationError("Acceptance by uploaded document is turned off.")

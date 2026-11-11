@@ -91,6 +91,11 @@ for _proxy in TRUSTED_PROXIES:
 # instance might be reachable by someone other than you before setup is done.
 SETUP_TOKEN = env("SETUP_TOKEN", "")
 
+# Forces the customer portal off, whatever Settings says, until it is removed:
+# every portal address answers "not found" and no sign-in code is sent. For
+# shutting the portal at once, even without signing in (FR-PRT-8).
+PORTAL_OFF = env_bool("PORTAL_OFF", False)
+
 # API rate limit per authenticated principal (FR-API-3), e.g. "120/m".
 API_RATE_LIMIT = env("API_RATE_LIMIT", "120/m")
 
@@ -138,10 +143,14 @@ INSTALLED_APPS = [
     "trammel.billing.apps.BillingConfig",
     "trammel.reports.apps.ReportsConfig",
     "trammel.notifications.apps.NotificationsConfig",
+    "trammel.portal.apps.PortalConfig",
     "trammel.api",
 ]
 
 MIDDLEWARE = [
+    # The container health check, answered before the Host header is checked or
+    # plain HTTP is redirected: it calls 127.0.0.1, which ALLOWED_HOSTS needn't list.
+    "trammel.core.middleware.HealthCheckMiddleware",
     "django.middleware.security.SecurityMiddleware",
     # Static files from the app process: gunicorn serves none and Caddy only proxies.
     "whitenoise.middleware.WhiteNoiseMiddleware",
@@ -234,6 +243,10 @@ LOGOUT_REDIRECT_URL = "accounts:login"
 #: window before further attempts are refused (SPEC §9).
 LOGIN_MAX_FAILURES = env_int("LOGIN_MAX_FAILURES", 5)
 LOGIN_MAX_FAILURES_PER_IP = env_int("LOGIN_MAX_FAILURES_PER_IP", 20)
+# Failures for one account from anywhere before it is locked: a backstop for
+# guessing spread over many addresses, high enough that nobody can lock a
+# colleague out from one machine (LOGIN_MAX_FAILURES counts per address and IP).
+LOGIN_MAX_FAILURES_PER_ACCOUNT = env_int("LOGIN_MAX_FAILURES_PER_ACCOUNT", 50)
 LOGIN_FAILURE_WINDOW_MINUTES = env_int("LOGIN_FAILURE_WINDOW_MINUTES", 15)
 
 SESSION_COOKIE_HTTPONLY = True
@@ -253,6 +266,12 @@ X_FRAME_OPTIONS = "DENY"
 if _secure:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
     SECURE_HSTS_SECONDS = 31536000
+    # Plain HTTP that reaches the app (its published port, in external-proxy
+    # mode) is sent to HTTPS. A proxy must pass X-Forwarded-Proto; set
+    # SECURE_SSL_REDIRECT=false if yours can't. The health check is answered first.
+    SECURE_SSL_REDIRECT = env_bool("SECURE_SSL_REDIRECT", True)
+    # To BASE_URL's own host and port, not whatever plain-HTTP port was used.
+    SECURE_SSL_HOST = urlparse(BASE_URL).netloc
 
 # Strict CSP: no inline script, no third-party origins. Scripts that must be
 # inline carry the per-request nonce.

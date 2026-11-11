@@ -16,7 +16,7 @@ def instance(request):
         "app_version": settings.APP_VERSION,
         "business": business,
     }
-    if actor is not None and actor.is_authenticated:
+    if actor is not None and actor.is_authenticated and not actor.is_customer:
         from .notices import for_request
 
         main, admin = menu_for(actor, "main"), menu_for(actor, "admin")

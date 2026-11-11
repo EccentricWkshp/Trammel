@@ -6,7 +6,7 @@ Customers, quoting, jobs and work orders, time and material tracking, invoicing
 and closeout for a 0–5 person job shop — woodworking, metal fabrication, 3D
 printing, laser work. Self-hosted: the data stays on the shop's own hardware.
 
-**Status:** Phase 1 is built.
+**Status:** Phases 1 and 2 are built; Phase 3 (outside the shop) is under way.
 
 - **Customers, jobs and calendar** — contacts and addresses, tax exemptions, job
   lifecycle with holds, reopen and forced closeout, dates and a calendar.
@@ -32,12 +32,17 @@ printing, laser work. Self-hosted: the data stays on the shop's own hardware.
   Washington's).
 - **Reports** — job profitability, sales, receivables aging, sales tax and
   gross receipts (B&O), time and machine use.
+- **Customer portal** — off until you turn it on. Customers you give access
+  sign in with an emailed code to see their jobs, quotes, invoices and shared
+  files, and approve or decline quotes, accepting the agreement online. One
+  switch, or the `PORTAL_OFF` setting, turns it off without touching anything
+  else.
 - **Running it** — users and roles, audit log, email notifications, the REST
   API, scheduled backups with off-site copies (a network folder or
   S3-compatible storage), restore and export, and an update check.
 
-Not yet: anything in the specification's later phases (inventory, purchasing,
-customer portal, online payments).
+Not yet: anything in the specification's later phases (signature capture,
+order importers, online payments).
 
 - [docs/INSTALL.md](docs/INSTALL.md) — install it with Docker.
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — run it locally, run the tests,

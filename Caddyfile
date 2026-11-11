@@ -19,6 +19,14 @@
 {
 	http_port {$HTTP_PORT:8726}
 	https_port {$HTTPS_PORT:8727}
+	# A client gets 10 seconds to send its request headers, so connections that
+	# trickle them in can't pile up.
+	servers {
+		timeouts {
+			read_header 10s
+			idle 2m
+		}
+	}
 }
 
 {$SITE_ADDRESS:trammel.home.arpa} {

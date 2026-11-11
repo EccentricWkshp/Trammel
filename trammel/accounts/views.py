@@ -37,12 +37,13 @@ def login_view(request):
         email = form.cleaned_data["email"].strip().lower()
         ip = client_ip(request)
         if security.is_locked(email, ip):
-            audit.record(
-                "auth.locked",
-                entity_type="accounts.user",
-                entity_label=email,
-                summary=f"Sign-in refused for {email}: too many failures",
-            )
+            if not security.recently_logged_lock(email):
+                audit.record(
+                    "auth.locked",
+                    entity_type="accounts.user",
+                    entity_label=email,
+                    summary=f"Sign-in refused for {email}: too many failures",
+                )
             form.add_error(None, security.LOCKED_MESSAGE)
         else:
             user = authenticate(request, username=email, password=form.cleaned_data["password"])
@@ -143,7 +144,9 @@ def magic_request(request):
             if user
             else 0
         )
-        if user and recent < 3 and not security.is_locked(email, ip):
+        # Only the IP address's lock applies: a locked password must not also
+        # stop the real person signing in by email.
+        if user and recent < 3 and not security.ip_locked(ip):
             from django.urls import reverse
 
             from trammel.notifications.services import notify
@@ -172,9 +175,16 @@ def magic_request(request):
 
 
 def magic_redeem(request, token):
+    """Opening the link shows a button; only pressing it signs in. Mail scanners
+    that open links don't use them up, and a link can't sign someone in
+    without them choosing to."""
+    if request.method != "POST":
+        if not MagicLink.is_usable(token):
+            return render(request, "accounts/magic_invalid.html", status=400)
+        return render(request, "accounts/magic_confirm.html")
     user = MagicLink.redeem(token)
     if user is None:
-        return render(request, "accounts/set_password_invalid.html", status=400)
+        return render(request, "accounts/magic_invalid.html", status=400)
     security.record_attempt(user.email, client_ip(request), succeeded=True)
     return _first_factor_passed(request, user, method="email link")
 
@@ -188,7 +198,10 @@ def mfa_setup(request):
     error = ""
     if request.method == "POST":
         step = mfa.matching_step(secret, request.POST.get("code", ""))
-        if step is None:
+        if mfa.enabled(user) and not mfa.verify(user, request.POST.get("current_code", "")):
+            # Someone else holding the session must not swap in their own phone.
+            error = "Enter a current code from the authenticator you use now, or a recovery code."
+        elif step is None:
             error = "That code does not match. Check the time on your phone and try again."
         else:
             codes = mfa.enable(user, secret)

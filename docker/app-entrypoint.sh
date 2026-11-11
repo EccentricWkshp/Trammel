@@ -9,8 +9,11 @@ case "${1:-web}" in
         # When an update brings migrations, the database is backed up first (FR-BAK-4).
         python manage.py migrate_safely
         python manage.py createcachetable
+        # Threaded workers: a few slow or stalled connections can't occupy
+        # every worker and take the site down.
         exec gunicorn config.wsgi:application \
-            --bind 0.0.0.0:8080 --workers "${WEB_WORKERS:-3}" --timeout 120 \
+            --bind 0.0.0.0:8080 --workers "${WEB_WORKERS:-3}" \
+            --worker-class gthread --threads "${WEB_THREADS:-8}" --timeout 120 \
             --access-logfile - --error-logfile -
         ;;
     worker)

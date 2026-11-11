@@ -1,0 +1,5 @@
+<ul class="plain portal-list">
+  {% for link in files %}
+  <li><a href="{% url 'portal:file' link.document.pk %}">{{ link.document.title|default:link.document.current.original_name }}</a> <span class="muted small">{{ link.document.current.original_name }}</span></li>
+  {% endfor %}
+</ul>

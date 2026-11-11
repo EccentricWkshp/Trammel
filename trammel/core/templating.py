@@ -56,10 +56,44 @@ def _percent(value):
     return f"{Decimal(str(value)).normalize():f}%"
 
 
+#: The most a template may make by repeating text or a list, and the largest
+#: number it may make: plenty for any document, too little to stall the server.
+MAX_REPEAT = 100_000
+MAX_NUMBER = 10**24
+
+
+def _too_big(operator: str, left, right) -> str:
+    """Why `left operator right` would be too large to work out, or ""."""
+    numbers = (int, float, Decimal)
+    if operator == "**" and isinstance(left, numbers) and isinstance(right, numbers):
+        digits = len(str(int(abs(left)))) if abs(left) > 1 else 0
+        if abs(right) > 64 or abs(right) * digits > 24:
+            return "A power in this template is too large."
+    if operator == "*":
+        for value, times in ((left, right), (right, left)):
+            repeated = isinstance(value, (str, list, tuple)) and isinstance(times, int)
+            if repeated and len(value) * times > MAX_REPEAT:
+                return "Text repeated in this template is too long."
+    return ""
+
+
+class _Sandbox(SandboxedEnvironment):
+    """The sandbox, with `*` and `**` checked: a template can't make a huge
+    number or text that ties up the server (`'a' * 10**9`, `9 ** 9 ** 9`)."""
+
+    intercepted_binops = frozenset(["*", "**"])
+
+    def call_binop(self, context, operator, left, right):
+        if problem := _too_big(operator, left, right):
+            raise TemplateProblem(problem)
+        result = super().call_binop(context, operator, left, right)
+        if isinstance(result, int) and abs(result) > MAX_NUMBER:
+            raise TemplateProblem("A number in this template is too large.")
+        return result
+
+
 def environment(*, html: bool = True) -> SandboxedEnvironment:
-    env = SandboxedEnvironment(
-        autoescape=html, undefined=Undefined, trim_blocks=True, lstrip_blocks=True
-    )
+    env = _Sandbox(autoescape=html, undefined=Undefined, trim_blocks=True, lstrip_blocks=True)
     env.filters["money"] = _money
     env.filters["date"] = _date
     env.filters["percent"] = _percent
@@ -114,12 +148,10 @@ def render_pdf(html: str) -> bytes:
             "(the Docker image includes them). Use Print and choose Save as PDF instead."
         ) from exc
 
-    def no_fetch(url, *args, **kwargs):
-        if url.startswith("data:"):
-            return weasyprint.default_url_fetcher(url, *args, **kwargs)
-        raise ValueError(f"External resource refused: {url}")
-
-    return weasyprint.HTML(string=html, url_fetcher=no_fetch).write_pdf()
+    # Only data: URLs (the embedded logo) are read; anything else — files on the
+    # server, addresses on the network — is refused.
+    fetcher = weasyprint.URLFetcher(allowed_protocols={"data"}, allow_redirects=False)
+    return weasyprint.HTML(string=html, url_fetcher=fetcher).write_pdf()
 
 
 def business_context(business) -> dict:

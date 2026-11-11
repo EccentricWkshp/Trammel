@@ -20,6 +20,25 @@ def setup_complete() -> bool:
     return SystemSettings.objects.filter(pk=1, setup_completed_at__isnull=False).exists()
 
 
+class HealthCheckMiddleware:
+    """Answers GET /healthz first: the container health check calls the app at
+    127.0.0.1 over plain HTTP, which neither the allowed host names nor the
+    HTTPS redirect would let through. It says only that the database answers."""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        if request.path == "/healthz" and request.method in ("GET", "HEAD"):
+            from django.db import connection
+            from django.http import JsonResponse
+
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1")
+            return JsonResponse({"status": "ok"})
+        return self.get_response(request)
+
+
 class SetupRequiredMiddleware:
     """Until the setup page has run, every page leads to it (FR-ADM-1)."""
 
@@ -71,10 +90,27 @@ def client_ip(request) -> str | None:
         return remote
     forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
     hops = [hop.strip() for hop in forwarded.split(",") if hop.strip()]
-    for hop in reversed(hops):
-        if not _trusted(hop, networks):
-            return hop
-    return hops[0] if hops else remote
+    if not hops:
+        return remote
+    if networks is None:
+        # "*" believes the one proxy in front of the app, whatever its address:
+        # the address it appended, the rightmost, is the client. Nothing to its
+        # left is believed — the client could have written it.
+        candidate = hops[-1]
+    else:
+        # Skip proxies we trust from the right; the first one we don't is the
+        # client. If every hop is a trusted proxy, the leftmost of them is.
+        candidate = next((hop for hop in reversed(hops) if not _trusted(hop, networks)), hops[0])
+    # A hop that isn't an address is never taken, nor skipped past.
+    return candidate if _is_ip(candidate) else remote
+
+
+def _is_ip(value: str) -> bool:
+    try:
+        ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return True
 
 
 class AuditContextMiddleware:

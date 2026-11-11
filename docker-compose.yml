@@ -20,8 +20,9 @@ x-app: &app
     MEDIA_ROOT: /data/media
     BACKUP_DIR: /data/backups
     STATIC_HASHED: "true"
-    # Only the built-in proxy can reach the app, so its X-Forwarded-For can be
-    # believed. docker-compose.external-proxy.yml narrows this.
+    # Only the built-in proxy can reach the app, so the address it appends to
+    # X-Forwarded-For (and only that one) is believed. docker-compose.external-proxy.yml
+    # narrows this.
     TRUSTED_PROXIES: "*"
   volumes:
     - media-data:/data/media

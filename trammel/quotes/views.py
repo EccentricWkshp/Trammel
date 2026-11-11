@@ -9,6 +9,8 @@ from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.html import escape
+from django.utils.http import content_disposition_header
 from django.views.decorators.http import require_POST
 
 from trammel.catalog import services as catalog
@@ -502,7 +504,7 @@ def document(request, pk):
     try:
         html = services.render_html(revision)
     except templating.TemplateProblem as exc:
-        html = f"<p>The quote template has a problem: {exc}</p>"
+        html = f"<p>The quote template has a problem: {escape(str(exc))}</p>"
     return document_response(request, html)
 
 
@@ -515,8 +517,8 @@ def pdf(request, pk):
         messages.error(request, str(exc))
         return redirect(revision)
     response = HttpResponse(data, content_type="application/pdf")
-    response["Content-Disposition"] = (
-        f'attachment; filename="{revision.quote.number}-r{revision.number}.pdf"'
+    response["Content-Disposition"] = content_disposition_header(
+        True, f"{revision.quote.number}-r{revision.number}.pdf"
     )
     return response
 

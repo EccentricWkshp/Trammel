@@ -11,7 +11,7 @@ from trammel.core.services import save_audited
 from trammel.core.web import admin_required, paginate, permission_required
 from trammel.core.widgets import MultiSelectDropdown
 
-from . import services
+from . import hooks, services
 from .events import EVENTS, listed
 from .models import EmailLog, EmailTemplate, SmtpSettings
 
@@ -223,7 +223,7 @@ def email_quote(request, pk):
     entry = services.notify(
         "quote_sent",
         to=[to],
-        context=document_context(rev),
+        context={**document_context(rev), "portal_link": hooks.online_link(rev)},
         attachment={"kind": "quote", "id": str(rev.pk)},
         entity=rev.quote,
     )
@@ -250,7 +250,7 @@ def email_invoice(request, pk):
     entry = services.notify(
         "invoice_issued",
         to=[to],
-        context=document_context(inv),
+        context={**document_context(inv), "portal_link": hooks.online_link(inv)},
         attachment={"kind": "invoice", "id": str(inv.pk)},
         entity=inv,
     )

@@ -9,7 +9,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from trammel.core import access, audit
-from trammel.core.web import csv_response, paginate, permission_required
+from trammel.core.web import csv_response, paginate, permission_required, safe_next
 from trammel.shop.models import Machine
 from trammel.workorders.models import WorkOrder
 
@@ -51,7 +51,7 @@ def _wo(request, pk):
 
 
 def _back(request, wo):
-    return redirect(request.POST.get("next") or wo.get_absolute_url())
+    return redirect(safe_next(request, wo.get_absolute_url()))
 
 
 @permission_required("time.track")

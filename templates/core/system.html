@@ -4,4 +4,22 @@
   <dt>Version</dt><dd>Trammel {{ app_version }}</dd>
 </dl>
 {% endblock %}
-{% block after_form %}{% include "partials/panels.html" %}{% endblock %}
+{% block after_form %}
+{% if portal %}
+<section class="panel" aria-labelledby="portal-switch-heading">
+  <h2 id="portal-switch-heading">Customer portal</h2>
+  {% if portal.forced_off %}
+  <p><span class="status status-cancelled">Off</span> Switched off in the server's configuration (PORTAL_OFF). Remove that setting and restart Trammel to turn it on here.</p>
+  {% else %}
+  <p><span class="status {% if portal.on %}status-approved{% else %}status-cancelled{% endif %}">{{ portal.on|yesno:"On,Off" }}</span>
+    {% if portal.on %}Customers you've given access can sign in.{% else %}Every portal address answers "not found" and no sign-in code is sent.{% endif %}</p>
+  <p class="muted small">This switch only affects the portal: email, updates and everything else keep working. Turning it off signs every customer out at once. Give each customer access on their page.</p>
+  <form method="post" action="{% url 'core:module_toggle' 'portal' %}">{% csrf_token %}
+    <input type="hidden" name="enable" value="{{ portal.on|yesno:'0,1' }}">
+    <input type="hidden" name="back" value="system">
+    <button type="submit"{% if portal.on %} class="danger"{% else %} class="primary"{% endif %}>{% if portal.on %}Turn off the customer portal{% else %}Turn on the customer portal{% endif %}</button>
+  </form>
+  {% endif %}
+</section>
+{% endif %}
+{% include "partials/panels.html" %}{% endblock %}

@@ -15,9 +15,34 @@ from ninja.throttling import AnonRateThrottle, AuthRateThrottle
 
 from trammel.core import access, units
 from trammel.core.lifecycle import TransitionError
+from trammel.core.middleware import client_ip
 from trammel.core.navigation import mount_api_routers
 
 from .auth import ApiKeyAuth, SessionActorAuth
+
+
+class _ByClientIP:
+    """Counts anonymous calls by the client address Trammel believes, not the
+    raw X-Forwarded-For header, which a client can fill with anything."""
+
+    def get_ident(self, request):
+        return client_ip(request)
+
+
+class AnonThrottle(_ByClientIP, AnonRateThrottle):
+    pass
+
+
+class AuthThrottle(_ByClientIP, AuthRateThrottle):
+    """Counts each API key, or each signed-in user, on its own."""
+
+    def get_cache_key(self, request):
+        auth = getattr(request, "auth", None)
+        if auth is not None and getattr(auth, "pk", None) is not None:
+            ident = f"{type(auth).__name__}-{auth.pk}"
+            return self.cache_format % {"scope": self.scope, "ident": ident}
+        return super().get_cache_key(request)
+
 
 api = NinjaAPI(
     title="Trammel API",
@@ -27,7 +52,7 @@ api = NinjaAPI(
     urls_namespace="api-1",
     docs_decorator=login_required,
     # FR-API-3. Counted in the database cache, so the limit holds across workers.
-    throttle=[AuthRateThrottle(settings.API_RATE_LIMIT), AnonRateThrottle("30/m")],
+    throttle=[AuthThrottle(settings.API_RATE_LIMIT), AnonThrottle("30/m")],
 )
 
 

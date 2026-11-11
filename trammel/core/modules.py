@@ -42,6 +42,9 @@ class Permission:
     #: Granted to customer principals in the portal, always confined to their
     #: own records by the record-level check (FR-PRT-2).
     portal: bool = False
+    #: Held only by customers in the portal: never offered in the role editor
+    #: or to API keys, and never held by staff, admins included.
+    customer_only: bool = False
 
     @property
     def module(self) -> str:
@@ -196,11 +199,24 @@ def check_dependencies() -> list[str]:
 _request_cache: ContextVar[frozenset[str] | None] = ContextVar("enabled_modules", default=None)
 
 
+def forced_off() -> frozenset[str]:
+    """Modules the server's configuration keeps off, whatever Settings says: the
+    customer portal while PORTAL_OFF is set (FR-PRT-8)."""
+    from django.conf import settings
+
+    return frozenset({"portal"}) if getattr(settings, "PORTAL_OFF", False) else frozenset()
+
+
 def _load_enabled() -> frozenset[str]:
     from .models import ModuleState
 
     states = dict(ModuleState.objects.values_list("key", "enabled"))
-    return frozenset(m.key for m in manifests() if m.core or states.get(m.key, m.default_enabled))
+    off = forced_off()
+    return frozenset(
+        m.key
+        for m in manifests()
+        if m.key not in off and (m.core or states.get(m.key, m.default_enabled))
+    )
 
 
 def enabled_keys() -> frozenset[str]:
@@ -234,6 +250,11 @@ def set_enabled(key: str, enabled: bool, *, reason: str = "") -> None:
     current = enabled_keys()
     if manifest.core and not enabled:
         raise ValidationError(f"{manifest.name} is a core module and cannot be disabled.")
+    if enabled and key in forced_off():
+        raise ValidationError(
+            f"{manifest.name} is switched off in the server's configuration. Remove that "
+            "setting and restart Trammel to turn it on here."
+        )
     if enabled:
         missing = [d for d in manifest.depends_on if d not in current]
         if missing:

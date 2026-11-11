@@ -35,7 +35,15 @@ EXCLUDED_MODELS = {
     "core.backgroundtask",
     "core.periodicrun",
 }
-EXCLUDED_FIELDS = {"password", "secret_hash", "ciphertext"}
+EXCLUDED_FIELDS = {
+    "password",
+    "secret_hash",
+    "ciphertext",
+    "totp_secret",
+    "recovery_codes",
+    "token_hash",
+    "code_hash",
+}
 
 README = """\
 # Trammel data export

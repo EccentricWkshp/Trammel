@@ -37,13 +37,20 @@ class TransitionError(ValidationError):
         super().__init__(problems)
 
 
+def _holds(actor, permission, obj) -> bool:
+    """Whether the actor holds the permission, or any one of a tuple of them."""
+    needed = (permission,) if isinstance(permission, str) else permission
+    return any(access.has_perm(actor, codename, obj) for codename in needed)
+
+
 @dataclass(frozen=True)
 class Transition:
     source: str | tuple[str, ...]
     target: str
     kind: str = StateChange.Kind.FORWARD
-    #: Permission codename required, beyond the caller's own checks.
-    permission: str | None = None
+    #: Permission codename required, beyond the caller's own checks; a tuple
+    #: means any one of them.
+    permission: str | tuple[str, ...] | None = None
     requires_reason: bool = False
     guards: tuple[Guard, ...] = ()
     #: Runs inside the transaction after the status is saved — for cascades
@@ -79,7 +86,7 @@ class Lifecycle:
         for t in self.transitions:
             if not t.applies(obj, state):
                 continue
-            if actor is not None and t.permission and not access.has_perm(actor, t.permission, obj):
+            if actor is not None and t.permission and not _holds(actor, t.permission, obj):
                 continue
             out.append(t)
         return out
@@ -115,8 +122,10 @@ class Lifecycle:
             transition = self.find(locked, target, kind)
             if transition is None:
                 raise TransitionError([f"Cannot move from “{current}” to “{target}”."])
-            if transition.permission and not access.has_perm(actor, transition.permission, obj):
-                raise PermissionDenied(f"Requires the {transition.permission} permission.")
+            if transition.permission and not _holds(actor, transition.permission, obj):
+                needed = transition.permission
+                needed = needed if isinstance(needed, str) else " or ".join(needed)
+                raise PermissionDenied(f"Requires the {needed} permission.")
             if transition.requires_reason and not reason.strip():
                 raise TransitionError(["A reason is required."])
             problems = self.problems(locked, transition)

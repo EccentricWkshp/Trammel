@@ -128,6 +128,8 @@ def permissions_of(actor: Actor) -> frozenset[str]:
             for codename in role.permissions
             if codename in everything
         )
+    if not actor.is_customer:
+        held = held - frozenset(c for c, p in modules.all_permissions().items() if p.customer_only)
     if actor.scope is not None:
         held = held & actor.scope
     actor._cache["perms"] = held

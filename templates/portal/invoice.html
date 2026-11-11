@@ -1,0 +1,14 @@
+{% extends "portal/base.html" %}
+{% block title %}{{ invoice.number }}{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{% url 'portal:home' %}">Your account</a>{% if invoice.job_id %} · <a href="{% url 'portal:job' invoice.job_id %}">{{ invoice.job.number }} {{ invoice.job.title }}</a>{% endif %}</p>
+<h1>{{ invoice.get_kind_display }} {{ invoice.number }}</h1>
+<dl class="facts-inline">
+  <div><dt>Status</dt><dd>{{ invoice.get_status_display }}</dd></div>
+  <div><dt>Total</dt><dd>{{ invoice.total|money }}</dd></div>
+  <div><dt>To pay</dt><dd>{{ invoice.balance|money }}</dd></div>
+  {% if invoice.due_date %}<div><dt>Due</dt><dd>{{ invoice.due_date|d }}</dd></div>{% endif %}
+</dl>
+<p class="actions"><a class="button" href="{% url 'portal:invoice_pdf' invoice.pk %}">Download PDF</a></p>
+<iframe class="document-preview" src="{% url 'portal:invoice_document' invoice.pk %}" sandbox title="{{ invoice.get_kind_display }} {{ invoice.number }}"></iframe>
+{% endblock %}

@@ -12,7 +12,7 @@ from django.http import Http404, HttpResponse
 from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
 from django.urls import reverse
-from django.utils.http import url_has_allowed_host_and_scheme
+from django.utils.http import content_disposition_header, url_has_allowed_host_and_scheme
 from django.utils.timezone import localtime, now
 from django.views.decorators.http import require_POST
 
@@ -20,7 +20,13 @@ from trammel.core import access, audit, panels, templating, units
 from trammel.core.lifecycle import TransitionError
 from trammel.core.money import MoneyInput
 from trammel.core.services import save_audited
-from trammel.core.web import document_response, document_view, paginate, permission_required
+from trammel.core.web import (
+    document_response,
+    document_view,
+    paginate,
+    permission_required,
+    safe_next,
+)
 from trammel.jobs.models import Job
 from trammel.shop.models import Machine, Material
 
@@ -252,7 +258,7 @@ def wo_transition(request, pk):
         messages.error(request, " ".join(exc.messages))
     except PermissionDenied:
         messages.error(request, "Your role does not allow that.")
-    return redirect(request.POST.get("next") or wo.get_absolute_url())
+    return redirect(safe_next(request, wo.get_absolute_url()))
 
 
 @permission_required("workorders.edit")
@@ -266,7 +272,7 @@ def op_set(request, pk, op_pk):
         services.set_operation(op, request.POST.get("state", ""), user=request.user)
     except ValidationError as exc:
         messages.error(request, " ".join(exc.messages))
-    return redirect(request.POST.get("next") or wo.get_absolute_url())
+    return redirect(safe_next(request, wo.get_absolute_url()))
 
 
 def _op(request, pk, op_pk):
@@ -413,7 +419,7 @@ def note_add(request, pk):
         )
     except ValidationError as exc:
         messages.error(request, " ".join(exc.messages))
-    return redirect(request.POST.get("next") or wo.get_absolute_url())
+    return redirect(safe_next(request, wo.get_absolute_url()))
 
 
 @permission_required("workorders.edit")
@@ -440,7 +446,7 @@ def material_add(request, pk):
             messages.error(request, " ".join(getattr(exc, "messages", [str(exc)])))
     else:
         messages.error(request, "Enter a quantity, and a material or a description and cost.")
-    return redirect(request.POST.get("next") or wo.get_absolute_url())
+    return redirect(safe_next(request, wo.get_absolute_url()))
 
 
 @permission_required("workorders.edit")
@@ -534,7 +540,9 @@ def traveler(request, pk):
             messages.error(request, str(exc))
             return redirect(wo)
         response = HttpResponse(data, content_type="application/pdf")
-        response["Content-Disposition"] = f'attachment; filename="traveler-{wo.number}.pdf"'
+        response["Content-Disposition"] = content_disposition_header(
+            True, f"traveler-{wo.number}.pdf"
+        )
         return response
     return document_response(request, html)
 

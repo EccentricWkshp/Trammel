@@ -1,0 +1,13 @@
+{% extends "portal/base.html" %}
+{% block title %}Choose an account{% endblock %}
+{% block content %}
+<section class="card portal-narrow">
+  <h1>Which account?</h1>
+  <p>Your address can sign in for more than one customer. Choose one; you can sign out and pick another later.</p>
+  <form method="post" class="stack">{% csrf_token %}
+    {% for c in customers %}
+    <button type="submit" name="customer" value="{{ c.pk }}" class="button">{{ c.name }}{% if c.company %} ({{ c.company }}){% endif %}</button>
+    {% endfor %}
+  </form>
+</section>
+{% endblock %}

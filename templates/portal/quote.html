@@ -1,0 +1,49 @@
+{% extends "portal/base.html" %}
+{% block title %}{{ revision.quote.number }}{% endblock %}
+{% block content %}
+{% with q=revision.quote %}
+<p class="breadcrumb"><a href="{% url 'portal:home' %}">Your account</a> · <a href="{% url 'portal:job' q.job_id %}">{{ q.job.number }} {{ q.job.title }}</a></p>
+<h1>{{ q.get_kind_display }} {{ q.number }} · {{ q.title }}</h1>
+<dl class="facts-inline">
+  <div><dt>Status</dt><dd>{% if revision.status == "sent" %}{% if can_respond %}Waiting for you{% else %}Expired{% endif %}{% else %}{{ revision.get_status_display }}{% endif %}</dd></div>
+  <div><dt>Total</dt><dd>{{ revision.total|money }}</dd></div>
+  {% if revision.valid_until %}<div><dt>Valid until</dt><dd>{{ revision.valid_until|d }}</dd></div>{% endif %}
+</dl>
+{% if approval %}<p class="status-line"><span class="status status-approved">Approved by {{ approval.approved_by_name }} on {{ approval.approved_at|d }}</span></p>{% endif %}
+
+<p class="actions"><a class="button" href="{% url 'portal:quote_pdf' revision.pk %}">Download PDF</a></p>
+<iframe class="document-preview" src="{% url 'portal:quote_document' revision.pk %}" sandbox title="{{ q.get_kind_display }} {{ q.number }}"></iframe>
+
+{% if can_respond %}
+<section class="card" aria-labelledby="approve-heading">
+  <h2 id="approve-heading">Approve</h2>
+  <form method="post" action="{% url 'portal:respond' revision.pk %}" class="stack" novalidate>{% csrf_token %}
+    <input type="hidden" name="answer" value="approve">
+    {% if agreement %}
+    <input type="hidden" name="terms" value="{{ agreement.hash }}">
+    <h3>{{ agreement.title }}</h3>
+    <div class="agreement-text prewrap" tabindex="0" aria-label="{{ agreement.title }}">{{ agreement.text }}</div>
+    <div class="field field-check"><label><input type="checkbox" name="accept" value="1" required> I have read and accept the {{ agreement.title|lower }}.</label></div>
+    {% endif %}
+    <div class="field"><label for="approve-name">Your full name</label>
+      <input type="text" id="approve-name" name="name" value="{{ visitor.name }}" maxlength="150" autocomplete="name" required></div>
+    <div class="field"><label for="approve-comment">Comment (optional)</label>
+      <textarea id="approve-comment" name="comment" rows="2" maxlength="2000"></textarea></div>
+    <p class="muted small">Approving records your name, the time, and your IP address{% if agreement %}, as your acceptance of the terms above{% endif %}.</p>
+    <div class="actions"><button type="submit" class="primary">Approve {{ q.noun }} for {{ revision.total|money }}</button></div>
+  </form>
+</section>
+<section class="card" aria-labelledby="decline-heading">
+  <h2 id="decline-heading">Decline</h2>
+  <form method="post" action="{% url 'portal:respond' revision.pk %}" class="stack" novalidate>{% csrf_token %}
+    <input type="hidden" name="answer" value="decline">
+    <div class="field"><label for="decline-comment">Tell us why, or what would work better (optional)</label>
+      <textarea id="decline-comment" name="comment" rows="2" maxlength="2000"></textarea></div>
+    <div class="actions"><button type="submit">Decline</button></div>
+  </form>
+</section>
+{% elif revision.status == "sent" %}
+<p class="muted">This {{ q.noun }} has expired. Please contact us for an updated one.</p>
+{% endif %}
+{% endwith %}
+{% endblock %}

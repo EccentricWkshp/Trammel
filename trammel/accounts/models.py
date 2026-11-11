@@ -290,6 +290,19 @@ class MagicLink(models.Model):
         return token
 
     @classmethod
+    def _live(cls, token: str):
+        return cls.objects.select_related("user").filter(
+            token_hash=cls.hash(token),
+            used_at__isnull=True,
+            expires_at__gt=now(),
+            user__is_active=True,
+        )
+
+    @classmethod
+    def is_usable(cls, token: str) -> bool:
+        return cls._live(token).exists()
+
+    @classmethod
     def redeem(cls, token: str):
         """The user for a valid, unused link — which is then used up. Else None."""
         link = (
