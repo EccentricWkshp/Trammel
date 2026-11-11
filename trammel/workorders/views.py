@@ -200,10 +200,12 @@ def wo_detail(request, pk):
             "wo": wo,
             "job": wo.job,
             "operations": operations,
+            "items": wo.items.select_related("completed_by", "source_revision__quote"),
             "finish": finish,
             "finish_late": _late(wo, finish),
             "can_nest": [op for op in operations if op.depth < Operation.MAX_DEPTH],
             "done_count": wo.operations.exclude(status="pending").count(),
+            "items_left": wo.items.filter(status="pending").count(),
             "planned": hooks.annotate_planned(
                 wo.planned_materials.select_related("material", "operation")
             ),
@@ -275,6 +277,37 @@ def op_set(request, pk, op_pk):
     except ValidationError as exc:
         messages.error(request, " ".join(exc.messages))
     return redirect(safe_next(request, wo.get_absolute_url()))
+
+
+@permission_required("workorders.edit")
+@require_POST
+def item_set(request, pk, item_pk):
+    """Check an item to include off: included, not needed, or back to include."""
+    wo = _wo(request, "workorders.edit", pk)
+    item = wo.items.filter(pk=item_pk).first()
+    if item is None:
+        raise Http404
+    try:
+        services.set_item(item, request.POST.get("state", ""), user=request.user)
+    except ValidationError as exc:
+        messages.error(request, " ".join(exc.messages))
+    return redirect(safe_next(request, wo.get_absolute_url()))
+
+
+@permission_required("workorders.edit")
+@require_POST
+def item_delete(request, pk, item_pk):
+    wo = _wo(request, "workorders.edit", pk)
+    item = wo.items.filter(pk=item_pk).first()
+    if item is None:
+        raise Http404
+    try:
+        services.delete_item(item)
+    except ValidationError as exc:
+        messages.error(request, " ".join(exc.messages))
+    else:
+        messages.success(request, f"Removed “{item.description}”.")
+    return redirect(_ops_tab(wo))
 
 
 def _op(request, pk, op_pk):
@@ -527,6 +560,7 @@ def _traveler_context(request, wo: WorkOrder) -> dict:
         "job": wo.job,
         "operations": services.operation_tree(wo),
         "blank_rows": range(6),
+        "items": wo.items.select_related("completed_by"),
         "planned": hooks.annotate_planned(wo.planned_materials.select_related("material")),
         "notes": wo.notes.filter(document__isnull=True).select_related("author")[:10],
         "printed_at": now(),

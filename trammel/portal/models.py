@@ -69,6 +69,59 @@ class SignInCode(models.Model):
         return hmac.new(key, f"portal:{email}:{code}".encode(), hashlib.sha256).hexdigest()
 
 
+class AccessCode(models.Model):
+    """A one-time sign-in code staff make and give to the customer themselves, in
+    person or by phone, instead of emailing one (FR-PRT-10).
+
+    Not tied to an address, so it is long enough that it can't be guessed: 12
+    characters, about 60 bits. Only a keyed hash is kept, and it is shown to staff
+    once. It works once, expires in days, and a customer has one at a time.
+    """
+
+    LIFETIME_DAYS = 7
+    LENGTH = 12
+    #: Crockford's base 32: no I, L, O or U, so it reads aloud and copies cleanly.
+    ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    customer = models.ForeignKey(
+        "customers.Customer", on_delete=models.CASCADE, related_name="portal_codes"
+    )
+    code_hash = models.CharField(max_length=64, unique=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+    canceled_at = models.DateTimeField(null=True, blank=True)
+
+    customer_scope_path = "customer_id"
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"Portal sign-in code for {self.customer}"
+
+    @classmethod
+    def normalize(cls, code: str) -> str:
+        """As typed: any case, spaces or dashes, and O, I or L for 0, 1 and 1."""
+        code = (code or "").upper().translate(str.maketrans("OIL", "011"))
+        return "".join(ch for ch in code if ch in cls.ALPHABET)[: cls.LENGTH * 2]
+
+    @staticmethod
+    def hash(code: str) -> str:
+        key = settings.SECRET_KEY.encode()
+        return hmac.new(key, f"portal-access:{code}".encode(), hashlib.sha256).hexdigest()
+
+    @property
+    def is_live(self) -> bool:
+        return (
+            self.used_at is None and self.canceled_at is None and self.expires_at > timezone.now()
+        )
+
+
 class Attempt(models.Model):
     """A request for a code, or a try at one: kept for rate limiting (FR-PRT-6)."""
 

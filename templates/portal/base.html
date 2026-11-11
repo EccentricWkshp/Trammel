@@ -10,12 +10,18 @@
 </head>
 <body class="portal">
 <a class="skip-link" href="#main">Skip to content</a>
+{% if visitor.is_preview %}
+<div class="preview-bar" role="status">
+  <p>You're viewing the portal as <strong>{{ visitor.customer.name }}</strong> sees it. You can look around and try their choices, but nothing can be approved, declined or changed.{% if not visitor.customer.portal_access.enabled %} Their portal access is off, so they can't sign in yet.{% endif %}</p>
+  <form method="post" action="{% url 'portal:preview_stop' %}">{% csrf_token %}<button type="submit">Stop viewing</button></form>
+</div>
+{% endif %}
 <header class="topbar portal-bar">
   <a class="brand" href="{% url 'portal:home' %}">{% if business.show_logo and business.logo %}<img src="{{ business.logo_data_uri }}" alt="" class="portal-logo">{% endif %}<span>{{ business.name }}</span></a>
   {% if visitor %}
   <div class="portal-who">
     <span>{{ visitor.name }}{% if visitor.name != visitor.customer.name %} · {{ visitor.customer.name }}{% endif %}</span>
-    <form method="post" action="{% url 'portal:sign_out' %}">{% csrf_token %}<button type="submit" class="linklike">Sign out</button></form>
+    {% if not visitor.is_preview %}<form method="post" action="{% url 'portal:sign_out' %}">{% csrf_token %}<button type="submit" class="linklike">Sign out</button></form>{% endif %}
   </div>
   {% endif %}
 </header>

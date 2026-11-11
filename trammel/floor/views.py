@@ -87,6 +87,7 @@ def work_order(request, pk):
             "wo": wo,
             "job": wo.job,
             "operations": wo_services.operation_tree(wo),
+            "items": wo.items.all(),
             "actions": [
                 t
                 for t in WorkOrder.lifecycle.available(wo, request.actor)

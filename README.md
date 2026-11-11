@@ -13,7 +13,8 @@ printing, laser work. Self-hosted: the data stays on the shop's own hardware.
 - **Quotes** — line items, catalog products, and estimators for general work,
   3D printing, laser jobs and profile cutting (plasma, CNC); revisions,
   templates, approval with customer agreements, deposits, and a shipping or
-  delivery charge. Anything priced after a job is approved is a change order,
+  delivery charge. Lines can be offered as options or as alternatives (walnut
+  or maple), picked by the customer when they approve. Anything priced after a job is approved is a change order,
   with the same detail and optional amended terms and deposit.
 - **Products** — a catalog of made, resold and service items, each with a
   routing (the steps it takes to make one, with machines and time) and a bill
@@ -33,10 +34,12 @@ printing, laser work. Self-hosted: the data stays on the shop's own hardware.
 - **Reports** — job profitability, sales, receivables aging, sales tax and
   gross receipts (B&O), time and machine use.
 - **Customer portal** — off until you turn it on. Customers you give access
-  sign in with an emailed code to see their jobs, quotes, invoices, shared
-  files and updates, and approve or decline quotes, signing to accept the
-  agreement. Customers can also sign on a shop tablet. One switch, or the
-  `PORTAL_OFF` setting, turns the portal off without touching anything else.
+  sign in with an emailed code, or one you give them, to see their jobs,
+  quotes, invoices, shared files and updates, and approve or decline quotes,
+  signing to accept the agreement. Customers can also sign on a shop tablet.
+  Staff can view the portal as a customer sees it, read-only. One switch, or
+  the `PORTAL_OFF` setting, turns the portal off without touching anything
+  else.
 - **Online orders** — Shopify, Etsy and eBay orders fetched by date come in once
   each, as paid sales at the store's prices and tax, with their customers; tax a
   marketplace pays itself is kept apart from tax you owe, and eBay's account

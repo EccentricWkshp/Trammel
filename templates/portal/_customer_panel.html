@@ -2,20 +2,44 @@
   <h2 id="portal-heading">Customer portal</h2>
   {% if ctx.enabled %}
   <p><span class="status status-approved">Access on</span>{% if ctx.access.last_sign_in_at %} <span class="muted small">Last signed in {{ ctx.access.last_sign_in_at|mdt }}</span>{% endif %}</p>
-  {% if ctx.signers %}
+  {% if ctx.signers and ctx.email_ready %}
   <p class="muted small">These addresses can sign in at <span class="nowrap">{{ ctx.portal_url }}</span> with an emailed code, and see this customer's jobs, sent quotes, issued invoices and the files you share:</p>
   <ul class="plain small">{% for name, email in ctx.signers %}<li>{{ name }} &lt;{{ email }}&gt;</li>{% endfor %}</ul>
+  {% elif not ctx.email_ready %}
+  <p class="message warning">Email isn't set up, so sign-in codes can't be emailed. Make a code to give them instead.</p>
   {% else %}
-  <p class="message warning">Nobody can sign in yet: add an email address to the customer or one of their contacts.</p>
+  <p class="message warning">Nobody can get an emailed sign-in code yet: add an email address to the customer or one of their contacts, or make a code to give them.</p>
   {% endif %}
-  {% if not ctx.email_ready %}<p class="message warning">Email isn't set up, so sign-in codes can't be sent.</p>{% endif %}
+  {% if ctx.waiting_code %}
+  <p class="small">A sign-in code {{ ctx.waiting_code.created_by.display_name|default:"from staff" }} made on {{ ctx.waiting_code.created_at|mdt }} is waiting to be used, until {{ ctx.waiting_code.expires_at|mdt }}.</p>
+  {% endif %}
   {% else %}
   <p class="muted small">Off. Turn it on to let this customer see their jobs, sent quotes, issued invoices and the files you share, and approve quotes online.</p>
   {% endif %}
-  {% if ctx.can_manage %}
-  <form method="post" action="{% url 'portal:set_access' customer.pk %}">{% csrf_token %}
-    <input type="hidden" name="enabled" value="{{ ctx.enabled|yesno:'0,1' }}">
-    <button type="submit"{% if not ctx.enabled %} class="primary"{% endif %}>{% if ctx.enabled %}Turn off portal access{% else %}Turn on portal access{% endif %}</button>
-  </form>
+  {% if ctx.can_manage or ctx.can_preview %}
+  <div class="actions">
+    {% if ctx.can_preview %}
+    <form method="post" action="{% url 'portal:preview' customer.pk %}" class="inline">{% csrf_token %}
+      <button type="submit">View the portal as this customer</button>
+    </form>
+    {% endif %}
+    {% if ctx.can_manage and ctx.enabled %}
+    <form method="post" action="{% url 'portal:make_code' customer.pk %}" class="inline">{% csrf_token %}
+      <button type="submit">{% if ctx.waiting_code %}Make a new sign-in code{% else %}Make a sign-in code to give them{% endif %}</button>
+    </form>
+    {% if ctx.waiting_code %}
+    <form method="post" action="{% url 'portal:cancel_code' customer.pk %}" class="inline">{% csrf_token %}
+      <button type="submit">Cancel the code</button>
+    </form>
+    {% endif %}
+    {% endif %}
+    {% if ctx.can_manage %}
+    <form method="post" action="{% url 'portal:set_access' customer.pk %}" class="inline">{% csrf_token %}
+      <input type="hidden" name="enabled" value="{{ ctx.enabled|yesno:'0,1' }}">
+      <button type="submit"{% if not ctx.enabled %} class="primary"{% endif %}>{% if ctx.enabled %}Turn off portal access{% else %}Turn on portal access{% endif %}</button>
+    </form>
+    {% endif %}
+  </div>
+  {% if ctx.can_preview %}<p class="muted small">The preview shows exactly what they see, read-only: nothing can be approved, declined or changed from it.</p>{% endif %}
   {% endif %}
 </section>

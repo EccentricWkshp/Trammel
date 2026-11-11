@@ -11,13 +11,14 @@ from django.utils import timezone
 
 from trammel.core import audit, numbering
 from trammel.core.access import SYSTEM
-from trammel.core.money import round_money
+from trammel.core.money import plain_decimal, round_money
 from trammel.core.services import save_audited
 from trammel.shop.models import Machine, Material
 
 from . import hooks
 from .models import (
     ACTIVE,
+    IncludedItem,
     MaterialUsage,
     Operation,
     PlannedMaterial,
@@ -68,11 +69,15 @@ def create(job, *, title: str = "", revision=None) -> WorkOrder:
 
 def _carry_over(wo: WorkOrder, revision, parent: Operation | None = None) -> None:
     """An operation per line of `revision`, with its planned materials; under
-    `parent` when given (a change order's lines are steps of one operation)."""
+    `parent` when given (a change order's lines are steps of one operation).
+    A resold product isn't work: it goes on the items to include."""
     position = 0
-    for line in revision.lines.select_related("machine", "material"):
+    for line in revision.included_lines().select_related("machine", "material", "product"):
         if line.line_total < 0:
             continue  # a credit for removed scope is not work to do
+        if line.product_id and line.product.kind == "resold":
+            _include(wo, line, revision if parent else None)
+            continue
         position += 10
         machine = line.machine
         if machine is None and line.inputs.get("machine"):
@@ -82,7 +87,7 @@ def _carry_over(wo: WorkOrder, revision, parent: Operation | None = None) -> Non
             parent=parent,
             depth=parent.depth + 1 if parent else 0,
             position=position,
-            name=line.description[:200],
+            name=operation_name(line),
             machine=machine,
         )
         steps = _routing(wo, line, op)
@@ -127,6 +132,32 @@ def _carry_over(wo: WorkOrder, revision, parent: Operation | None = None) -> Non
                 material=material,
                 description=row["detail"] if row else str(material),
             )
+
+
+def operation_name(line) -> str:
+    """A quote line's operation: its description, and how many when it's more
+    than one of a product or item ("Matching bench × 2"). Labor, machine and
+    material lines measure time or stock, which their plan already shows."""
+    name = line.description
+    if line.kind in ("product", "adhoc") and line.quantity and line.quantity != 1:
+        count = f"× {plain_decimal(line.quantity)}"
+        if line.unit and line.unit != "each":
+            count += f" {line.get_unit_display()}"
+        name = f"{name[: 199 - len(count)]} {count}"
+    return name[:200]
+
+
+def _include(wo: WorkOrder, line, change_order=None) -> IncludedItem:
+    last = wo.items.aggregate(m=models.Max("position"))["m"] or 0
+    return IncludedItem.objects.create(
+        work_order=wo,
+        product=line.product,
+        description=line.description[:200],
+        quantity=line.quantity,
+        unit=line.unit,
+        position=last + 10,
+        source_revision=change_order,
+    )
 
 
 def _routing(wo: WorkOrder, line, op: Operation) -> dict:
@@ -570,6 +601,43 @@ def move_operation(op: Operation, direction: int) -> None:
             o.position = n * 10
             o.save(update_fields=["position"])
     audit.record("operation.move", wo, summary=f"{wo.number}: moved operation “{op.name}”")
+
+
+# ---------------------------------------------------------------------------
+# Items to include
+# ---------------------------------------------------------------------------
+
+
+@transaction.atomic
+def set_item(item: IncludedItem, state: str, *, user) -> IncludedItem:
+    """Check an item off as included, not needed, or back to include."""
+    wo = item.work_order
+    _require_editable(wo)
+    if state not in IncludedItem.State.values:
+        raise ValidationError("Unknown item state.")
+    if state == item.status:
+        return item
+    if state != IncludedItem.State.PENDING:
+        ensure_started(wo)
+    before = item.get_status_display().lower()
+    item.status = state
+    item.completed_at = timezone.now() if state != IncludedItem.State.PENDING else None
+    item.completed_by = user if state != IncludedItem.State.PENDING else None
+    item.save(update_fields=["status", "completed_at", "completed_by"])
+    audit.record(
+        "work_order.item",
+        wo,
+        summary=f"{wo.number}: “{item.description}” {before} → {item.get_status_display().lower()}",
+    )
+    return item
+
+
+@transaction.atomic
+def delete_item(item: IncludedItem) -> None:
+    wo = item.work_order
+    _require_editable(wo)
+    item.delete()
+    audit.record("work_order.item_delete", wo, summary=f"{wo.number}: removed “{item.description}”")
 
 
 @transaction.atomic

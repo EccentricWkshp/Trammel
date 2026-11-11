@@ -5,7 +5,12 @@
 {% block content %}
 <p class="breadcrumb"><a href="{{ revision.get_absolute_url }}">{{ revision }}</a></p>
 <h1>Record approval of {{ revision }}</h1>
+{% if choosing %}
+<p>Record the options and alternatives the customer chose; the total and deposit follow them.</p>
+{% include "quotes/_choices.html" with who="The customer's" %}
+{% else %}
 <p>Total {{ revision.total|money }}{% if revision.deposit_amount %}; a deposit invoice for {{ revision.deposit_amount|money }} will be created{% endif %}.</p>
+{% endif %}
 {% if quote.is_change_order %}
 <p class="muted">{% if revision.amended_terms %}This change order carries amended terms; recording its approval records that the customer accepted them too.{% else %}The job's customer agreement already covers this change order.{% endif %} Once approved, it is added to the job's work order.</p>
 {% endif %}
@@ -14,7 +19,8 @@
 {% endif %}
 <form method="post" class="stack" novalidate>
   {% csrf_token %}
+  {% for pk in choosing.picks %}<input type="hidden" name="pick" value="{{ pk }}">{% endfor %}
   {% include "partials/form_body.html" %}
-  <div class="actions"><button type="submit" class="primary">Record approval</button> <a href="{{ revision.get_absolute_url }}">Cancel</a></div>
+  <div class="actions"><button type="submit" class="primary">Record approval{% if choosing %} for {{ choosing.total|money }}{% endif %}</button> <a href="{{ revision.get_absolute_url }}">Cancel</a></div>
 </form>
 {% endblock %}

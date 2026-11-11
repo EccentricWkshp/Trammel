@@ -114,6 +114,23 @@
   </tbody>
 </table>
 
+{% if items %}
+<h2>Items to include</h2>
+<table class="grid">
+  <thead><tr><th class="check">Included</th><th>Item</th><th class="qty">Quantity</th><th class="write">Initials</th></tr></thead>
+  <tbody>
+  {% for item in items %}
+    <tr class="{{ item.status }}">
+      <td class="check"><span class="box">{% if item.status == "done" %}✓{% elif item.status == "skipped" %}–{% endif %}</span></td>
+      <td>{{ item.description }}</td>
+      <td class="qty">{{ item.quantity|floatformat:"-4" }}{% if item.unit and item.unit != "each" %} {{ item.get_unit_display }}{% endif %}</td>
+      <td class="write">{% if item.completed_by %}<span class="done-by">{{ item.completed_by.get_short_name }}</span>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
 {% if planned %}
 <h2>Materials</h2>
 <table class="grid">

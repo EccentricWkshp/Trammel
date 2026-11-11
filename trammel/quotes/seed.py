@@ -34,6 +34,10 @@ DEFAULT_TEMPLATE = """\
            page-break-before: always; }
   .approval { margin-top: 18pt; padding-top: 6pt; border-top: 1px solid #999; font-size: 9.5pt; }
   .approval .signature { display: block; max-width: 3in; max-height: 1.1in; margin-top: 6pt; }
+  .tag { font-size: 8.5pt; color: #1f5f8b; margin-left: 0.35em; white-space: nowrap; }
+  .choices { margin-top: 18pt; }
+  .choices h2 { font-size: 11pt; margin: 0 0 4pt; }
+  .choices td { color: #444; font-style: italic; border-bottom: 1px dashed #ccc; }
 </style>
 </head>
 <body>
@@ -74,7 +78,8 @@ DEFAULT_TEMPLATE = """\
   <tbody>
   {% for line in quote.lines %}
     <tr>
-      <td>{{ line.description }}{% if line.discount_pct %} <em>({{ line.discount_pct|percent }} off)</em>{% endif %}</td>
+      <td>{{ line.description }}{% if line.discount_pct %} <em>({{ line.discount_pct|percent }} off)</em>{% endif %}
+        {% if line.offer == "alternate" %}<span class="tag">({{ line.group }}: {% if approval or quote.choices_picked %}chosen{% else %}our suggestion{% endif %})</span>{% elif line.offer == "optional" %}<span class="tag">(option, added)</span>{% endif %}</td>
       <td class="num">{{ line.quantity }} {{ line.unit }}</td>
       <td class="num">{{ line.unit_price|money }}</td>
       <td class="num">{{ line.total|money }}</td>
@@ -95,6 +100,25 @@ DEFAULT_TEMPLATE = """\
   {% if quote.deposit %}<tr><td>Deposit due on approval</td><td class="num">{{ quote.deposit|money }}</td></tr>{% endif %}
 </table>
 {% if not quote.tax and quote.tax_label %}<p><small>{{ quote.tax_label }}.</small></p>{% endif %}
+
+{% if quote.choices %}
+<div class="choices">
+  <h2>{{ quote.choices_title }}</h2>
+  <table>
+    <tbody>
+    {% for choice in quote.choices %}
+      <tr>
+        <td>{% if choice.offer == "alternate" %}{{ choice.group }}: {% endif %}{{ choice.description }}</td>
+        <td class="num">{{ choice.quantity }} {{ choice.unit }}</td>
+        <td class="num">{{ choice.total|money }}</td>
+        <td class="num">{% if choice.difference > 0 %}+{{ choice.difference|money }}{% elif choice.difference < 0 %}−{{ choice.difference|abs|money }}{% else %}no change{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% if not approval %}<p><small>Pick the ones you'd like when you approve; the last column is what each changes in the total.</small></p>{% endif %}
+</div>
+{% endif %}
 
 {% if quote.notes %}<div class="notes">{{ quote.notes }}</div>{% endif %}
 {% if agreement %}<div class="terms">{{ agreement }}</div>{% endif %}

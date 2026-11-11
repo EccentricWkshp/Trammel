@@ -125,7 +125,7 @@ def add_from_quote(invoice: Invoice, revision, *, percent: Decimal = Decimal("10
     factor = percent / 100
     # A change order's lines say which change order they come from.
     prefix = f"{revision.quote.number}: " if revision.quote.is_change_order else ""
-    for line in revision.lines.select_related("tax_category"):
+    for line in revision.included_lines().select_related("tax_category"):
         if line.pk in billed:
             continue
         category = next(iter(line.split), "other") if len(line.split) == 1 else "other"

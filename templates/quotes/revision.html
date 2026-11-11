@@ -84,8 +84,9 @@
     <thead><tr><th scope="col">Description</th><th scope="col" class="num">Qty</th><th scope="col" class="num">Unit price</th><th scope="col" class="num">Amount</th>{% if can_costs %}<th scope="col" class="num">Cost</th>{% endif %}{% if can_edit %}<th scope="col"><span class="visually-hidden">Actions</span></th>{% endif %}</tr></thead>
     <tbody>
     {% for line in lines %}
-      <tr>
+      <tr{% if not line.included %} class="left-out"{% endif %}>
         <td>{{ line.description|linebreaksbr }} <span class="badge">{{ line.get_kind_display }}</span>
+          {% if line.is_optional %}<span class="badge choice">Option{% if revision.status == "approved" %}{% if line.included %}, added{% else %}, not added{% endif %}{% endif %}</span>{% elif line.is_alternate %}<span class="badge choice">{{ line.group }}{% if line.included %}{% if revision.status == "approved" %}, chosen{% else %}, default{% endif %}{% else %}, alternative{% endif %}</span>{% endif %}
           {% if line.discount_pct %}<span class="muted">({{ line.discount_pct|floatformat:"-3" }}% off)</span>{% endif %}
           {% if line.price_is_manual %}<div class="manual-price"><span class="badge">Manual price</span> <span class="muted">calculated {{ line.calculated_unit_price|money }} · {{ line.price_note }}</span></div>{% endif %}
           {% if line.breakdown %}
@@ -103,6 +104,7 @@
         {% if can_edit %}
         <td class="row-actions">
           <a href="{% url 'quotes:line_edit' revision.pk line.pk %}">Edit</a>
+          <a href="{% url 'quotes:line_offer' revision.pk line.pk %}">Offered as…</a>
           <form method="post" action="{% url 'quotes:line_delete' revision.pk line.pk %}" class="inline">{% csrf_token %}<button type="submit" class="linklike">Remove</button></form>
         </td>
         {% endif %}
@@ -114,6 +116,7 @@
   </table>
   </div>
 
+  {% if has_choices %}<p class="muted small">{% if revision.status == "approved" %}The total is for what the customer chose; the dimmed lines weren't chosen.{% else %}The total counts each group's default alternative and no options; the dimmed lines are left out until the customer picks them when approving.{% endif %}</p>{% endif %}
   <table class="totals-table">
     {% if revision.discount_amount %}
     <tr><th scope="row">Lines</th><td class="num">{{ revision.lines_total|money }}</td></tr>

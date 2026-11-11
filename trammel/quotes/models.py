@@ -283,15 +283,30 @@ class QuoteRevision(LifecycleModel, BaseModel):
         return "Delivery" if self.fulfillment == self.Fulfillment.DELIVERY else "Shipping"
 
     @property
+    def has_choices(self) -> bool:
+        """Whether it offers options or alternatives (FR-QUO-11)."""
+        return self.lines.exclude(offer=QuoteLine.Offer.INCLUDED).exists()
+
+    def included_lines(self):
+        """The lines in its scope and totals: every included line, the chosen
+        alternative of each group, and the options added. Before approval the
+        defaults; once approved, what the customer chose."""
+        return self.lines.filter(included=True)
+
+    @property
     def deposit_amount(self) -> Decimal:
+        return self.deposit_for(self.total)
+
+    def deposit_for(self, total: Decimal) -> Decimal:
+        """The deposit on `total`, such as the total with the customer's choices."""
         from trammel.core.money import round_money
 
-        if self.total <= 0:  # a change order that credits the customer
+        if total <= 0:  # a change order that credits the customer
             return ZERO
         if self.deposit_kind == self.Deposit.PERCENT:
-            return round_money(self.total * self.deposit_value / 100)
+            return round_money(total * self.deposit_value / 100)
         if self.deposit_kind == self.Deposit.FIXED:
-            return min(self.deposit_value, self.total)
+            return min(self.deposit_value, total)
         return ZERO
 
     def save(self, *args, **kwargs):
@@ -316,6 +331,13 @@ class Category(models.TextChoices):
 
 
 class QuoteLine(models.Model):
+    class Offer(models.TextChoices):
+        """How a line is offered (FR-QUO-11)."""
+
+        INCLUDED = "included", "Included"
+        OPTIONAL = "optional", "Optional: the customer may add it"
+        ALTERNATE = "alternate", "An alternative: the customer picks one of a group"
+
     class Kind(models.TextChoices):
         PRODUCT = "product", "Catalog product"
         ADHOC = "adhoc", "Item"
@@ -360,9 +382,13 @@ class QuoteLine(models.Model):
     breakdown = models.JSONField(default=list, blank=True)
     #: line_total split by Category, for job costing.
     split = models.JSONField(default=dict, blank=True)
-    #: Optional / alternate lines are a later phase (FR-QUO-11); the field is
-    #: here so adding them needs no data migration.
-    is_optional = models.BooleanField(default=False, editable=False)
+    offer = models.CharField(max_length=10, choices=Offer.choices, default=Offer.INCLUDED)
+    #: An alternative's group, such as “Wood”: the customer picks one line of it.
+    group = models.CharField(max_length=80, blank=True)
+    #: In the scope and totals. Always for an included line; for an option, once
+    #: added; for an alternative, when it's its group's choice (the default one
+    #: until the customer picks). Set by the services, never by hand.
+    included = models.BooleanField(default=True, editable=False)
 
     class Meta:
         ordering = ["position", "id"]
@@ -373,6 +399,14 @@ class QuoteLine(models.Model):
     @property
     def price_is_manual(self) -> bool:
         return self.calculated_unit_price is not None
+
+    @property
+    def is_optional(self) -> bool:
+        return self.offer == self.Offer.OPTIONAL
+
+    @property
+    def is_alternate(self) -> bool:
+        return self.offer == self.Offer.ALTERNATE
 
     def _guard(self):
         status = (

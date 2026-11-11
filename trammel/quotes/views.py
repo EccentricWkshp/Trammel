@@ -27,6 +27,7 @@ from .forms import (
     LINE_FORMS,
     ApprovalForm,
     ManualPriceFields,
+    OfferForm,
     QuoteForJobForm,
     QuoteSettingsForm,
     QuoteTemplateForm,
@@ -183,6 +184,7 @@ def revision_detail(request, pk):
             "quote": revision.quote,
             "job": revision.quote.job,
             "lines": lines,
+            "has_choices": any(line.offer != QuoteLine.Offer.INCLUDED for line in lines),
             "form": RevisionForm(instance=revision) if can_edit else None,
             "can_edit": can_edit,
             "can_costs": can_costs,
@@ -345,6 +347,42 @@ def line_delete(request, pk, line_pk):
 
 @permission_required("quotes.edit")
 @_handles_redirect
+def line_offer(request, pk, line_pk):
+    """Offer a line as included, optional, or an alternative (FR-QUO-11)."""
+    revision = _draft(request, pk)
+    line = revision.lines.filter(pk=line_pk).first()
+    if line is None:
+        raise Http404
+    form = OfferForm(
+        request.POST or None,
+        initial={
+            "offer": line.offer,
+            "group": line.group,
+            "default": line.is_alternate and line.included,
+        },
+    )
+    if request.method == "POST" and form.is_valid():
+        d = form.cleaned_data
+        try:
+            services.set_offer(line, d["offer"], d["group"], d["default"])
+        except ValidationError as exc:
+            form.add_error(None, exc)
+        else:
+            return redirect(revision)
+    return render(
+        request,
+        "quotes/offer.html",
+        {
+            "form": form,
+            "line": line,
+            "revision": revision,
+            "groups": services.groups(revision),
+        },
+    )
+
+
+@permission_required("quotes.edit")
+@_handles_redirect
 def estimate(request, pk, key, line_pk=None):
     revision = _draft(request, pk)
     estimator = ESTIMATORS.get(key)
@@ -365,6 +403,7 @@ def estimate(request, pk, key, line_pk=None):
         if "add" in request.POST:
             if line is not None:
                 built.pk, built.position = line.pk, line.position
+                built.offer, built.group, built.included = line.offer, line.group, line.included
                 built._state.adding = False
             services.save_estimate(built)
             messages.success(request, f"{built.description} added.")
@@ -415,6 +454,7 @@ def approve(request, pk):
     )
     if quote.is_change_order:
         del form.fields["accept_agreement"]
+    picks = services.picks_from(request.POST if request.method == "POST" else request.GET)
     if request.method == "POST" and form.is_valid():
         d = form.cleaned_data
         try:
@@ -427,6 +467,7 @@ def approve(request, pk):
                 notes=d["notes"],
                 accept_agreement=d.get("accept_agreement", False),
                 user=request.user,
+                picks=picks,
             )
         except (ValidationError, TransitionError) as exc:
             form.add_error(None, getattr(exc, "problems", None) or exc.messages)
@@ -443,6 +484,9 @@ def approve(request, pk):
             "revision": revision,
             "quote": quote,
             "needs_agreement": needs_agreement,
+            "choosing": services.choosing(revision, picks)
+            if revision.status == Status.SENT
+            else None,
         },
     )
 
@@ -473,6 +517,7 @@ def sign(request, pk):
     terms = services.terms_to_accept(revision)
     error = ""
     name = request.POST.get("name", "").strip()[:150]
+    picks = services.picks_from(request.POST if request.method == "POST" else request.GET)
     if request.method == "POST":
         try:
             if terms and request.POST.get("terms") != terms["hash"]:
@@ -496,6 +541,7 @@ def sign(request, pk):
                 ip=client_ip(request),
                 user=request.user,
                 signature=drawn,
+                picks=picks,
             )
         except (ValidationError, TransitionError) as exc:
             error = " ".join(getattr(exc, "problems", None) or exc.messages)
@@ -512,6 +558,7 @@ def sign(request, pk):
             "terms": terms,
             "name": name or quote.job.customer.name,
             "error": error,
+            "choosing": services.choosing(revision, picks),
         },
     )
 
@@ -574,7 +621,7 @@ def revise(request, pk):
 def document(request, pk):
     revision = _revision(request, "quotes.view", pk)
     try:
-        html = services.render_html(revision)
+        html = services.render_html(revision, services.picks_from(request.GET))
     except templating.TemplateProblem as exc:
         html = f"<p>The quote template has a problem: {escape(str(exc))}</p>"
     return document_response(request, html)
@@ -584,7 +631,7 @@ def document(request, pk):
 def pdf(request, pk):
     revision = _revision(request, "quotes.view", pk)
     try:
-        data = services.render_pdf(revision)
+        data = services.render_pdf(revision, services.picks_from(request.GET))
     except (templating.PdfUnavailable, templating.TemplateProblem) as exc:
         messages.error(request, str(exc))
         return redirect(revision)

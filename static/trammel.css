@@ -214,6 +214,14 @@ address { font-style: normal; }
 .badge.priority-rush { background: var(--err-bg); color: var(--err-text); }
 .badge.priority-high { background: var(--warn-bg); color: var(--warn-text); }
 .badge.priority-low { background: var(--border); color: var(--muted); }
+.badge.choice { background: var(--surface); color: var(--text); border: 1px dashed var(--border); text-transform: none; letter-spacing: 0; }
+tr.left-out > td { color: var(--muted); }
+tr.left-out > td:first-child { font-style: italic; }
+.choices fieldset { border: 1px solid var(--border); border-radius: var(--radius); padding: .5rem .75rem; margin: 0; }
+.choices legend { font-weight: 600; padding: 0 .25rem; }
+label.choice { display: flex; flex-wrap: wrap; align-items: baseline; gap: .25rem .5rem; padding: .25rem 0; font-weight: normal; }
+label.choice input { margin: 0; }
+.choices-total { margin: 0; }
 
 /* Job status, schedule flags and lifecycle actions */
 .status { display: inline-block; font-size: .8rem; font-weight: 600; padding: .1rem .55rem; border-radius: var(--radius); background: var(--accent-soft); color: var(--accent); }
@@ -356,6 +364,11 @@ button.icon:disabled { opacity: .35; cursor: default; border-color: var(--border
 .op-delete { margin-top: .6rem; }
 button.linklike.danger-text { color: var(--danger); }
 .op-done .op-name, .op-skipped .op-name { text-decoration: line-through; color: var(--muted); }
+.items-to-include { margin-top: 1.5rem; }
+.items-to-include li.item { display: grid; grid-template-columns: minmax(0, 1fr) minmax(10rem, auto) auto; gap: .4rem 1rem; align-items: center; padding: .45rem 0; border-bottom: 1px solid var(--border); }
+@media (max-width: 760px) { .items-to-include li.item { grid-template-columns: minmax(0, 1fr) auto; } }
+.item-done .item-main, .item-skipped .item-main { text-decoration: line-through; color: var(--muted); }
+.item-qty { font-weight: 600; font-variant-numeric: tabular-nums; }
 .op-number { color: var(--muted); font-variant-numeric: tabular-nums; margin-right: .2rem; }
 .op-parent .op-name { font-weight: 600; }
 ol.ops li.op-depth-1 { padding-left: 1.5rem; }
@@ -505,6 +518,9 @@ button.switch:hover .switch-track { outline: 2px solid var(--accent-soft); }
 .portal-narrow { max-width: 28rem; margin: 2rem auto; }
 .portal-list li { padding: .35rem 0; }
 .portal .agreement-text { max-height: 20rem; overflow-y: auto; }
+.preview-bar { position: sticky; top: 0; z-index: 8; box-shadow: 0 2px 6px rgb(0 0 0 / .12); display: flex; align-items: center; justify-content: space-between; gap: .5rem 1rem; flex-wrap: wrap; padding: .6rem 1rem; background: var(--warn-bg); color: var(--warn-text); border-bottom: 1px solid var(--border); }
+.preview-bar p { margin: 0; }
+.access-code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 2rem; letter-spacing: .08em; padding: .75rem 1rem; background: var(--accent-soft); border-radius: var(--radius); text-align: center; user-select: all; }
 
 /* Signature pads */
 .signature-box { position: relative; max-width: 36rem; }

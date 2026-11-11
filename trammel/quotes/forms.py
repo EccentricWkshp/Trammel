@@ -393,6 +393,33 @@ LINE_FORMS = {
 }
 
 
+class OfferForm(forms.Form):
+    """How a line is offered (FR-QUO-11)."""
+
+    offer = forms.ChoiceField(
+        label="Offered as", choices=QuoteLine.Offer.choices, widget=forms.RadioSelect
+    )
+    group = forms.CharField(
+        max_length=80,
+        required=False,
+        widget=forms.TextInput(attrs={"list": "offer-groups", "autocomplete": "off"}),
+        help_text="What the alternatives are a choice of, such as Wood or Finish. Lines with "
+        "the same group are one choice; the customer picks one of them.",
+    )
+    default = forms.BooleanField(
+        label="The default choice",
+        required=False,
+        help_text="Counted in the total until the customer picks another. Otherwise the "
+        "group's first line is.",
+    )
+
+    def clean(self):
+        data = super().clean()
+        if data.get("offer") == QuoteLine.Offer.ALTERNATE and not (data.get("group") or "").strip():
+            self.add_error("group", "Name the group, such as Wood.")
+        return data
+
+
 class ApprovalForm(forms.Form):
     approved_by_name = forms.CharField(label="Approved by", max_length=150)
     approved_at = forms.DateTimeField(

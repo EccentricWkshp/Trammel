@@ -27,6 +27,8 @@ def customer_portal(request, customer):
             "enabled": bool(row and row.enabled),
             "signers": services.signers_of(customer),
             "can_manage": access.has_perm(request.actor, "portal.manage"),
+            "can_preview": services.can_preview(request.actor, customer),
+            "waiting_code": services.waiting_code(customer) if row and row.enabled else None,
             "email_ready": services.email_ready(),
             "portal_url": services.link(),
         },

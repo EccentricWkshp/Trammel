@@ -36,6 +36,9 @@ class QuoteLineOut(ModelSchema):
             "inputs",
             "breakdown",
             "split",
+            "offer",
+            "group",
+            "included",
         ]
 
 
@@ -116,6 +119,18 @@ class ApproveIn(Schema):
     approved_at: dt.datetime | None = None
     notes: str = ""
     accept_agreement: bool = False
+    #: The alternatives and options the customer chose (line ids); leave out to
+    #: keep the defaults.
+    picks: list[UUID] | None = None
+
+
+class OfferIn(Schema):
+    #: "included", "optional", or "alternate".
+    offer: str
+    #: An alternative's group, such as "Wood".
+    group: str = ""
+    #: Make this alternative its group's choice until the customer picks.
+    default: bool = False
 
 
 class DeclineIn(Schema):
@@ -207,6 +222,18 @@ def delete_line(request, revision_id: UUID, line_id: UUID):
     if line is None:
         raise Http404
     services.delete_line(line)
+    revision.refresh_from_db()
+    return revision
+
+
+@router.post("/{revision_id}/lines/{line_id}/offer", response=RevisionOut)
+def offer_line(request, revision_id: UUID, line_id: UUID, payload: OfferIn):
+    """Offer a draft's line as included, optional, or an alternative (FR-QUO-11)."""
+    revision = _rev(request, "quotes.edit", revision_id)
+    line = revision.lines.filter(pk=line_id).first()
+    if line is None:
+        raise Http404
+    services.set_offer(line, payload.offer, payload.group, payload.default)
     revision.refresh_from_db()
     return revision
 

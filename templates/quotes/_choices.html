@@ -1,0 +1,31 @@
+{% load static %}
+{# The customer's options and alternatives (FR-QUO-11), picked before approving. #}
+{# Needs `choosing` (services.choosing) and `who` ("Your" or "The customer's"). #}
+<section class="card choices" id="choices" aria-labelledby="choices-heading">
+  <h2 id="choices-heading">{{ who }} choices</h2>
+  <form method="get" action="#choices" class="stack" data-autosubmit>
+    {% for group in choosing.groups %}
+    <fieldset>
+      <legend>{{ group.name }}: pick one</legend>
+      {% for line in group.lines %}
+      <label class="choice"><input type="radio" name="pick-{{ forloop.parentloop.counter }}" value="{{ line.pk }}"{% if line.picked %} checked{% endif %}>
+        <span>{{ line.description }}</span>
+        <span class="muted">{{ line.line_total|money }}{% if line.difference and not line.picked %} ({% if line.difference > 0 %}+{% else %}−{% endif %}{{ line.gap|money }}){% endif %}</span></label>
+      {% endfor %}
+    </fieldset>
+    {% endfor %}
+    {% if choosing.options %}
+    <fieldset>
+      <legend>Options: add any you'd like</legend>
+      {% for line in choosing.options %}
+      <label class="choice"><input type="checkbox" name="pick" value="{{ line.pk }}"{% if line.picked %} checked{% endif %}>
+        <span>{{ line.description }}</span>
+        <span class="muted">+{{ line.line_total|money }}</span></label>
+      {% endfor %}
+    </fieldset>
+    {% endif %}
+    <p class="choices-total">Total with these choices: <strong>{{ choosing.total|money }}</strong>{% if choosing.deposit %}, with a deposit of {{ choosing.deposit|money }} on approval{% endif %}.</p>
+    <div class="actions"><button type="submit" data-autosubmit-button>Update the total</button></div>
+  </form>
+</section>
+<script src="{% static 'choices.js' %}" defer></script>

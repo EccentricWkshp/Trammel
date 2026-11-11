@@ -36,6 +36,16 @@ QUOTE = ph.Group(
         P("quote.total", "Total"),
         P("quote.deposit", "Deposit due on approval"),
         P("quote.deposit_percent", "Deposit as a percentage, if set that way"),
+        P(
+            "quote.choices_title",
+            "A heading for the choices: “Options and alternatives, not in the total”, or "
+            "“Not chosen” once approved",
+        ),
+        P(
+            "quote.choices_picked",
+            "True while the customer is picking their choices before approving: the lines "
+            "and totals are their picks, not the defaults",
+        ),
     ),
 )
 
@@ -48,8 +58,33 @@ LINES = ph.Group(
         P("line.unit_price", "Price per unit"),
         P("line.discount_pct", "Line discount (%)"),
         P("line.total", "Line total"),
+        P(
+            "line.offer",
+            "“included”; “alternate” for the alternative chosen (or suggested) from its "
+            "group; “optional” for an option the customer added",
+        ),
+        P("line.group", "An alternative's group, such as Wood"),
     ),
     loop=("line", "quote.lines"),
+)
+
+CHOICES = ph.Group(
+    "Each option or alternative left out of the total",
+    (
+        P("choice.description", "Description"),
+        P("choice.quantity", "Quantity"),
+        P("choice.unit", "Unit"),
+        P("choice.unit_price", "Price per unit"),
+        P("choice.total", "Its price"),
+        P(
+            "choice.difference",
+            "What picking it changes in the total: an option's price, or an alternative's "
+            "price less its group's choice (negative when it costs less)",
+        ),
+        P("choice.offer", "“optional” or “alternate”"),
+        P("choice.group", "An alternative's group, such as Wood"),
+    ),
+    loop=("choice", "quote.choices"),
 )
 
 JOB = ph.Group("Job", (P("job.number", "Job number"), P("job.title", "Job title")))
@@ -83,7 +118,7 @@ APPROVAL = ph.Group(
 
 
 def sample_quote() -> dict:
-    lines = ph.sample_lines()
+    lines = [{**line, "offer": "included", "group": ""} for line in ph.sample_lines()]
     subtotal = sum((line["total"] for line in lines), Decimal("0"))
     shipping = Decimal("85.00")
     tax = Decimal("290.66")
@@ -113,6 +148,32 @@ def sample_quote() -> dict:
         "total": subtotal + shipping + tax,
         "deposit": Decimal("1529.33"),
         "deposit_percent": Decimal("50"),
+        "choices_title": "Options and alternatives, not in the total",
+        "choices_picked": False,
+        "choices": [
+            {
+                "description": "Hard-wax oil finish instead of oil",
+                "quantity": "1",
+                "unit": "each",
+                "unit_price": Decimal("180.00"),
+                "discount_pct": Decimal("0"),
+                "total": Decimal("180.00"),
+                "difference": Decimal("60.00"),
+                "offer": "alternate",
+                "group": "Finish",
+            },
+            {
+                "description": "Two matching benches",
+                "quantity": "2",
+                "unit": "each",
+                "unit_price": Decimal("450.00"),
+                "discount_pct": Decimal("0"),
+                "total": Decimal("900.00"),
+                "difference": Decimal("900.00"),
+                "offer": "optional",
+                "group": "",
+            },
+        ],
     }
 
 
@@ -141,7 +202,7 @@ ph.register(
     ph.Kind(
         key="quote",
         title="Quotes",
-        groups=(QUOTE, LINES, JOB, ph.CUSTOMER, ph.BUSINESS, AGREEMENT, APPROVAL),
+        groups=(QUOTE, LINES, CHOICES, JOB, ph.CUSTOMER, ph.BUSINESS, AGREEMENT, APPROVAL),
         preview=preview,
         module="quotes",
         permission="quotes.manage_templates",

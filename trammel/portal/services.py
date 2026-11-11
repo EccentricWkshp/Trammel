@@ -25,13 +25,18 @@ from django.utils import timezone
 from trammel.core import access, audit, modules
 from trammel.customers.models import Customer
 
-from .models import Access, Attempt, SignInCode
+from .models import Access, AccessCode, Attempt, SignInCode
 
 SESSION_KEY = "portal"
 CHOICE_KEY = "portal_choice"
 PENDING_KEY = "portal_pending"
+#: Staff viewing the portal as a customer would: kept apart from a customer's
+#: own portal session, and from the staff sign-in it rides on.
+PREVIEW_KEY = "portal_preview"
 #: A portal session lasts this long from signing in, however active.
 SESSION_HOURS = 12
+#: A preview lasts this long from starting it.
+PREVIEW_HOURS = 2
 
 #: Rate limits (FR-PRT-6): codes asked for one address in 15 minutes; requests
 #: from one IP address (an IPv6 /64) in an hour; wrong codes from one in an hour.
@@ -240,20 +245,28 @@ class Visitor:
     email: str
     name: str
     actor: access.Actor
+    #: The staff member viewing the portal as the customer would, read-only;
+    #: empty for the customer themselves.
+    viewer: str = ""
+    #: Who gave the customer the code they signed in with, if staff did.
+    given_by: str = ""
+
+    @property
+    def is_preview(self) -> bool:
+        return bool(self.viewer)
+
+    @property
+    def how(self) -> str:
+        """How they signed in, for the record of what they do."""
+        if self.given_by:
+            return f"signed in with a code from {self.given_by}"
+        return f"signed in as {self.email}"
 
 
 def sign_in(request, customer: Customer, email: str) -> None:
     email = normalize(email)
-    request.session.cycle_key()
-    request.session.pop(CHOICE_KEY, None)
-    request.session.pop(PENDING_KEY, None)
     name = name_for(customer, email)
-    request.session[SESSION_KEY] = {
-        "customer": str(customer.pk),
-        "email": email,
-        "name": name,
-        "since": timezone.now().isoformat(),
-    }
+    _start(request, {"customer": str(customer.pk), "email": email, "name": name})
     Access.objects.filter(customer=customer).update(last_sign_in_at=timezone.now())
     audit.record(
         "portal.sign_in",
@@ -261,6 +274,13 @@ def sign_in(request, customer: Customer, email: str) -> None:
         summary=f"{name} ({email}) signed in to the portal",
         actor=_actor(customer, name),
     )
+
+
+def _start(request, data: dict) -> None:
+    request.session.cycle_key()
+    request.session.pop(CHOICE_KEY, None)
+    request.session.pop(PENDING_KEY, None)
+    request.session[SESSION_KEY] = {**data, "since": timezone.now().isoformat()}
 
 
 def sign_out(request) -> None:
@@ -273,9 +293,74 @@ def _actor(customer: Customer, name: str) -> access.Actor:
     return access.Actor(kind="customer", customer_id=customer.pk, label=f"{label}, in the portal")
 
 
+def can_preview(actor, customer: Customer) -> bool:
+    """Staff may view the portal as this customer would: the portal on, a real
+    customer, and both seeing the customer and managing portal access. Managing
+    access is asked for because the portal shows the customer's quotes and
+    invoices, which a staff role may not otherwise see."""
+    return (
+        is_on()
+        and not (customer.is_internal or customer.is_placeholder)
+        and access.has_perm(actor, "portal.manage")
+        and access.has_perm(actor, "customers.view", customer)
+    )
+
+
+def start_preview(request, customer: Customer) -> None:
+    """View the portal as the customer would, read-only, until stopped."""
+    request.session[PREVIEW_KEY] = {
+        "customer": str(customer.pk),
+        "user": str(request.user.pk),
+        "since": timezone.now().isoformat(),
+    }
+    audit.record(
+        "portal.preview",
+        customer,
+        summary=f"{request.user.display_name} viewed the portal as {customer} sees it",
+    )
+
+
+def stop_preview(request) -> str | None:
+    """End a preview; the customer it was of, if any."""
+    data = request.session.pop(PREVIEW_KEY, None) or {}
+    return data.get("customer")
+
+
+def _preview(request) -> Visitor | None:
+    """The customer staff are viewing the portal as, checked afresh: the same
+    staff member still signed in and allowed to, and the preview not too old."""
+    data = request.session.get(PREVIEW_KEY)
+    if not data:
+        return None
+    user = getattr(request, "user", None)
+    try:
+        since = dt.datetime.fromisoformat(data["since"])
+        customer = Customer.objects.get(pk=data["customer"])
+    except KeyError, TypeError, ValueError, Customer.DoesNotExist:
+        since = customer = None
+    if (
+        customer is None
+        or not (user and user.is_authenticated and str(user.pk) == data.get("user"))
+        or timezone.now() - since > dt.timedelta(hours=PREVIEW_HOURS)
+        or not can_preview(access.user_actor(user), customer)
+    ):
+        request.session.pop(PREVIEW_KEY, None)
+        return None
+    return Visitor(
+        customer=customer,
+        email=customer.email.lower(),
+        name=customer.name,
+        actor=_actor(customer, customer.name),
+        viewer=user.display_name,
+    )
+
+
 def current(request) -> Visitor | None:
     """The signed-in customer, checked afresh: the portal on, the session not too
-    old, and the address still allowed to sign in for that customer."""
+    old, and the address still allowed to sign in for that customer. Staff
+    viewing the portal as a customer would come first."""
+    if preview := _preview(request):
+        return preview
     data = request.session.get(SESSION_KEY)
     if not data:
         return None
@@ -286,19 +371,130 @@ def current(request) -> Visitor | None:
     if since is None or timezone.now() - since > dt.timedelta(hours=SESSION_HOURS) or not is_on():
         sign_out(request)
         return None
-    customer = next(
-        (c for c in customers_for(data.get("email", "")) if str(c.pk) == data.get("customer")),
-        None,
-    )
+    if data.get("given_by"):
+        # Signed in with a code from staff: the customer must still have access.
+        customer = _with_access().filter(pk=data.get("customer")).first()
+    else:
+        customer = next(
+            (c for c in customers_for(data.get("email", "")) if str(c.pk) == data.get("customer")),
+            None,
+        )
     if customer is None:
         sign_out(request)
         return None
     return Visitor(
         customer=customer,
-        email=data["email"],
+        email=data.get("email", ""),
         name=data.get("name") or customer.name,
         actor=_actor(customer, data.get("name") or customer.name),
+        given_by=data.get("given_by", ""),
     )
+
+
+def _with_access():
+    return Customer.objects.filter(
+        portal_access__enabled=True, is_placeholder=False, is_internal=False
+    )
+
+
+# ---------------------------------------------------------------------------
+# Codes staff give out (FR-PRT-10)
+# ---------------------------------------------------------------------------
+
+
+def waiting_code(customer: Customer) -> AccessCode | None:
+    """The customer's code from staff that can still be used, if any."""
+    return next(
+        (
+            row
+            for row in customer.portal_codes.filter(used_at=None, canceled_at=None)
+            .select_related("created_by")
+            .order_by("-created_at")
+            if row.is_live
+        ),
+        None,
+    )
+
+
+def cancel_codes(customer: Customer, *, why: str = "") -> int:
+    """Cancel the customer's codes from staff that are still waiting."""
+    canceled = customer.portal_codes.filter(
+        used_at=None, canceled_at=None, expires_at__gt=timezone.now()
+    ).update(canceled_at=timezone.now())
+    if canceled and why:
+        audit.record("portal.code_canceled", customer, summary=why)
+    return canceled
+
+
+def make_code(customer: Customer, *, user) -> tuple[str, AccessCode]:
+    """A new one-time code for staff to give the customer, replacing any still
+    waiting. The code itself is returned this once and never kept."""
+    if not (is_on() and has_access(customer)):
+        raise ValueError("Turn on the customer's portal access first.")
+    cancel_codes(customer)
+    raw = "".join(secrets.choice(AccessCode.ALPHABET) for _ in range(AccessCode.LENGTH))
+    row = AccessCode.objects.create(
+        customer=customer,
+        code_hash=AccessCode.hash(raw),
+        created_by=user,
+        expires_at=timezone.now() + dt.timedelta(days=AccessCode.LIFETIME_DAYS),
+    )
+    audit.record(
+        "portal.code_made",
+        customer,
+        summary=f"Made a portal sign-in code for {customer}, good until "
+        f"{timezone.localtime(row.expires_at):%m/%d/%Y}",
+    )
+    return "-".join(raw[i : i + 4] for i in range(0, len(raw), 4)), row
+
+
+def use_code(request, code: str, ip) -> Customer | None:
+    """Sign in with a code from staff, which is then used up. Wrong codes count
+    toward the same limit on tries from one IP address as emailed codes."""
+    code = AccessCode.normalize(code)
+    key = ip_key(ip)
+    if not is_on() or (key and _failures(ip_key=key, at__gte=_since(hours=1)) >= FAILURES_PER_IP):
+        _record(Attempt.Kind.VERIFY, "", ip)
+        return None
+    row = None
+    if len(code) == AccessCode.LENGTH:
+        row = (
+            AccessCode.objects.filter(
+                code_hash=AccessCode.hash(code),
+                used_at=None,
+                canceled_at=None,
+                expires_at__gt=timezone.now(),
+                customer__in=_with_access(),
+            )
+            .select_related("customer", "created_by")
+            .first()
+        )
+    # Claimed in one update, so the same code can't sign in twice at once.
+    if row is None or not AccessCode.objects.filter(pk=row.pk, used_at=None).update(
+        used_at=timezone.now()
+    ):
+        _record(Attempt.Kind.VERIFY, "", ip)
+        return None
+    _record(Attempt.Kind.VERIFY, "", ip, succeeded=True)
+    customer = row.customer
+    given_by = row.created_by.display_name if row.created_by else "staff"
+    _start(
+        request,
+        {
+            "customer": str(customer.pk),
+            "email": "",
+            "name": customer.name,
+            "given_by": given_by,
+        },
+    )
+    Access.objects.filter(customer=customer).update(last_sign_in_at=timezone.now())
+    audit.record(
+        "portal.sign_in",
+        customer,
+        summary=f"{customer} signed in to the portal with a code from {given_by}",
+        actor=_actor(customer, customer.name),
+    )
+    return customer
 
 
 def set_access(customer: Customer, enabled: bool, *, user) -> Access:
@@ -309,6 +505,8 @@ def set_access(customer: Customer, enabled: bool, *, user) -> Access:
         row.changed_at = timezone.now()
         row.changed_by = user
         row.save()
+        if not enabled:
+            cancel_codes(customer)
         audit.record(
             "portal.access_on" if enabled else "portal.access_off",
             customer,
@@ -332,4 +530,5 @@ def prune(older_than_days: int = 30) -> int:
     cutoff = _since(days=older_than_days)
     removed = Attempt.objects.filter(at__lt=cutoff).delete()[0]
     removed += SignInCode.objects.filter(created_at__lt=cutoff).delete()[0]
+    removed += AccessCode.objects.filter(expires_at__lt=cutoff).delete()[0]
     return removed

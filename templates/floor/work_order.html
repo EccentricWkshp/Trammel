@@ -39,6 +39,22 @@
   </li>
 {% empty %}<li class="muted">No operations.</li>{% endfor %}
 </ol>
+{% if items %}
+<h2>Items to include</h2>
+<ol class="floor-ops floor-items">
+{% for item in items %}
+  <li class="op-{{ item.status }}">
+    <span><span class="item-qty">{{ item.quantity|qty }}{% if item.unit and item.unit != "each" %} {{ item.get_unit_display }}{% endif %}</span> {{ item.description }}</span>
+    {% if can_edit %}
+    <form method="post" action="{% url 'workorders:item_set' wo.pk item.pk %}">{% csrf_token %}<input type="hidden" name="next" value="{{ next }}">
+      {% if item.status == "pending" %}<input type="hidden" name="state" value="done"><button type="submit" class="primary">Included</button>
+      {% else %}<input type="hidden" name="state" value="pending"><button type="submit">{{ item.get_status_display }} ↺</button>{% endif %}
+    </form>
+    {% else %}<span class="muted">{{ item.get_status_display }}</span>{% endif %}
+  </li>
+{% endfor %}
+</ol>
+{% endif %}
 {% include "workorders/_planned_prompt.html" %}
 
 {% if drawings %}

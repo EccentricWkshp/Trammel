@@ -1,0 +1,14 @@
+{% extends "portal/base.html" %}
+{% block title %}Enter your code{% endblock %}
+{% block content %}
+<section class="card portal-narrow">
+  <h1>Enter the code we gave you</h1>
+  <p>It's 12 letters and numbers, like <span class="nowrap">K7QD-M3XP-9WTR</span>. Dashes and capitals don't matter.</p>
+  {% if error %}<p class="form-errors" role="alert">{{ error }}</p>{% endif %}
+  <form method="post" class="stack" novalidate>{% csrf_token %}
+    <div class="field"><label for="portal-access-code">Code</label>
+      <input type="text" id="portal-access-code" name="code" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" maxlength="24" required autofocus></div>
+    <div class="actions"><button type="submit" class="primary">Sign in</button>{% if email_ready %} <a href="{% url 'portal:sign_in' %}">Sign in by email instead</a>{% endif %}</div>
+  </form>
+</section>
+{% endblock %}

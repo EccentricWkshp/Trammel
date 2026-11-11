@@ -13,6 +13,7 @@
       <div><dt>Target</dt><dd>{{ wo.target_completion|d|default:"—" }}</dd></div>
       <div><dt>Job due</dt><dd>{{ job.due_date|d|default:"—" }}</dd></div>
       <div><dt>Operations</dt><dd>{{ done_count }} of {{ operations|length }} done</dd></div>
+      {% if items %}<div><dt>Items to include</dt><dd>{{ items_left }} left</dd></div>{% endif %}
       {% if finish %}<div><dt>Estimated finish</dt><dd>{{ finish|mdt }}{% if finish_late %} <span class="flag flag-late">After {{ finish_late.0 }} ({{ finish_late.1|d }})</span>{% endif %}</dd></div>{% endif %}
     </dl>
   </div>
@@ -82,6 +83,31 @@
     {% if can_nest %}<label>Under <select name="parent"><option value="">Top level</option>{% for p in can_nest %}<option value="{{ p.pk }}">{{ p.number }} {{ p.name }}</option>{% endfor %}</select></label>{% endif %}
     <button type="submit">Add</button>
   </form>
+  {% endif %}
+  {% if items %}
+  <section class="card items-to-include" aria-labelledby="items-heading">
+    <h2 id="items-heading">Items to include</h2>
+    <p class="muted small">Resold products from the quote: nothing to make, just set aside or pack with the work.</p>
+    <ul class="plain">
+    {% for item in items %}
+      <li class="item item-{{ item.status }}">
+        <span class="item-main"><span class="item-qty">{{ item.quantity|qty }}{% if item.unit and item.unit != "each" %} {{ item.get_unit_display }}{% endif %}</span> {{ item.description }}{% if item.source_revision %} <span class="muted small">from {{ item.source_revision.quote.number }}</span>{% endif %}</span>
+        <span class="muted">{{ item.get_status_display }}{% if item.completed_by %} · {{ item.completed_by.get_short_name }} {{ item.completed_at|mdt }}{% endif %}</span>
+        {% if can_edit %}
+        <span class="row-actions">
+          {% if item.status == "pending" %}
+          <form method="post" action="{% url 'workorders:item_set' wo.pk item.pk %}" class="inline">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="state" value="done"><button type="submit">Included</button></form>
+          <form method="post" action="{% url 'workorders:item_set' wo.pk item.pk %}" class="inline">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="state" value="skipped"><button type="submit" class="linklike">Not needed</button></form>
+          {% else %}
+          <form method="post" action="{% url 'workorders:item_set' wo.pk item.pk %}" class="inline">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="state" value="pending"><button type="submit" class="linklike">Undo</button></form>
+          {% endif %}
+          <form method="post" action="{% url 'workorders:item_delete' wo.pk item.pk %}" class="inline">{% csrf_token %}<button type="submit" class="linklike danger-text">Remove</button></form>
+        </span>
+        {% endif %}
+      </li>
+    {% endfor %}
+    </ul>
+  </section>
   {% endif %}
 
 {% elif tab == "materials" %}

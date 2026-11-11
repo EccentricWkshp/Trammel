@@ -10,8 +10,10 @@
       <input type="email" id="portal-email" name="email" autocomplete="email" required autofocus></div>
     <div class="actions"><button type="submit" class="primary">Send me a code</button></div>
   </form>
+  <p class="muted small">Have a sign-in code from us? <a href="{% url 'portal:access_code' %}">Enter it here</a>.</p>
   {% else %}
-  <p>Signing in isn't available right now. Please contact {{ business.name }} directly.</p>
+  <p>See your jobs, quotes and invoices with {{ business.name }}. Sign in with the code we gave you, or contact us for one.</p>
+  <p class="actions"><a class="button primary" href="{% url 'portal:access_code' %}">Enter your code</a></p>
   {% endif %}
 </section>
 {% endblock %}

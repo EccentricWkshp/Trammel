@@ -21,6 +21,7 @@ urlpatterns = [
     path("r/<uuid:pk>/lines/new/<str:kind>/", views.line_edit, name="line_create"),
     path("r/<uuid:pk>/lines/<uuid:line_pk>/", views.line_edit, name="line_edit"),
     path("r/<uuid:pk>/lines/<uuid:line_pk>/delete/", views.line_delete, name="line_delete"),
+    path("r/<uuid:pk>/lines/<uuid:line_pk>/offer/", views.line_offer, name="line_offer"),
     path("r/<uuid:pk>/estimate/<str:key>/", views.estimate, name="estimate"),
     path("r/<uuid:pk>/estimate/<str:key>/<uuid:line_pk>/", views.estimate, name="estimate"),
     path("r/<uuid:pk>/send/", views.send, name="send"),

@@ -13,7 +13,7 @@ from trammel.quotes.models import QuoteRevision
 from trammel.shop.models import Material
 
 from . import services
-from .models import Operation, WorkOrder
+from .models import IncludedItem, Operation, WorkOrder
 
 router = Router(tags=["work orders"])
 
@@ -55,8 +55,35 @@ class OperationOut(ModelSchema):
         return getattr(obj, "time", {}).get("logged_machine", 0)
 
 
+class IncludedItemOut(ModelSchema):
+    """A resold product to set aside or pack with the work, checked off rather
+    than worked on."""
+
+    #: The change order it came from, if not the work order's own quote.
+    source_revision: UUID | None
+
+    class Meta:
+        model = IncludedItem
+        fields = [
+            "id",
+            "product",
+            "description",
+            "quantity",
+            "unit",
+            "position",
+            "status",
+            "completed_at",
+        ]
+
+    @staticmethod
+    def resolve_source_revision(obj):
+        return obj.source_revision_id
+
+
 class WorkOrderOut(ModelSchema):
     operations: list[OperationOut]
+    #: Items to include: resold products from the quote.
+    items: list[IncludedItemOut]
     #: When the work still to do should be finished, from its planned time and
     #: waits in shop hours; null when nothing left has planned time.
     estimated_finish: datetime | None
@@ -80,6 +107,10 @@ class WorkOrderOut(ModelSchema):
     def resolve_operations(obj):
         obj._tree = services.operation_tree(obj)
         return obj._tree
+
+    @staticmethod
+    def resolve_items(obj):
+        return list(obj.items.all())
 
     @staticmethod
     def resolve_estimated_finish(obj):
@@ -213,6 +244,19 @@ def set_operation(request, wo_id: UUID, op_id: UUID, payload: OperationIn):
     if op is None:
         raise Http404
     services.set_operation(op, payload.state, user=request.actor.user)
+    wo.refresh_from_db()
+    return wo
+
+
+@router.post("/{wo_id}/items/{item_id}", response=WorkOrderOut)
+def set_item(request, wo_id: UUID, item_id: UUID, payload: OperationIn):
+    """Check an item to include off: `done` (included), `skipped` (not needed),
+    or `pending`."""
+    wo = _wo(request, "workorders.edit", wo_id)
+    item = wo.items.filter(pk=item_id).first()
+    if item is None:
+        raise Http404
+    services.set_item(item, payload.state, user=request.actor.user)
     wo.refresh_from_db()
     return wo
 

@@ -9,6 +9,7 @@ from decimal import Decimal
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.utils import timezone
+from django.utils.http import urlencode
 
 from trammel.core import access, audit, numbering, templating
 from trammel.core.access import SYSTEM
@@ -154,6 +155,7 @@ def revise(revision: QuoteRevision, *, actor=None) -> QuoteRevision:
         line.pk = None
         line.revision = new
         line.save()
+    settle_choices(new)
     if revision.status == S.SENT:
         QuoteRevision.lifecycle.apply(revision, S.SUPERSEDED, actor=actor or SYSTEM)
     recalculate(new)
@@ -221,6 +223,7 @@ def save_line(line: QuoteLine) -> QuoteLine:
     price_line(line)
     line.full_clean(exclude=["revision"])
     line.save()
+    settle_choices(line.revision)
     recalculate(line.revision)
     return line
 
@@ -229,7 +232,188 @@ def save_line(line: QuoteLine) -> QuoteLine:
 def delete_line(line: QuoteLine) -> None:
     revision = line.revision
     line.delete()
+    settle_choices(revision)
     recalculate(revision)
+
+
+# ---------------------------------------------------------------------------
+# Options and alternatives (FR-QUO-11)
+# ---------------------------------------------------------------------------
+
+Offer = QuoteLine.Offer
+
+
+def settle_choices(revision: QuoteRevision) -> None:
+    """Put a draft's lines in their default scope: every included line, no
+    option, and one alternative of each group — the one marked as the default,
+    or else the first."""
+    if revision.status != S.DRAFT:
+        return
+    lines = list(revision.lines.all())
+    wanted = {}
+    chosen = {}
+    for line in lines:
+        if line.offer == Offer.ALTERNATE:
+            key = line.group.strip().casefold()
+            if key not in chosen or (line.included and not chosen[key].included):
+                chosen[key] = line
+        else:
+            wanted[line.pk] = line.offer == Offer.INCLUDED
+    for line in chosen.values():
+        wanted[line.pk] = True
+    for line in lines:
+        wanted.setdefault(line.pk, False)
+    for value in (True, False):
+        ids = [pk for pk, keep in wanted.items() if keep is value]
+        revision.lines.filter(pk__in=ids).exclude(included=value).update(included=value)
+
+
+@transaction.atomic
+def set_offer(line: QuoteLine, offer: str, group: str = "", default: bool = False) -> QuoteLine:
+    """Offer a draft's line as included, as an option, or as an alternative in
+    `group`; `default` makes it the group's choice until the customer picks."""
+    revision = line.revision
+    if revision.status != S.DRAFT:
+        raise ValidationError("Lines can only be changed on a draft revision.")
+    group = " ".join(group.split())
+    if offer == Offer.ALTERNATE:
+        if not group:
+            raise ValidationError("Name the group the alternatives belong to, such as Wood.")
+        # The group's name as it's already written, so "wood" joins "Wood".
+        same = (
+            revision.lines.filter(offer=Offer.ALTERNATE, group__iexact=group)
+            .exclude(pk=line.pk)
+            .values_list("group", flat=True)
+            .first()
+        )
+        group = same or group
+    elif offer not in Offer.values:
+        raise ValidationError("Choose how the line is offered.")
+    else:
+        group = ""
+    line.offer, line.group = offer, group
+    line.save(update_fields=["offer", "group"])
+    if offer == Offer.ALTERNATE and default:
+        revision.lines.filter(offer=Offer.ALTERNATE, group=group).update(included=False)
+        revision.lines.filter(pk=line.pk).update(included=True)
+    settle_choices(revision)
+    recalculate(revision)
+    audit.record(
+        "quote.offer",
+        revision.quote,
+        summary=f"{line.description[:60]}: {Offer(offer).label.split(':')[0].lower()}"
+        + (f" in {group}" if group else ""),
+    )
+    line.refresh_from_db()
+    return line
+
+
+def groups(revision: QuoteRevision) -> list[str]:
+    """The names of the revision's groups of alternatives."""
+    return sorted(
+        set(revision.lines.filter(offer=Offer.ALTERNATE).values_list("group", flat=True)),
+        key=str.casefold,
+    )
+
+
+def choices(revision: QuoteRevision, included: set | None = None) -> dict:
+    """What the customer can choose: {"groups": [{"name", "lines", "chosen"}],
+    "options": [lines]}, with `included` (line ids) as the choice, else each
+    line's own. Each alternative carries `difference`, its price against the
+    group's choice."""
+    lines = list(revision.lines.exclude(offer=Offer.INCLUDED))
+    for line in lines:
+        line.picked = line.included if included is None else line.pk in included
+    named: dict[str, dict] = {}
+    for line in lines:
+        if line.offer == Offer.ALTERNATE:
+            entry = named.setdefault(line.group, {"name": line.group, "lines": [], "chosen": None})
+            entry["lines"].append(line)
+            if line.picked:
+                entry["chosen"] = line
+    for entry in named.values():
+        base = entry["chosen"].line_total if entry["chosen"] else ZERO
+        for line in entry["lines"]:
+            line.difference = line.line_total - base
+            line.gap = abs(line.difference)
+    return {"groups": list(named.values()), "options": [x for x in lines if x.is_optional]}
+
+
+def picks_from(data) -> list[str] | None:
+    """The alternatives and options picked on a page (`pick` fields, one per
+    group of alternatives and one for the options), or None when the page sent
+    none, for the defaults."""
+    keys = [k for k in data if k == "pick" or k.startswith("pick-")]
+    if not keys:
+        return None
+    return [value for key in keys for value in data.getlist(key)]
+
+
+def choosing(revision: QuoteRevision, picks) -> dict | None:
+    """For a page where the customer approves: what they can choose, as picked,
+    with the totals and deposit for it and the picked ids to send on. None when
+    the revision offers no choices."""
+    if not revision.has_choices:
+        return None
+    included = picked(revision, picks)
+    offered = choices(revision, included)
+    figures = totals_with(revision, included)
+    chosen = [
+        line.pk
+        for line in [*offered["options"], *(m for g in offered["groups"] for m in g["lines"])]
+        if line.picked
+    ]
+    return {
+        **offered,
+        "figures": figures,
+        "total": figures["total"],
+        "deposit": revision.deposit_for(figures["total"]),
+        "picks": chosen,
+        "query": urlencode([("pick", str(pk)) for pk in chosen]),
+    }
+
+
+def picked(revision: QuoteRevision, picks) -> set:
+    """The ids of the lines in scope with `picks` (line ids, as strings or UUIDs:
+    the alternatives and options chosen). A group with no valid pick keeps its
+    default; `picks` None means the defaults."""
+    lines = list(revision.lines.all())
+    if picks is None:
+        return {line.pk for line in lines if line.included}
+    wanted = {str(p) for p in picks}
+    scope = {line.pk for line in lines if line.offer == Offer.INCLUDED}
+    scope |= {line.pk for line in lines if line.is_optional and str(line.pk) in wanted}
+    by_group: dict[str, list[QuoteLine]] = {}
+    for line in lines:
+        if line.is_alternate:
+            by_group.setdefault(line.group, []).append(line)
+    for members in by_group.values():
+        chosen = [m for m in members if str(m.pk) in wanted]
+        pick = chosen[0] if chosen else next((m for m in members if m.included), members[0])
+        scope.add(pick.pk)
+    return scope
+
+
+def totals_with(revision: QuoteRevision, included: set) -> dict:
+    """The revision's totals were `included` (line ids) its scope, without saving."""
+    lines = [line for line in revision.lines.select_related("tax_category") if line.pk in included]
+    return _totals(revision, lines)
+
+
+def _apply_choices(revision: QuoteRevision, included: set) -> None:
+    """At approval: the customer's choices become the scope, and the totals
+    follow. Nothing changes when they kept the defaults."""
+    current = set(revision.lines.filter(included=True).values_list("pk", flat=True))
+    if current == included:
+        return
+    revision.lines.filter(pk__in=included).update(included=True)
+    revision.lines.exclude(pk__in=included).update(included=False)
+    figures = _totals(
+        revision, list(revision.lines.select_related("tax_category").filter(included=True))
+    )
+    QuoteRevision.all_objects.filter(pk=revision.pk).update(**figures)
+    for name, value in figures.items():
+        setattr(revision, name, value)
 
 
 def estimate_line(revision: QuoteRevision, estimator_key: str, data: dict) -> QuoteLine:
@@ -314,7 +498,15 @@ def recalculate(revision: QuoteRevision) -> QuoteRevision:
     """Recompute the totals of a draft revision and store them."""
     if revision.status != S.DRAFT:
         return revision
-    lines = list(revision.lines.select_related("tax_category"))
+    figures = _totals(revision, list(revision.included_lines().select_related("tax_category")))
+    for name, value in figures.items():
+        setattr(revision, name, value)
+    QuoteRevision.objects.filter(pk=revision.pk).update(**figures)
+    return revision
+
+
+def _totals(revision: QuoteRevision, lines: list[QuoteLine]) -> dict:
+    """The revision's totals with `lines` as its scope."""
     default = TaxCategory.default()
     lines_total = sum((line.line_total for line in lines), ZERO)
     taxable = sum((line.line_total for line in lines if _taxable(line, default)), ZERO)
@@ -332,27 +524,17 @@ def recalculate(revision: QuoteRevision) -> QuoteRevision:
     shipping = revision.shipping or ZERO
     shipping_taxable = tax.taxable_shipping(shipping, taxable, items) if lines else ZERO
     label, tax_amount = tax_estimate(revision, taxable + shipping_taxable) if lines else ("", ZERO)
-    revision.lines_total = lines_total
-    revision.discount_amount = discount
-    revision.minimum_adjustment = minimum
-    revision.subtotal = subtotal + minimum
-    revision.shipping_taxable = shipping_taxable
-    revision.tax_label = label[:120]
-    revision.tax_amount = tax_amount
-    revision.total = revision.subtotal + shipping + tax_amount
-    revision.cost_total = sum((line.cost_total for line in lines), ZERO)
-    QuoteRevision.objects.filter(pk=revision.pk).update(
-        lines_total=revision.lines_total,
-        discount_amount=discount,
-        minimum_adjustment=minimum,
-        subtotal=revision.subtotal,
-        shipping_taxable=shipping_taxable,
-        tax_label=revision.tax_label,
-        tax_amount=tax_amount,
-        total=revision.total,
-        cost_total=revision.cost_total,
-    )
-    return revision
+    return {
+        "lines_total": lines_total,
+        "discount_amount": discount,
+        "minimum_adjustment": minimum,
+        "subtotal": subtotal + minimum,
+        "shipping_taxable": shipping_taxable,
+        "tax_label": label[:120],
+        "tax_amount": tax_amount,
+        "total": subtotal + minimum + shipping + tax_amount,
+        "cost_total": sum((line.cost_total for line in lines), ZERO),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -417,6 +599,9 @@ def snapshot(revision: QuoteRevision) -> dict:
                 "unit_price": str(line.unit_price),
                 "discount_pct": str(line.discount_pct),
                 "line_total": str(line.line_total),
+                "offer": line.offer,
+                "group": line.group,
+                "included": line.included,
             }
             for line in revision.lines.all()
         ],
@@ -438,8 +623,13 @@ def approve(
     ip=None,
     user=None,
     signature: bytes = b"",
+    picks=None,
 ) -> Approval:
     """Approve the quote and, with it, the customer agreement (FR-QUO-8, §6 step 5).
+
+    `picks` are the ids of the alternatives and options the customer chose
+    (FR-QUO-11); they become the scope, and the totals follow. None keeps the
+    defaults.
 
     A change order is approved without the customer agreement, which the job
     already has; its amended terms, if it carries any, are accepted with it
@@ -465,6 +655,8 @@ def approve(
     ):
         raise ValidationError(f"This {noun} has expired. Create a new revision to re-quote.")
     job = quote.job
+    if revision.status == S.SENT:
+        _apply_choices(revision, picked(revision, picks))
     if quote.is_change_order:
         QuoteRevision.lifecycle.apply(revision, S.APPROVED, actor=actor)
         agreement = None
@@ -640,7 +832,10 @@ def expire_due(today: dt.date | None = None) -> int:
 # ---------------------------------------------------------------------------
 
 
-def document_context(revision: QuoteRevision) -> dict:
+def document_context(revision: QuoteRevision, picks=None) -> dict:
+    """What a quote template renders. `picks` (line ids) shows the document with
+    the customer's choices while they're choosing, before approving; it's ignored
+    once the revision can no longer be answered."""
     from trammel.agreements import services as agreements
 
     job = revision.quote.job
@@ -655,6 +850,48 @@ def document_context(revision: QuoteRevision) -> dict:
             or job.agreements.filter(is_primary=True, status="issued").first()
         )
         agreement_text = agreement.text if agreement else ""
+    lines = list(revision.lines.all())
+    picking = picks is not None and revision.has_choices and can_answer(revision)
+    if picking:
+        included = picked(revision, picks)
+        figures = totals_with(revision, included)
+    else:
+        included = {line.pk for line in lines if line.included}
+        figures = {
+            name: getattr(revision, name)
+            for name in (
+                "lines_total",
+                "discount_amount",
+                "minimum_adjustment",
+                "subtotal",
+                "tax_label",
+                "tax_amount",
+                "total",
+            )
+        }
+    offered = choices(revision, included)
+    approved = revision.status == S.APPROVED
+
+    def row(line: QuoteLine) -> dict:
+        return {
+            "description": line.description,
+            "quantity": plain_decimal(line.quantity),
+            "unit": line.get_unit_display(),
+            "unit_price": line.unit_price,
+            "discount_pct": line.discount_pct,
+            "total": line.line_total,
+            "offer": line.offer,
+            "group": line.group,
+        }
+
+    # What each line left out would add: an option its price, an alternative
+    # the difference from its group's choice.
+    difference = {m.pk: m.difference for g in offered["groups"] for m in g["lines"]}
+    left_out = [
+        {**row(line), "difference": difference.get(line.pk, line.line_total)}
+        for line in lines
+        if line.pk not in included
+    ]
     return {
         "business": templating.business_context(business),
         "customer": templating.customer_context(job.customer),
@@ -670,29 +907,25 @@ def document_context(revision: QuoteRevision) -> dict:
             "valid_until": revision.valid_until,
             "description": revision.description,
             "notes": revision.customer_notes,
-            "lines": [
-                {
-                    "description": line.description,
-                    "quantity": plain_decimal(line.quantity),
-                    "unit": line.get_unit_display(),
-                    "unit_price": line.unit_price,
-                    "discount_pct": line.discount_pct,
-                    "total": line.line_total,
-                }
-                for line in revision.lines.all()
-            ],
-            "lines_total": revision.lines_total,
+            "lines": [row(line) for line in lines if line.pk in included],
+            "choices": left_out,
+            "choices_title": (
+                "Not chosen" if approved else "Options and alternatives, not in the total"
+            ),
+            # The lines and totals are the customer's own picks, not yet approved.
+            "choices_picked": picking,
+            "lines_total": figures["lines_total"],
             "discount_pct": revision.discount_pct,
-            "discount": revision.discount_amount,
-            "minimum_adjustment": revision.minimum_adjustment,
-            "subtotal": revision.subtotal,
+            "discount": figures["discount_amount"],
+            "minimum_adjustment": figures["minimum_adjustment"],
+            "subtotal": figures["subtotal"],
             "shipping": revision.shipping,
             "shipping_label": revision.shipping_label,
             "fulfillment": revision.get_fulfillment_display(),
-            "tax_label": revision.tax_label,
-            "tax": revision.tax_amount,
-            "total": revision.total,
-            "deposit": revision.deposit_amount,
+            "tax_label": figures["tax_label"],
+            "tax": figures["tax_amount"],
+            "total": figures["total"],
+            "deposit": revision.deposit_for(figures["total"]),
             "deposit_percent": revision.deposit_value
             if revision.deposit_kind == "percent"
             else None,
@@ -719,12 +952,12 @@ def _approval_context(revision: QuoteRevision) -> dict | None:
     }
 
 
-def render_html(revision: QuoteRevision) -> str:
+def render_html(revision: QuoteRevision, picks=None) -> str:
     template = revision.template or QuoteTemplate.default()
     if template is None:
         raise templating.TemplateProblem("There is no quote template.")
-    return templating.render(template.body, document_context(revision))
+    return templating.render(template.body, document_context(revision, picks))
 
 
-def render_pdf(revision: QuoteRevision) -> bytes:
-    return templating.render_pdf(render_html(revision))
+def render_pdf(revision: QuoteRevision, picks=None) -> bytes:
+    return templating.render_pdf(render_html(revision, picks))

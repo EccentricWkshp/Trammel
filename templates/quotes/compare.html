@@ -9,7 +9,7 @@
   <tbody>
   {% for row in rows %}
     <tr{% if row.changed %} class="changed"{% endif %}>
-      <td>{{ row.description }}</td>
+      <td>{{ row.description }}{% with line=row.b|default:row.a %}{% if line.is_optional %} <span class="badge choice">Option</span>{% elif line.is_alternate %} <span class="badge choice">{{ line.group }}</span>{% endif %}{% endwith %}</td>
       <td class="num">{% if row.a %}{{ row.a.quantity|floatformat:"-4" }} × {{ row.a.unit_price|money }} = {{ row.a.line_total|money }}{% else %}<span class="muted">—</span>{% endif %}</td>
       <td class="num">{% if row.b %}{{ row.b.quantity|floatformat:"-4" }} × {{ row.b.unit_price|money }} = {{ row.b.line_total|money }}{% else %}<span class="muted">—</span>{% endif %}</td>
     </tr>

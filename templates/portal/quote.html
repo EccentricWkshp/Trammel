@@ -12,14 +12,17 @@
 </dl>
 {% if approval %}<p class="status-line"><span class="status status-approved">Approved by {{ approval.approved_by_name }} on {{ approval.approved_at|d }}</span></p>{% endif %}
 
-<p class="actions"><a class="button" href="{% url 'portal:quote_pdf' revision.pk %}">Download PDF</a></p>
-<iframe class="document-preview" src="{% url 'portal:quote_document' revision.pk %}" sandbox title="{{ q.get_kind_display }} {{ q.number }}"></iframe>
+<p class="actions"><a class="button" href="{% url 'portal:quote_pdf' revision.pk %}{% if choosing %}?{{ choosing.query }}{% endif %}">Download PDF{% if choosing %} with these choices{% endif %}</a></p>
+<iframe class="document-preview" src="{% url 'portal:quote_document' revision.pk %}{% if choosing %}?{{ choosing.query }}{% endif %}" sandbox title="{{ q.get_kind_display }} {{ q.number }}"></iframe>
 
 {% if can_respond %}
+{% if choosing %}{% include "quotes/_choices.html" with who="Your" %}{% endif %}
 <section class="card" aria-labelledby="approve-heading">
   <h2 id="approve-heading">Approve</h2>
+  {% if visitor.is_preview %}<p class="message info">The customer approves or declines here. In this preview the buttons are off.</p>{% endif %}
   <form method="post" action="{% url 'portal:respond' revision.pk %}" class="stack" novalidate>{% csrf_token %}
     <input type="hidden" name="answer" value="approve">
+    {% for pk in choosing.picks %}<input type="hidden" name="pick" value="{{ pk }}">{% endfor %}
     {% if agreement %}
     <input type="hidden" name="terms" value="{{ agreement.hash }}">
     <h3>{{ agreement.title }}</h3>
@@ -32,7 +35,7 @@
     <div class="field"><label for="approve-comment">Comment (optional)</label>
       <textarea id="approve-comment" name="comment" rows="2" maxlength="2000"></textarea></div>
     <p class="muted small">Approving records your name{% if signing %} and signature{% endif %}, the time, and your IP address{% if agreement %}, as your acceptance of the terms above{% endif %}.</p>
-    <div class="actions"><button type="submit" class="primary">Approve {{ q.noun }} for {{ revision.total|money }}</button></div>
+    <div class="actions"><button type="submit" class="primary"{% if visitor.is_preview %} disabled{% endif %}>Approve {{ q.noun }} for {% if choosing %}{{ choosing.total|money }}{% else %}{{ revision.total|money }}{% endif %}</button></div>
   </form>
 </section>
 <section class="card" aria-labelledby="decline-heading">
@@ -41,7 +44,7 @@
     <input type="hidden" name="answer" value="decline">
     <div class="field"><label for="decline-comment">Tell us why, or what would work better (optional)</label>
       <textarea id="decline-comment" name="comment" rows="2" maxlength="2000"></textarea></div>
-    <div class="actions"><button type="submit">Decline</button></div>
+    <div class="actions"><button type="submit"{% if visitor.is_preview %} disabled{% endif %}>Decline</button></div>
   </form>
 </section>
 {% elif revision.status == "sent" %}

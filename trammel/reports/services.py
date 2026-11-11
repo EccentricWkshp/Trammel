@@ -74,7 +74,7 @@ def job_costing(job) -> JobCosting:
     for rev in QuoteRevision.objects.filter(quote__job=job, status="approved"):
         c.quoted_cost += rev.cost_total
         factor = 1 - rev.discount_pct / 100
-        for line in rev.lines.all():
+        for line in rev.included_lines():
             for category, amount in (line.split or {"other": str(line.line_total)}).items():
                 key = category if category in CATEGORIES else "other"
                 c.quoted[key] += round_money(Decimal(amount) * factor)

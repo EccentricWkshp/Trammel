@@ -9,6 +9,7 @@ urlpatterns = [
     path("sign-in/", views.sign_in, name="sign_in"),
     path("sign-in/code/", views.code, name="code"),
     path("sign-in/choose/", views.choose, name="choose"),
+    path("sign-in/access-code/", views.access_code, name="access_code"),
     path("sign-out/", views.sign_out, name="sign_out"),
     path("jobs/<uuid:pk>/", views.job, name="job"),
     path("quotes/<uuid:pk>/", views.quote, name="quote"),
@@ -23,4 +24,8 @@ urlpatterns = [
     path("notes/<uuid:pk>/photo/", views.note_photo, name="note_photo"),
     # Staff
     path("access/<uuid:customer_pk>/", views.set_access, name="set_access"),
+    path("codes/<uuid:customer_pk>/", views.make_code, name="make_code"),
+    path("codes/<uuid:customer_pk>/cancel/", views.cancel_code, name="cancel_code"),
+    path("preview/<uuid:customer_pk>/", views.preview, name="preview"),
+    path("preview/stop/", views.preview_stop, name="preview_stop"),
 ]

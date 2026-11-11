@@ -11,13 +11,18 @@ from __future__ import annotations
 from functools import wraps
 
 from django.contrib import messages
+from django.contrib.auth.decorators import login_required
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
-from django.utils.http import content_disposition_header
+from django.utils.http import (
+    content_disposition_header,
+    url_has_allowed_host_and_scheme,
+    urlencode,
+)
 from django.views.decorators.http import require_POST
 
 from trammel.core import access, audit, modules, templating
@@ -57,6 +62,20 @@ def portal_view(view):
         if visitor is None:
             return redirect("portal:sign_in")
         request.visitor = visitor
+        # Staff viewing the portal as the customer would can look, not act:
+        # nothing is approved, declined or changed in the customer's name.
+        if visitor.is_preview and request.method not in ("GET", "HEAD"):
+            messages.error(
+                request,
+                f"You're viewing the portal as {visitor.customer} sees it, so nothing can be "
+                "approved, declined or changed here.",
+            )
+            back = request.META.get("HTTP_REFERER", "")
+            if not url_has_allowed_host_and_scheme(
+                back, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+            ):
+                back = reverse("portal:home")
+            return redirect(back)
         request.actor = visitor.actor
         audit.rebind(visitor.actor, source="portal")
         response = view(request, *args, **kwargs)
@@ -145,6 +164,25 @@ def choose(request):
         return redirect("portal:home")
     return render(
         request, "portal/choose.html", _context(request, customers=list(allowed.values()))
+    )
+
+
+def access_code(request):
+    """Sign in with a code staff gave the customer (FR-PRT-10)."""
+    if services.current(request):
+        return redirect("portal:home")
+    error = ""
+    if request.method == "POST":
+        if services.use_code(request, request.POST.get("code", ""), client_ip(request)):
+            return redirect("portal:home")
+        error = (
+            "That code didn't work. A code from us works once and expires after "
+            f"{services.AccessCode.LIFETIME_DAYS} days; ask us for a new one if you need to."
+        )
+    return render(
+        request,
+        "portal/access_code.html",
+        _context(request, error=error, email_ready=services.email_ready()),
     )
 
 
@@ -334,15 +372,22 @@ def _signing() -> bool:
 
 @portal_view
 def quote(request, pk):
+    from trammel.quotes import services as quotes
+
     revision = _revision(request, pk)
+    can_respond = _can_respond(revision)
     return render(
         request,
         "portal/quote.html",
         _context(
             request,
             revision=revision,
-            can_respond=_can_respond(revision),
-            agreement=_agreement_to_accept(revision) if _can_respond(revision) else None,
+            can_respond=can_respond,
+            agreement=_agreement_to_accept(revision) if can_respond else None,
+            # The options and alternatives to pick before approving (FR-QUO-11).
+            choosing=quotes.choosing(revision, quotes.picks_from(request.GET))
+            if can_respond
+            else None,
             signing=_signing(),
             approval=Approval.objects.filter(revision=revision).first(),
         ),
@@ -380,13 +425,14 @@ def respond(request, pk):
                 actor=request.actor,
                 approved_by_name=name,
                 notes="\n\n".join(
-                    filter(None, [f"In the portal, signed in as {request.visitor.email}.", comment])
+                    filter(None, [f"In the portal, {request.visitor.how}.", comment])
                 ),
                 accept_agreement=agreement is not None,
                 method="portal",
                 agreement_method="signature" if signing else "click",
                 ip=client_ip(request),
                 signature=drawn,
+                picks=quotes.picks_from(request.POST),
             )
             messages.success(request, f"Thank you. The {noun} is approved.")
         elif request.POST.get("answer") == "decline":
@@ -397,6 +443,11 @@ def respond(request, pk):
             raise ValidationError("Choose to approve or decline.")
     except (ValidationError, TransitionError) as exc:
         messages.error(request, " ".join(getattr(exc, "messages", [str(exc)])))
+        # Back to the page with the customer's choices still picked.
+        picks = quotes.picks_from(request.POST)
+        if picks:
+            query = urlencode([("pick", p) for p in picks])
+            return redirect(f"{reverse('portal:quote', args=[revision.pk])}?{query}#choices")
     except PermissionDenied:
         raise Http404 from None
     return redirect("portal:quote", pk=revision.pk)
@@ -409,7 +460,8 @@ def quote_document(request, pk):
 
     revision = _revision(request, pk)
     try:
-        html = quotes.render_html(revision)
+        # As the customer has picked their choices on the quote page (FR-QUO-11).
+        html = quotes.render_html(revision, quotes.picks_from(request.GET))
     except templating.TemplateProblem:
         html = "<p>This document can't be shown right now. Please contact us for a copy.</p>"
     return document_response(request, html)
@@ -427,7 +479,7 @@ def quote_pdf(request, pk):
 
     revision = _revision(request, pk)
     try:
-        data = quotes.render_pdf(revision)
+        data = quotes.render_pdf(revision, quotes.picks_from(request.GET))
     except templating.PdfUnavailable, templating.TemplateProblem:
         messages.error(request, "The PDF can't be made right now. Please contact us for a copy.")
         return redirect("portal:quote", pk=revision.pk)
@@ -567,9 +619,71 @@ def set_access(request, customer_pk):
         if enabled and not services.signers_of(customer):
             messages.warning(
                 request,
-                "Portal access is on, but nobody can sign in yet: add an email address to the "
-                "customer or one of their contacts.",
+                "Portal access is on, but nobody can get an emailed sign-in code yet: add an "
+                "email address to the customer or one of their contacts, or make a code to "
+                "give them.",
             )
         else:
             messages.success(request, f"Portal access {'turned on' if enabled else 'turned off'}.")
     return redirect(f"{reverse('customers:detail', args=[customer.pk])}")
+
+
+@permission_required("portal.manage")
+@require_POST
+def make_code(request, customer_pk):
+    """Make a sign-in code to give the customer, shown this once (FR-PRT-10)."""
+    customer = access.get_or_404(
+        request.actor, "customers.view", Customer.objects.all(), pk=customer_pk
+    )
+    if customer.is_internal or customer.is_placeholder:
+        raise PermissionDenied
+    try:
+        code, row = services.make_code(customer, user=request.user)
+    except ValueError as exc:
+        messages.error(request, str(exc))
+        return redirect("customers:detail", pk=customer.pk)
+    response = render(
+        request,
+        "portal/code_made.html",
+        {
+            "customer": customer,
+            "code": code,
+            "row": row,
+            "sign_in_url": services.link(reverse("portal:access_code")),
+        },
+    )
+    response["Cache-Control"] = "private, no-store"
+    return response
+
+
+@permission_required("portal.manage")
+@require_POST
+def cancel_code(request, customer_pk):
+    customer = access.get_or_404(
+        request.actor, "customers.view", Customer.objects.all(), pk=customer_pk
+    )
+    if services.cancel_codes(customer, why=f"Canceled the portal sign-in code for {customer}"):
+        messages.success(request, "The sign-in code is canceled.")
+    return redirect("customers:detail", pk=customer.pk)
+
+
+@login_required
+@require_POST
+def preview(request, customer_pk):
+    """Staff view the portal as the customer would, read-only."""
+    customer = access.get_or_404(
+        request.actor, "customers.view", Customer.objects.all(), pk=customer_pk
+    )
+    if not services.can_preview(request.actor, customer):
+        raise PermissionDenied
+    services.start_preview(request, customer)
+    return redirect("portal:home")
+
+
+@require_POST
+def preview_stop(request):
+    """Back to the customer's page from viewing the portal as them."""
+    customer_pk = services.stop_preview(request)
+    if customer_pk and request.user.is_authenticated:
+        return redirect("customers:detail", pk=customer_pk)
+    return redirect("portal:sign_in")

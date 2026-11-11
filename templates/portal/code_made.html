@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Sign-in code for {{ customer }}{% endblock %}
+{% block main_class %}page narrow{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="{% url 'customers:detail' customer.pk %}">{{ customer }}</a></p>
+<h1>Sign-in code for {{ customer }}</h1>
+<p class="access-code" aria-label="The code, {{ code }}">{{ code }}</p>
+<p>It works once, until {{ row.expires_at|mdt }}. The customer enters it at <span class="nowrap">{{ sign_in_url }}</span>, or under “Have a sign-in code from us?” on the portal's sign-in page.</p>
+<p class="message warning">This is the only time the code is shown. Give it to the customer in person, or by phone to a number you know is theirs: anyone who has it can sign in as them, see their quotes and invoices, and approve quotes.</p>
+<p class="actions"><a class="button primary" href="{% url 'customers:detail' customer.pk %}">Done</a></p>
+{% endblock %}

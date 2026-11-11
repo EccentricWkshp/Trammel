@@ -37,6 +37,12 @@ def _operations_done(wo):
         yield f"{pending} operation(s) not done or skipped."
 
 
+def _items_included(wo):
+    pending = wo.items.filter(status=IncludedItem.State.PENDING).count()
+    if pending:
+        yield f"{pending} item(s) to include not checked off."
+
+
 def _materials_confirmed(wo):
     if not wo.materials_confirmed:
         yield "Confirm that all material use has been recorded."
@@ -102,7 +108,7 @@ WO_LIFECYCLE = Lifecycle(
             Status.COMPLETE,
             permission="workorders.edit",
             label="Mark complete",
-            guards=(_operations_done, hooks.guard_for(Status.COMPLETE)),
+            guards=(_operations_done, _items_included, hooks.guard_for(Status.COMPLETE)),
         ),
         Transition(
             Status.COMPLETE,
@@ -273,6 +279,51 @@ class PlannedMaterial(models.Model):
     )
     #: When it was recorded as used, from the plan.
     used_at = models.DateTimeField(null=True, blank=True, editable=False)
+
+    def __str__(self) -> str:
+        return self.description
+
+
+class IncludedItem(models.Model):
+    """Something that goes with the job but isn't made: a resold product from the
+    quote, such as a jar of board butter, to set aside or pack with the work. It
+    is checked off, not worked on, so it isn't an operation."""
+
+    class State(models.TextChoices):
+        PENDING = "pending", "To include"
+        DONE = "done", "Included"
+        SKIPPED = "skipped", "Not needed"
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    work_order = models.ForeignKey(WorkOrder, on_delete=models.CASCADE, related_name="items")
+    product = models.ForeignKey(
+        "catalog.Product", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    description = models.CharField(max_length=200)
+    quantity = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal("1"))
+    unit = models.CharField(max_length=12, choices=units.UNIT_CHOICES, blank=True)
+    position = models.PositiveIntegerField(default=0)
+    status = models.CharField(max_length=8, choices=State.choices, default=State.PENDING)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    completed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    #: The change order it came from, if not the work order's own quote.
+    source_revision = models.ForeignKey(
+        "quotes.QuoteRevision",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="+",
+        editable=False,
+    )
+
+    customer_scope_path = "work_order__job__customer_id"
+
+    class Meta:
+        ordering = ["position", "id"]
+        verbose_name = "item to include"
+        verbose_name_plural = "items to include"
 
     def __str__(self) -> str:
         return self.description

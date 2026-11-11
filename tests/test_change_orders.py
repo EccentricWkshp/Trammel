@@ -191,7 +191,7 @@ def test_approved_change_order_joins_the_job_s_one_work_order(admin, job, drawer
     parent = wo.operations.get(source_revision=drawer)
     assert parent.name == f"{drawer.quote.number}: Add a drawer"
     steps = list(parent.children.order_by("position"))
-    assert [s.name for s in steps] == ["Drawer", "Brass pull"]  # the credit is no work
+    assert [s.name for s in steps] == ["Drawer", "Brass pull × 2"]  # the credit is no work
     planned = wo.planned_materials.get(material=oil)
     assert planned.operation == steps[1] and planned.quantity == D("20")
     with pytest.raises(ValidationError, match="already"):
