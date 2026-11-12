@@ -33,6 +33,7 @@ def update_job(job: Job, *, before: dict) -> Job:
     job.tags = normalize_tags(job.tags)
     old_customer = before.get("customer")
     save_audited(job, before=before)
+    hooks.run_updated(job, before)
     if old_customer and old_customer != str(job.customer_id):
         old = Customer.all_objects.filter(pk=old_customer).first()
         if old is not None and old.is_placeholder:

@@ -212,7 +212,11 @@ def revision_detail(request, pk):
             "can_edit": can_edit,
             "can_costs": can_costs,
             "margin": margin,
-            "line_kinds": [(k, QuoteLine.Kind(k).label) for k in LINE_FORMS],
+            # The rush fee has its own control, beside the lines.
+            "line_kinds": [
+                (k, QuoteLine.Kind(k).label) for k in LINE_FORMS if k != QuoteLine.Kind.RUSH
+            ],
+            "rush_line": next((x for x in lines if x.kind == QuoteLine.Kind.RUSH), None),
             "estimators": ESTIMATORS.values(),
             "can_send": revision.is_draft and access.has_perm(actor, "quotes.edit", revision),
             "can_approve": revision.status == Status.SENT
@@ -230,18 +234,33 @@ def revision_detail(request, pk):
             else None,
             **panels.tabbed(
                 request,
-                [],
+                panels.for_object(request, revision),
                 first=[
                     ("lines", "Lines"),
                     ("details", "Details"),
                     ("preview", "Preview"),
                     *([("revisions", "Revisions")] if revision.quote.revisions.count() > 1 else []),
-                    ("files", "Files"),
                 ],
+                last=[("files", "Files")],
                 obj=revision.quote,
             ),
         },
     )
+
+
+@permission_required("quotes.edit")
+@_handles_redirect
+@require_POST
+def rush(request, pk):
+    """Mark a draft a rush job (adding its rush fee line), or not (0.8.2)."""
+    revision = _draft(request, pk)
+    try:
+        services.set_rush(revision, request.POST.get("rush") == "1")
+    except ValidationError as exc:
+        messages.error(request, " ".join(exc.messages))
+    if request.POST.get("tab") == "production":
+        return redirect(f"{revision.get_absolute_url()}?tab=production")
+    return redirect(revision)
 
 
 @permission_required("quotes.edit")

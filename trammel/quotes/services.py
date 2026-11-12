@@ -43,6 +43,9 @@ def _snapshot_rates(revision: QuoteRevision) -> None:
     revision.material_markup = rates.default_material_markup
     revision.consumables_pct = rates.consumables_allowance
     revision.minimum_charge = rates.minimum_job_charge
+    revision.rush_fee_kind = rates.rush_fee_kind
+    revision.rush_fee_value = rates.rush_fee_value
+    revision.rush_fee_minimum = rates.rush_fee_minimum
 
 
 #: Job states in which the agreed scope exists, so anything priced is a change order.
@@ -85,6 +88,8 @@ def create_quote(job, *, title: str = "") -> QuoteRevision:
         revision.minimum_charge = ZERO  # the job's minimum was met by its quote
     revision.save()
     audit.record("create", quote, summary=f"Created {quote.noun} {quote.number} for {job.number}")
+    if job.priority == RUSH_PRIORITY:
+        add_rush_fee(revision)
     return revision
 
 
@@ -146,6 +151,9 @@ def revise(revision: QuoteRevision, *, actor=None) -> QuoteRevision:
         material_markup=revision.material_markup,
         consumables_pct=revision.consumables_pct,
         minimum_charge=revision.minimum_charge,
+        rush_fee_kind=revision.rush_fee_kind,
+        rush_fee_value=revision.rush_fee_value,
+        rush_fee_minimum=revision.rush_fee_minimum,
         rates_overridden=revision.rates_overridden,
         shipping=revision.shipping,
         amended_terms=revision.amended_terms,
@@ -172,6 +180,9 @@ def update_revision(revision: QuoteRevision, *, before: dict) -> QuoteRevision:
         "material_markup",
         "consumables_pct",
         "minimum_charge",
+        "rush_fee_kind",
+        "rush_fee_value",
+        "rush_fee_minimum",
     )
     if any(str(getattr(revision, f)) != str(before.get(f)) for f in rate_fields):
         revision.rates_overridden = True
@@ -218,8 +229,16 @@ def save_line(line: QuoteLine) -> QuoteLine:
     if line.revision.status != S.DRAFT:
         raise ValidationError("Lines can only be changed on a draft revision.")
     if not line.position:
-        last = line.revision.lines.order_by("-position").values_list("position", flat=True).first()
-        line.position = (last or 0) + 10
+        if line.kind == QuoteLine.Kind.RUSH:
+            line.position = RUSH_POSITION  # after the work it's for
+        else:
+            last = (
+                line.revision.lines.exclude(kind=QuoteLine.Kind.RUSH)
+                .order_by("-position")
+                .values_list("position", flat=True)
+                .first()
+            )
+            line.position = (last or 0) + 10
     price_line(line)
     line.full_clean(exclude=["revision"])
     line.save()
@@ -408,9 +427,9 @@ def _apply_choices(revision: QuoteRevision, included: set) -> None:
         return
     revision.lines.filter(pk__in=included).update(included=True)
     revision.lines.exclude(pk__in=included).update(included=False)
-    figures = _totals(
-        revision, list(revision.lines.select_related("tax_category").filter(included=True))
-    )
+    lines = list(revision.lines.select_related("tax_category").filter(included=True))
+    figures = _totals(revision, lines)
+    _store_rush(lines)  # the rush fee follows what they chose
     QuoteRevision.all_objects.filter(pk=revision.pk).update(**figures)
     for name, value in figures.items():
         setattr(revision, name, value)
@@ -498,15 +517,147 @@ def recalculate(revision: QuoteRevision) -> QuoteRevision:
     """Recompute the totals of a draft revision and store them."""
     if revision.status != S.DRAFT:
         return revision
-    figures = _totals(revision, list(revision.included_lines().select_related("tax_category")))
+    lines = list(revision.included_lines().select_related("tax_category"))
+    figures = _totals(revision, lines)
+    _store_rush(lines)
     for name, value in figures.items():
         setattr(revision, name, value)
     QuoteRevision.objects.filter(pk=revision.pk).update(**figures)
     return revision
 
 
+# ---------------------------------------------------------------------------
+# The rush fee (0.8.2)
+# ---------------------------------------------------------------------------
+
+#: Job.Priority.RUSH, without importing the jobs models here.
+RUSH_PRIORITY = 3
+#: A rush fee line sits after the lines it's worked out from.
+RUSH_POSITION = 1_000_000
+
+
+def rush_configured(revision: QuoteRevision) -> bool:
+    return bool(revision.rush_fee_value or revision.rush_fee_minimum)
+
+
+def rush_amount(revision: QuoteRevision, lines) -> Decimal:
+    """The rush fee for `lines` (the scope): a percent of the other lines, or a
+    flat amount, never under the minimum; nothing when there's no other work."""
+    base = sum((line.line_total for line in lines if line.kind != QuoteLine.Kind.RUSH), ZERO)
+    if base <= 0:
+        return ZERO
+    if revision.rush_fee_kind == "flat":
+        fee = revision.rush_fee_value
+    else:
+        fee = base * revision.rush_fee_value / 100
+    return round_money(max(fee, revision.rush_fee_minimum))
+
+
+def rush_label(revision: QuoteRevision) -> str:
+    if revision.rush_fee_kind == "percent" and revision.rush_fee_value:
+        return f"Rush fee ({plain_decimal(revision.rush_fee_value)}%)"
+    return "Rush fee"
+
+
+def _price_rush(revision: QuoteRevision, lines) -> None:
+    """Price the rush fee lines among `lines` from the others, in place (one
+    whose price was set by hand keeps it)."""
+    for line in lines:
+        if line.kind == QuoteLine.Kind.RUSH and not line.price_is_manual:
+            line.quantity = Decimal("1")
+            line.unit_price = rush_amount(revision, lines)
+            line.unit_cost = ZERO
+            price_line(line)
+
+
+def _store_rush(lines) -> None:
+    for line in lines:
+        if line.kind == QuoteLine.Kind.RUSH:
+            QuoteLine.objects.filter(pk=line.pk).update(
+                quantity=line.quantity,
+                unit_price=line.unit_price,
+                line_total=line.line_total,
+                cost_total=line.cost_total,
+                split=line.split,
+            )
+
+
+def add_rush_fee(revision: QuoteRevision, *, force: bool = False) -> QuoteLine | None:
+    """Put a rush fee line on a draft (once), when its rates have one (or
+    regardless, with `force`: marking a quote rush by hand)."""
+    if not revision.is_draft or not (force or rush_configured(revision)):
+        return None
+    if revision.lines.filter(kind=QuoteLine.Kind.RUSH).exists():
+        return None
+    return save_line(
+        QuoteLine(
+            revision=revision,
+            kind=QuoteLine.Kind.RUSH,
+            description=rush_label(revision),
+            quantity=Decimal("1"),
+            unit="each",
+        )
+    )
+
+
+def rush_line(revision: QuoteRevision) -> QuoteLine | None:
+    return revision.lines.filter(kind=QuoteLine.Kind.RUSH).first()
+
+
+@transaction.atomic
+def set_rush(revision: QuoteRevision, rush: bool) -> None:
+    """Mark a draft a rush job, with its rush fee line, or not. Approved with
+    the fee in its scope (included, or an option the customer picked), the job
+    becomes Rush."""
+    if not revision.is_draft:
+        raise ValidationError("Only a draft revision can be changed.")
+    line = rush_line(revision)
+    if rush and line is None:
+        add_rush_fee(revision, force=True)
+    elif not rush and line is not None:
+        delete_line(line)
+
+
+def _rush_on_approval(revision: QuoteRevision) -> None:
+    """Approved with its rush fee in scope: the job becomes a rush job, so the
+    schedule plans it first."""
+    from trammel.jobs import services as jobs
+
+    if not revision.included_lines().filter(kind=QuoteLine.Kind.RUSH).exists():
+        return
+    job = revision.quote.job
+    job.refresh_from_db()
+    if job.priority == RUSH_PRIORITY:
+        return
+    before = audit.snapshot(job)
+    job.priority = RUSH_PRIORITY
+    jobs.update_job(job, before=before)
+    audit.record(
+        "job.rush",
+        job,
+        summary=f"{job.number} is a rush job: {revision} was approved with its rush fee",
+    )
+
+
+@transaction.atomic
+def rush_changed(job, was_rush: bool) -> None:
+    """A job's priority moved to or from Rush: its draft quotes and change
+    orders gain or lose their rush fee line."""
+    is_rush = job.priority == RUSH_PRIORITY
+    if is_rush == was_rush:
+        return
+    drafts = QuoteRevision.objects.filter(quote__job=job, status=S.DRAFT)
+    for revision in drafts:
+        if is_rush:
+            add_rush_fee(revision)
+        else:
+            for line in revision.lines.filter(kind=QuoteLine.Kind.RUSH):
+                delete_line(line)
+
+
 def _totals(revision: QuoteRevision, lines: list[QuoteLine]) -> dict:
     """The revision's totals with `lines` as its scope."""
+    _price_rush(revision, lines)
     default = TaxCategory.default()
     lines_total = sum((line.line_total for line in lines), ZERO)
     taxable = sum((line.line_total for line in lines if _taxable(line, default)), ZERO)
@@ -803,6 +954,7 @@ def _record_approval(
     )
     if move_job:
         _move_job(revision.quote.job, "approved", "quoted")
+    _rush_on_approval(revision)
     for fn in on_approved:
         fn(revision, approval)
     return approval
@@ -855,6 +1007,7 @@ def document_context(revision: QuoteRevision, picks=None) -> dict:
     if picking:
         included = picked(revision, picks)
         figures = totals_with(revision, included)
+        _price_rush(revision, [line for line in lines if line.pk in included])
     else:
         included = {line.pk for line in lines if line.included}
         figures = {

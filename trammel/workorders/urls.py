@@ -7,6 +7,7 @@ app_name = "workorders"
 urlpatterns = [
     path("", views.wo_list, name="list"),
     path("schedule/", schedule_views.schedule, name="schedule"),
+    path("quote-promise/<uuid:revision_pk>/", views.quote_promise, name="quote_promise"),
     path("new/", views.wo_new, name="new"),
     path("new/<uuid:job_pk>/", views.wo_create, name="create"),
     path("<uuid:pk>/", views.wo_detail, name="detail"),

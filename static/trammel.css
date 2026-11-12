@@ -336,6 +336,8 @@ svg.schedule .bar-label.on-light { fill: #17324d; stroke: rgb(255 255 255 / .55)
 .schedule-day li { padding: .2rem 0; }
 .badge.badge-pin { background: var(--surface); border: 1px solid var(--border); color: var(--text); text-transform: none; letter-spacing: 0; }
 .queue-move { white-space: nowrap; }
+.badge.badge-rush { background: #a8192c; color: #fff; }
+.rush-toggle { display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem; margin: .5rem 0; }
 .schedule-detail { min-height: 1.5em; margin: .5rem 0; color: var(--muted); font-size: .9rem; }
 .schedule-detail.showing { color: var(--text); font-weight: 600; }
 .schedule-key { display: flex; flex-wrap: wrap; gap: .4rem 1.25rem; margin: .5rem 0; }

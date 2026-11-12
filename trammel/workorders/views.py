@@ -431,6 +431,33 @@ def _clock(value: str | None):
         raise ValidationError("Enter the time to start it, such as 7:30 AM.") from None
 
 
+@permission_required("jobs.edit")
+@require_POST
+def quote_promise(request, revision_pk):
+    """Sets a quote's job's promised date to when the schedule could finish it
+    (the Production tab, 0.8.2)."""
+    from trammel.jobs import services as jobs
+    from trammel.quotes.models import QuoteRevision
+
+    revision = access.get_or_404(
+        request.actor, "quotes.view", QuoteRevision.objects.all(), pk=revision_pk
+    )
+    job = revision.quote.job
+    access.require(request.actor, "jobs.edit", job)
+    try:
+        day = _day(request.POST.get("date"))
+        if day is None:
+            raise ValidationError("Pick the date to promise.")
+        before = audit.snapshot(job)
+        job.promised_date = day
+        jobs.update_job(job, before=before)
+    except ValidationError as exc:
+        messages.error(request, " ".join(exc.messages))
+    else:
+        messages.success(request, f"{job.number} is promised for {day:%m/%d/%Y}.")
+    return redirect(f"{revision.get_absolute_url()}?tab=production")
+
+
 @permission_required("workorders.edit")
 @require_POST
 def queue_move(request, pk):

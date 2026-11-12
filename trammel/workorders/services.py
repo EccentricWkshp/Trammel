@@ -73,8 +73,8 @@ def _carry_over(wo: WorkOrder, revision, parent: Operation | None = None) -> Non
     A resold product isn't work: it goes on the items to include."""
     position = 0
     for line in revision.included_lines().select_related("machine", "material", "product"):
-        if line.line_total < 0:
-            continue  # a credit for removed scope is not work to do
+        if line.line_total < 0 or line.kind == "rush":
+            continue  # a credit for removed scope, or a fee, is not work to do
         if line.product_id and line.product.kind == "resold":
             _include(wo, line, revision if parent else None)
             continue
@@ -91,6 +91,8 @@ def _carry_over(wo: WorkOrder, revision, parent: Operation | None = None) -> Non
             machine=machine,
         )
         steps = _routing(wo, line, op)
+        if not steps:
+            _plan_time(op, line)
         # Other modules plan for the line too: stock expands a product's bill of
         # materials, each part on the step that uses it.
         hooks.run_carry_over(wo, line, op, steps)
@@ -132,6 +134,23 @@ def _carry_over(wo: WorkOrder, revision, parent: Operation | None = None) -> Non
                 material=material,
                 description=row["detail"] if row else str(material),
             )
+
+
+def _plan_time(op: Operation, line) -> None:
+    """The time a quote line says its work takes (0.8.2), planned on its
+    operation: a labor line's hours hands-on, a machine line's on its machine,
+    an estimate's labor and machine hours. A product's routing plans its steps
+    instead."""
+    from trammel.quotes import production
+
+    timed = production.for_line(line)
+    if timed is None or timed.routed or not timed.steps:
+        return
+    step = timed.steps[0]
+    op.planned_labor_minutes = step.labor or None
+    op.planned_machine_minutes = step.run or None
+    if op.planned_labor_minutes or op.planned_machine_minutes:
+        op.save(update_fields=["planned_labor_minutes", "planned_machine_minutes"])
 
 
 def operation_name(line) -> str:

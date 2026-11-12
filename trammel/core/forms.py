@@ -327,8 +327,26 @@ class ShopRatesForm(forms.ModelForm):
             "default_material_markup",
             "consumables_allowance",
             "minimum_job_charge",
+            "rush_fee_kind",
+            "rush_fee_value",
+            "rush_fee_minimum",
             "electricity_rate",
         ]
+
+    RUSH = ("rush_fee_kind", "rush_fee_value", "rush_fee_minimum")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for name in self.RUSH:
+            self.fields[name].required = False
+
+    def clean(self):
+        # Left out (an older form or script): the rush fee stays as it was.
+        data = super().clean()
+        for name in self.RUSH:
+            if data.get(name) in (None, ""):
+                data[name] = getattr(self.instance, name)
+        return data
 
 
 class SystemSettingsForm(forms.ModelForm):

@@ -18,6 +18,7 @@ urlpatterns = [
     path("r/<uuid:pk>/update/", views.revision_update, name="revision_update"),
     path("r/<uuid:pk>/description/", views.description, name="description"),
     path("r/<uuid:pk>/shipping/", views.shipping, name="shipping"),
+    path("r/<uuid:pk>/rush/", views.rush, name="rush"),
     path("r/<uuid:pk>/lines/new/<str:kind>/", views.line_edit, name="line_create"),
     path("r/<uuid:pk>/lines/<uuid:line_pk>/", views.line_edit, name="line_edit"),
     path("r/<uuid:pk>/lines/<uuid:line_pk>/delete/", views.line_delete, name="line_delete"),

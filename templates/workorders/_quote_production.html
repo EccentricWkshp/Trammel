@@ -1,0 +1,63 @@
+{% load trammel %}
+<div class="card">
+  <h2 id="panel-{{ heading_id }}">Production time</h2>
+  {% if ctx.times %}
+  <div class="table-wrap"><table>
+    <thead><tr><th scope="col">Line</th><th scope="col">Machine</th><th scope="col" class="num">Hands-on</th><th scope="col" class="num">Machine time</th><th scope="col" class="num">Wait after</th></tr></thead>
+    <tbody>
+    {% for t in ctx.times %}
+      {% if t.routed %}
+      <tr><th scope="row" colspan="2">{{ t.line.description }}{% if t.line.quantity != 1 %} <span class="muted">× {{ t.line.quantity|qty }}</span>{% endif %}</th><td class="num">{{ t.labor|minutes }}</td><td class="num">{{ t.run|minutes }}</td><td class="num">{% if t.wait %}{{ t.wait|qty }} h{% endif %}</td></tr>
+      {% for s in t.steps %}<tr class="sub"><td>{{ s.name }}</td><td>{{ s.machine|default:"" }}</td><td class="num">{% if s.labor %}{{ s.labor|minutes }}{% endif %}</td><td class="num">{% if s.run %}{{ s.run|minutes }}{% endif %}</td><td class="num">{% if s.wait %}{{ s.wait|qty }} h{% endif %}</td></tr>{% endfor %}
+      {% else %}{% with s=t.steps.0 %}
+      <tr><td>{{ t.line.description }}</td><td>{{ s.machine|default:"" }}</td><td class="num">{% if s.labor %}{{ s.labor|minutes }}{% endif %}</td><td class="num">{% if s.run %}{{ s.run|minutes }}{% endif %}</td><td class="num">{% if s.wait %}{{ s.wait|qty }} h{% endif %}</td></tr>
+      {% endwith %}{% endif %}
+    {% endfor %}
+    </tbody>
+    <tfoot><tr><th scope="row" colspan="2">Total</th><td class="num">{{ ctx.labor|minutes }}</td><td class="num">{{ ctx.run|minutes }}</td><td class="num">{% if ctx.wait %}{{ ctx.wait|qty }} h{% endif %}</td></tr></tfoot>
+  </table></div>
+  {% else %}
+  <p class="muted">Nothing on this {{ ctx.revision.quote.noun }} has production time yet.</p>
+  {% endif %}
+  <p class="muted small">From the same sources its work order will plan from: a product's routing for the quantity, a labor or machine line's hours, an estimate's labor and machine time.{% if ctx.untimed %} Not timed: {% for line in ctx.untimed %}{{ line.description|truncatechars:40 }}{% if not forloop.last %}, {% endif %}{% endfor %} (items, materials and products without a routing).{% endif %}</p>
+</div>
+
+<div class="card">
+  <h2>When it could be done</h2>
+  {% if ctx.doing %}
+  <ul class="plain">
+    {% for wo, plan in ctx.doing %}
+    <li><a href="{{ wo.get_absolute_url }}">{{ wo.number }}</a> {{ wo.title }}:
+      {% if plan and plan.finish %}scheduled to finish {{ plan.finish|mdt }}{% with miss=plan.late %}{% if miss %} <span class="flag flag-late">After {{ miss.0 }} ({{ miss.1|d }})</span>{% endif %}{% endwith %}
+      {% elif plan and plan.beyond %}more than six months out
+      {% elif wo.status == "waiting" %}waiting, not scheduled
+      {% else %}nothing left with planned time{% endif %}</li>
+    {% endfor %}
+  </ul>
+  {% elif ctx.forecast %}
+    {% if ctx.forecast.beyond %}
+    <p>The schedule can't fit this work in the next six months.</p>
+    {% else %}
+    <p>If it were approved now, the schedule could finish it by <strong>{{ ctx.forecast.finish|mdt }}</strong>: number {{ ctx.forecast.position }} in the queue {% if ctx.rush_quote %}as a rush job (this {{ ctx.revision.quote.noun }} carries the rush fee){% else %}at the job's priority ({{ ctx.job.get_priority_display|lower }}){% endif %}, behind the work ahead of it.</p>
+    {% with miss=ctx.promise_late %}
+    {% if miss %}<p><span class="flag flag-late">After {{ miss.0 }} ({{ miss.1|d }})</span></p>
+    {% elif ctx.job.promised_date %}<p class="muted">That meets the job's promised date ({{ ctx.job.promised_date|d }}).</p>
+    {% elif ctx.job.due_date %}<p class="muted">That meets the job's due date ({{ ctx.job.due_date|d }}).</p>{% endif %}
+    {% endwith %}
+    {% if ctx.rush %}<p>{% if ctx.rush_offered %}If the customer chooses rush{% else %}As a rush job{% endif %} it could finish by <strong>{{ ctx.rush.finish|mdt }}</strong>{% if ctx.rush_fee %}, with a rush fee of {{ ctx.rush_fee|money }}{% endif %}.</p>
+    {% if ctx.can_mark_rush and not ctx.rush_offered %}
+    <form method="post" action="{% url 'quotes:rush' ctx.revision.pk %}" class="inline">{% csrf_token %}<input type="hidden" name="rush" value="1"><input type="hidden" name="tab" value="production"><button type="submit">Make it a rush job</button> <span class="muted small">Adds the rush fee line to this {{ ctx.revision.quote.noun }}.</span></form>
+    {% endif %}{% endif %}
+    {% if ctx.can_promise %}
+    <form method="post" action="{% url 'workorders:quote_promise' ctx.revision.pk %}" class="inline">{% csrf_token %}
+      <input type="hidden" name="date" value="{{ ctx.promise|date:'Y-m-d' }}">
+      <button type="submit">Promise {{ ctx.promise|d }}</button>
+      <span class="muted small">Sets the job's promised date{% if ctx.job.promised_date %} (now {{ ctx.job.promised_date|d }}){% endif %}.</span>
+    </form>
+    {% endif %}
+    <p class="muted small">Worked out afresh each time from the schedule as it stands; approving other work first, or more of it, moves it later.</p>
+    {% endif %}
+  {% else %}
+  <p class="muted">Add lines with production time to see when the schedule could do the work.</p>
+  {% endif %}
+</div>

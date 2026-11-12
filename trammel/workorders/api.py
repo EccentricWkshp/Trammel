@@ -262,6 +262,66 @@ def list_work_orders(request, job: UUID | None = None, status: str | None = None
     return found
 
 
+class ForecastLineOut(Schema):
+    line: UUID
+    description: str
+    labor_minutes: Decimal
+    machine_minutes: Decimal
+    wait_hours: Decimal
+
+
+class ForecastOut(Schema):
+    """A quote's production time and when the schedule could finish it if it
+    were approved now, at the job's priority (and as a rush job)."""
+
+    lines: list[ForecastLineOut]
+    labor_minutes: Decimal
+    machine_minutes: Decimal
+    wait_hours: Decimal
+    scheduled_finish: datetime | None
+    queue_position: int | None
+    #: More work than fits in the schedule's six months.
+    beyond: bool
+    #: As a rush job, when it would finish sooner; else null.
+    rush_finish: datetime | None
+
+
+@router.get("/forecast/{revision_id}", response=ForecastOut)
+def forecast(request, revision_id: UUID):
+    """When the schedule could do a quote revision's work (0.8.2)."""
+    from trammel.quotes import production
+    from trammel.quotes.models import QuoteRevision
+
+    from . import scheduling
+
+    access.require(request.actor, "workorders.view")
+    revision = access.get_or_404(
+        request.actor, "quotes.view", QuoteRevision.objects.all(), pk=revision_id
+    )
+    timed = [t for t in production.for_revision(revision) if t.has_time]
+    plan = scheduling.forecast(revision) if timed else None
+    rush = scheduling.forecast(revision, rush=True) if plan and plan.finish else None
+    return {
+        "lines": [
+            {
+                "line": t.line.pk,
+                "description": t.line.description,
+                "labor_minutes": t.labor,
+                "machine_minutes": t.run,
+                "wait_hours": t.wait,
+            }
+            for t in timed
+        ],
+        "labor_minutes": sum((t.labor for t in timed), Decimal(0)),
+        "machine_minutes": sum((t.run for t in timed), Decimal(0)),
+        "wait_hours": sum((t.wait for t in timed), Decimal(0)),
+        "scheduled_finish": plan.finish if plan else None,
+        "queue_position": plan.position if plan else None,
+        "beyond": bool(plan and plan.beyond),
+        "rush_finish": rush.finish if rush and rush.finish and rush.finish < plan.finish else None,
+    }
+
+
 @router.get("/{wo_id}", response=WorkOrderOut)
 def get_work_order(request, wo_id: UUID):
     return _wo(request, "workorders.view", wo_id)

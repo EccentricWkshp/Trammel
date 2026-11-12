@@ -7,7 +7,8 @@
     <p class="breadcrumb"><a href="{% url 'quotes:list' %}{% if quote.is_change_order %}?kind=change_order{% endif %}">{% if quote.is_change_order %}Change orders{% else %}Quotes{% endif %}</a> · <a href="{{ job.get_absolute_url }}">{{ job.number }} {{ job.title }}</a> · {{ job.customer.name }}</p>
     <h1>{{ quote.number }} <span class="muted">rev {{ revision.number }}</span> · {{ quote.title }}</h1>
     <p class="status-line">{% if quote.is_change_order %}<span class="badge">Change order</span> {% endif %}<span class="status status-{% if revision.status == 'approved' %}completed{% elif revision.status == 'draft' %}proposal{% else %}{{ revision.status }}{% endif %}">{{ revision.get_status_display }}</span>
-      {% if revision.rates_overridden %}<span class="badge warn">rates overridden</span>{% endif %}</p>
+      {% if revision.rates_overridden %}<span class="badge warn">rates overridden</span>{% endif %}
+      {% if rush_line %}<span class="badge badge-rush">{% if rush_line.is_optional %}rush offered{% else %}rush job{% endif %}</span>{% endif %}</p>
     <dl class="facts-inline">
       <div><dt>Total</dt><dd><strong>{{ revision.total|money }}</strong></dd></div>
       {% if revision.deposit_amount %}<div><dt>Deposit</dt><dd>{{ revision.deposit_amount|money }}</dd></div>{% endif %}
@@ -78,6 +79,12 @@
     {% for kind, label in line_kinds %}<a class="button" href="{% url 'quotes:line_create' revision.pk kind %}">{{ label }}</a>{% endfor %}
     {% for e in estimators %}<a class="button" href="{% url 'quotes:estimate' revision.pk e.key %}">Estimate: {{ e.name }}</a>{% endfor %}
   </div>
+  <form method="post" action="{% url 'quotes:rush' revision.pk %}" class="rush-toggle">{% csrf_token %}
+    {% if rush_line %}<input type="hidden" name="rush" value="0"><button type="submit" class="linklike">Not a rush job</button>
+    <span class="muted small">Removes the rush fee line. To let the customer choose rush, make the rush fee line an option instead.</span>
+    {% else %}<input type="hidden" name="rush" value="1"><button type="submit">Make it a rush job</button>
+    <span class="muted small">Adds a rush fee line, from this {{ quote.noun }}'s rush rates. Approved with it, the job becomes Rush and the schedule plans it first; offer the line as an option to let the customer choose.</span>{% endif %}
+  </form>
   {% endif %}
   <div class="table-wrap">
   <table class="lines">
@@ -173,6 +180,8 @@
 
 {% elif tab == "files" %}
 {% attachments quote %}
+{% else %}
+{% include "partials/panels.html" with panels=tab_panels %}
 {% endif %}
 </div>
 {% endblock %}

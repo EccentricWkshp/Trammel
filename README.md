@@ -14,7 +14,9 @@ printing, laser work. Self-hosted: the data stays on the shop's own hardware.
   3D printing, laser jobs and profile cutting (plasma, CNC); revisions,
   templates, approval with customer agreements, deposits, and a shipping or
   delivery charge. Lines can be offered as options or as alternatives (walnut
-  or maple), picked by the customer when they approve. Anything priced after
+  or maple), picked by the customer when they approve. Each quote shows its
+  production time and when the schedule could finish it, and a rush job's
+  quotes carry a rush fee. Anything priced after
   a job is approved is a change order, with the same detail and optional
   amended terms and deposit.
 - **Products** — a catalog of made, resold and service items, each with a

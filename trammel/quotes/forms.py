@@ -53,6 +53,9 @@ class RevisionForm(forms.ModelForm):
             "material_markup",
             "consumables_pct",
             "minimum_charge",
+            "rush_fee_kind",
+            "rush_fee_value",
+            "rush_fee_minimum",
         ]
         widgets = {
             "valid_until": DATE,
@@ -384,12 +387,33 @@ class MaterialLineForm(_LineForm):
         return {**_LineForm.initial_from(line), "material": line.material_id, "unit": line.unit}
 
 
+class RushLineForm(_LineForm):
+    """A rush fee (0.8.2): worked out from the quote's rush rates and its other
+    lines, and kept current as they change, unless a price is typed in."""
+
+    description = forms.CharField(required=False, help_text="Blank for “Rush fee”.")
+
+    def make(self, revision, line=None):
+        from .services import rush_amount, rush_label
+
+        d = self.cleaned_data
+        line = line or QuoteLine(revision=revision, kind=QuoteLine.Kind.RUSH)
+        line.description = d["description"] or rush_label(revision)
+        line.quantity, line.unit = Decimal("1"), "each"
+        others = [x for x in revision.included_lines() if x.pk != line.pk]
+        line.unit_price = rush_amount(revision, others)
+        line.unit_cost = ZERO
+        line.discount_pct = d["discount_pct"] or ZERO
+        return line
+
+
 LINE_FORMS = {
     QuoteLine.Kind.PRODUCT: ProductLineForm,
     QuoteLine.Kind.ADHOC: AdhocLineForm,
     QuoteLine.Kind.LABOR: LaborLineForm,
     QuoteLine.Kind.MACHINE: MachineLineForm,
     QuoteLine.Kind.MATERIAL: MaterialLineForm,
+    QuoteLine.Kind.RUSH: RushLineForm,
 }
 
 

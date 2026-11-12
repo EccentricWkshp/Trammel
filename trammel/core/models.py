@@ -406,6 +406,13 @@ class BusinessProfile(SingletonModel):
         return ""
 
 
+class RushFeeKind(models.TextChoices):
+    """How a rush job's fee is worked out (0.8.2)."""
+
+    PERCENT = "percent", "Percent of the quote's lines"
+    FLAT = "flat", "Flat amount"
+
+
 class ShopRates(SingletonModel):
     """Business costs that feed quotes and job costing (FR-ADM-4)."""
 
@@ -460,6 +467,29 @@ class ShopRates(SingletonModel):
         validators=[MinValueValidator(0)],
         help_text="The least a quote comes to. A quote whose lines add up to less is raised to "
         "it, shown as its own line. 0 for no minimum. Change orders don't use it.",
+    )
+    rush_fee_kind = models.CharField(
+        "rush fee",
+        max_length=8,
+        choices=RushFeeKind.choices,
+        default=RushFeeKind.PERCENT,
+        help_text="A quote for a job marked Rush gets a rush fee line: a percent of its other "
+        "lines, or a flat amount.",
+    )
+    rush_fee_value = models.DecimalField(
+        "rush fee (percent or amount)",
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0"),
+        validators=[MinValueValidator(0)],
+        help_text="25 with Percent adds a quarter of the other lines; 75 with Flat amount adds "
+        "$75. 0, with no minimum, for no rush fee.",
+    )
+    rush_fee_minimum = MoneyField(
+        "least rush fee",
+        default=Decimal("0"),
+        validators=[MinValueValidator(0)],
+        help_text="The rush fee is never less than this. 0 for no minimum.",
     )
     electricity_rate = RateField(
         "electricity price (per kWh)",

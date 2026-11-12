@@ -12,6 +12,77 @@ from .models import Operation as _Op
 OpStatus = _Op.State
 
 
+@panels.register("quotes.quoterevision")
+def quote_production(request, revision):
+    """The Production tab on a quote (0.8.2): how long its lines take, and when
+    the schedule could finish the work if it were approved now."""
+    from django.utils import timezone
+
+    from trammel.quotes import production
+    from trammel.quotes import services as quotes
+
+    from . import scheduling
+
+    if not access.has_perm(request.actor, "workorders.view"):
+        return None
+    job = revision.quote.job
+    times = production.for_revision(revision)
+    timed = [t for t in times if t.has_time]
+    # Once approved, the work orders doing it are scheduled for real.
+    doing = list(
+        WorkOrder.objects.filter(
+            Q(source_revision=revision) | Q(operations__source_revision=revision)
+        )
+        .exclude(status__in=[Status.CLOSED, Status.CANCELLED])
+        .distinct()
+    )
+    plan = scheduling.build() if doing else None
+    fee_line = quotes.rush_line(revision)
+    # Approved with its rush fee in scope, the job becomes Rush.
+    rush_quote = fee_line is not None and fee_line.included
+    is_rush = rush_quote or job.priority == quotes.RUSH_PRIORITY
+    forecast = rush = None
+    if not doing and timed:
+        forecast = scheduling.forecast(revision, rush=is_rush)
+        if not is_rush and forecast and forecast.finish:
+            rush = scheduling.forecast(revision, rush=True)
+    promise = timezone.localtime(forecast.finish).date() if forecast and forecast.finish else None
+    fee = None
+    if rush and rush.finish and quotes.rush_configured(revision):
+        fee = quotes.rush_amount(revision, list(revision.included_lines()))
+    return panels.Panel(
+        "Production",
+        "workorders/_quote_production.html",
+        {
+            "revision": revision,
+            "job": job,
+            "times": timed,
+            "untimed": [t.line for t in times if not t.has_time],
+            "labor": sum(t.labor for t in timed),
+            "run": sum(t.run for t in timed),
+            "wait": sum(t.wait for t in timed),
+            "doing": [(wo, plan.for_work_order(wo)) for wo in doing],
+            "forecast": forecast,
+            "promise": promise,
+            "promise_late": scheduling.late(forecast.wo, forecast.finish) if forecast else None,
+            # Only worth offering when rushing it would finish it sooner.
+            "rush": rush if rush and rush.finish and rush.finish < forecast.finish else None,
+            "rush_fee": fee,
+            "is_rush": is_rush,
+            "rush_quote": rush_quote,
+            "rush_offered": fee_line is not None and fee_line.is_optional,
+            "can_mark_rush": revision.is_draft
+            and access.has_perm(request.actor, "quotes.edit", revision),
+            "can_promise": promise is not None
+            and promise != job.promised_date
+            and job.status not in ("closed", "declined", "cancelled")
+            and access.has_perm(request.actor, "jobs.edit", job),
+        },
+        tab="production",
+        order=10,
+    )
+
+
 @hooks.check("completed")
 def work_orders_complete(job):
     open_wos = job.work_orders.filter(status__in=ACTIVE)

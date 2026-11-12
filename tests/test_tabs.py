@@ -59,7 +59,13 @@ def test_customer_and_job_tabs(admin_client, customer):
 def test_quote_and_invoice_tabs(admin_client, customer, admin):
     job = jobs.create_job(Job(title="Sign", customer=customer))
     rev = quotes.create_quote(job)
-    assert walk(admin_client, f"/quotes/r/{rev.pk}/") == ["lines", "details", "preview", "files"]
+    assert walk(admin_client, f"/quotes/r/{rev.pk}/") == [
+        "lines",
+        "details",
+        "preview",
+        "production",
+        "files",
+    ]
     inv = billing.create(customer, kind="direct_sale")
     assert walk(admin_client, f"/invoices/{inv.pk}/") == ["lines", "details", "preview", "files"]
 

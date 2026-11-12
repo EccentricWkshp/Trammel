@@ -12,6 +12,9 @@ depends on it):
   orders, running timers, unpaid balances (§6.2).
 * `on_duplicate` — copy a module's part of a job when it is duplicated
   (FR-JOB-5: scope and quote lines; never files, time or money).
+* `on_updated` — a job's details were edited: `fn(job, before)`, with the
+  snapshot from before. Quotes add or remove a rush fee when the priority
+  moves to or from Rush.
 """
 
 from __future__ import annotations
@@ -23,6 +26,7 @@ from dataclasses import dataclass, field
 _checks: dict[str, list[Callable]] = defaultdict(list)
 _outstanding: list[Callable] = []
 _on_duplicate: list[Callable] = []
+_on_updated: list[Callable] = []
 
 
 def check(target: str):
@@ -81,3 +85,14 @@ def register_duplicate(fn: Callable):
 def run_duplicate(source, new) -> None:
     for fn in _on_duplicate:
         fn(source, new)
+
+
+def on_updated(fn: Callable) -> Callable:
+    """Register `fn(job, before)`, called after a job's details are saved."""
+    _on_updated.append(fn)
+    return fn
+
+
+def run_updated(job, before: dict) -> None:
+    for fn in _on_updated:
+        fn(job, before)

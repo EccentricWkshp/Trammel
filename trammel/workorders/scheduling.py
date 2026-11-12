@@ -150,6 +150,43 @@ def _overlap(a0, a1, b0, b1) -> int:
     return max(0, int((min(a1, b1) - max(a0, b0)).total_seconds() // 60))
 
 
+def forecast(revision, *, rush: bool = False, now: dt.datetime | None = None):
+    """When the schedule could do a quote's work if it were approved now (0.8.2):
+    its lines' production time as a work order, in the queue at the job's
+    priority (or as a rush job, with `rush`), behind the work ahead of it.
+    Returns the WorkOrderPlan (None when nothing on the quote has time)."""
+    import copy
+
+    from trammel.quotes import production
+
+    job = copy.copy(revision.quote.job)
+    if rush:
+        job.priority = 3  # Rush
+    wo = WorkOrder(
+        job=job,
+        title=revision.quote.title,
+        number=revision.quote.number,
+        target_completion=job.target_completion,
+        status=Status.OPEN,
+    )
+    ops = [
+        Operation(
+            work_order=wo,
+            name=step.name,
+            machine=step.machine,
+            planned_labor_minutes=step.labor or None,
+            planned_machine_minutes=step.run or None,
+            planned_wait_hours=step.wait or None,
+        )
+        for timed in production.for_revision(revision)
+        for step in timed.steps
+        if step.has_time
+    ]
+    if not ops:
+        return None
+    return build(now=now, trial=(wo, ops)).for_work_order(wo)
+
+
 def late(wo, finish) -> tuple[str, dt.date] | None:
     """The first date a planned finish misses: (what it is, the date)."""
     if finish is None:
@@ -409,16 +446,37 @@ def _pin_window(hours: workhours.Hours, op: Operation, now: dt.datetime):
     return max(max(opening, at) if at else opening, now), None
 
 
-def build(now: dt.datetime | None = None) -> Plan:
-    """The shop's plan from `now` (aware; default: now)."""
+def _rank(wo: WorkOrder, now: dt.datetime) -> tuple:
+    """A work order's place by priority and dates, as `queue()` orders them."""
+    job, last = wo.job, dt.date.max
+    return (-job.priority, job.promised_date or last, job.due_date or last, wo.created_at or now)
+
+
+def build(now: dt.datetime | None = None, trial=None) -> Plan:
+    """The shop's plan from `now` (aware; default: now). `trial`, (an unsaved
+    work order, its unsaved operations), is planned in the place its priority
+    and dates would give it, as if it had just been made: what a quote would
+    come to if approved now."""
     from .services import operation_tree
 
     hours = workhours.Hours.load()
-    wall_now = hours.local(now or timezone.now())
+    moment = now or timezone.now()
+    wall_now = hours.local(moment)
     slots = _slots(hours, wall_now)
     machines = _Machines()
     order = queue()
-    trees = {wo.pk: (operation_tree(wo), hooks.logged_minutes(wo)) for wo in order}
+    trees = {}
+    if trial is not None:
+        wo, ops = trial
+        rank = _rank(wo, moment)
+        at = max(
+            (n + 1 for n, other in enumerate(order) if _rank(other, moment) <= rank), default=0
+        )
+        order.insert(at, wo)
+        trees[wo.pk] = (ops, {})
+    for wo in order:
+        if wo.pk not in trees:
+            trees[wo.pk] = (operation_tree(wo), hooks.logged_minutes(wo))
 
     # Operations pinned to a day get first call on it, in queue order; one to
     # be finished that day gets the day's time outside shop hours too.

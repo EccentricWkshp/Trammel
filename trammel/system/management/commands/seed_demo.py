@@ -297,6 +297,7 @@ class Builder:
             r.labor_hourly_rate, r.labor_daily_rate = D("75"), D("540")
             r.shop_overhead_rate, r.default_material_markup = D("12"), D("35")
             r.consumables_allowance, r.minimum_job_charge = D("5"), D("50")
+            r.rush_fee_kind, r.rush_fee_value, r.rush_fee_minimum = "percent", D("25"), D("50")
             r.save()
         self.say("business details and shop rates")
 

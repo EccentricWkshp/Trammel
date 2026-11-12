@@ -12,6 +12,18 @@ from .models import Quote, QuoteRevision, Status
 QUOTE = Quote.Kind.QUOTE
 
 
+@hooks.on_updated
+def rush_fee(job, before):
+    """Draft quotes gain or lose their rush fee as the job moves to or from Rush."""
+    from . import services
+
+    try:
+        was = int(before.get("priority", -1)) == services.RUSH_PRIORITY
+    except TypeError, ValueError:
+        was = False
+    services.rush_changed(job, was)
+
+
 @hooks.check("quoted")
 def needs_a_sent_quote(job):
     if not QuoteRevision.objects.filter(

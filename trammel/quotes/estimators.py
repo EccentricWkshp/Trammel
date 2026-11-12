@@ -128,6 +128,7 @@ class _Builder:
             f"{hours.normalize():f} h × {self.rates.labor.normalize():f}/h",
             amount,
             amount,
+            hours=str(plain_decimal(hours)),
         )
 
     def machine(self, machine: Machine, hours: Decimal, label: str = "Machine time"):
@@ -141,6 +142,9 @@ class _Builder:
             f"{hours.normalize():f} h × {machine.hourly_rate.normalize():f}/h",
             hours * machine.cost_rate,
             amount,
+            # How long and on which machine, so the quote shows production time.
+            hours=str(plain_decimal(hours)),
+            machine=str(machine.pk),
         )
 
     def other(self, label: str, amount: Decimal, detail: str = ""):

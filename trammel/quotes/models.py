@@ -12,7 +12,7 @@ from django.urls import reverse
 
 from trammel.core import units
 from trammel.core.lifecycle import Lifecycle, LifecycleModel, Transition
-from trammel.core.models import AppendOnlyModel, BaseModel, SingletonModel, uuid7
+from trammel.core.models import AppendOnlyModel, BaseModel, RushFeeKind, SingletonModel, uuid7
 from trammel.core.money import MoneyField, PercentField, RateField
 
 ZERO = Decimal("0")
@@ -236,6 +236,26 @@ class QuoteRevision(LifecycleModel, BaseModel):
         help_text="The least this quote comes to; lines adding up to less are raised to it. "
         "0 for no minimum.",
     )
+    #: The rush fee (0.8.2), from Shop rates: on a rush job's quote, a line
+    #: worth a percent of the other lines or a flat amount, never under the minimum.
+    rush_fee_kind = models.CharField(
+        "rush fee", max_length=8, choices=RushFeeKind.choices, default=RushFeeKind.PERCENT
+    )
+    rush_fee_value = models.DecimalField(
+        "rush fee (percent or amount)",
+        max_digits=12,
+        decimal_places=2,
+        default=ZERO,
+        validators=[MinValueValidator(0)],
+        help_text="The rush fee line's percent of the other lines, or its flat amount. "
+        "Starts from your shop rates.",
+    )
+    rush_fee_minimum = MoneyField(
+        "least rush fee",
+        default=ZERO,
+        validators=[MinValueValidator(0)],
+        help_text="The rush fee is never less than this (when there are other lines). 0 for none.",
+    )
     rates_overridden = models.BooleanField(default=False, editable=False)
 
     # Totals, recomputed whenever a draft changes and frozen once sent.
@@ -345,6 +365,7 @@ class QuoteLine(models.Model):
         MACHINE = "machine", "Machine time"
         MATERIAL = "material", "Material"
         ESTIMATE = "estimate", "Estimate"
+        RUSH = "rush", "Rush fee"
 
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     revision = models.ForeignKey(QuoteRevision, on_delete=models.CASCADE, related_name="lines")
