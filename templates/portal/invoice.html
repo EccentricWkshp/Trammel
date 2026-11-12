@@ -9,6 +9,6 @@
   <div><dt>To pay</dt><dd>{{ invoice.balance|money }}</dd></div>
   {% if invoice.due_date %}<div><dt>Due</dt><dd>{{ invoice.due_date|d }}</dd></div>{% endif %}
 </dl>
-<p class="actions">{% if pay_url %}<a class="button primary" href="{{ pay_url }}" rel="noopener">Pay {{ invoice.balance|money }} online</a> {% endif %}<a class="button" href="{% url 'portal:invoice_pdf' invoice.pk %}">Download PDF</a></p>
+<p class="actions">{% for way in pay_options %}<a class="button primary" href="{{ way.url }}" rel="noopener">{{ way.label }}</a> {% endfor %}<a class="button" href="{% url 'portal:invoice_pdf' invoice.pk %}">Download PDF</a></p>
 <iframe class="document-preview" src="{% url 'portal:invoice_document' invoice.pk %}" sandbox title="{{ invoice.get_kind_display }} {{ invoice.number }}"></iframe>
 {% endblock %}

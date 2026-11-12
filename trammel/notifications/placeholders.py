@@ -68,6 +68,9 @@ def _payment_preview():
                 "method": payment.get_method_display(),
             },
             "credit": Decimal("0"),
+            "invoices": [
+                a.invoice.number for a in payment.allocations.select_related("invoice")[:5]
+            ],
         }, f"the payment from {payment.customer}"
     return {
         "business": ph.business(),
@@ -78,6 +81,7 @@ def _payment_preview():
             "method": "Check",
         },
         "credit": Decimal("0"),
+        "invoices": ["INV-2026-0042"],
     }, "sample data"
 
 
@@ -88,6 +92,7 @@ PAYMENT = ph.Group(
         P("payment.received_on", "Date received"),
         P("payment.method", "How it was paid"),
         P("credit", "Credit left on the customer's account, if any"),
+        P("invoices", "The invoices it paid, attached as they stand now"),
     ),
 )
 

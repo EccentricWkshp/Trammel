@@ -293,7 +293,7 @@ def home(request):
         from trammel.billing import services as billing
 
         for found in invoices:
-            found.pay_url = billing.pay_url(found)
+            found.pay_options = billing.pay_options(found)
     return render(
         request,
         "portal/home.html",
@@ -673,7 +673,7 @@ def invoice(request, pk):
     return render(
         request,
         "portal/invoice.html",
-        _context(request, invoice=found, pay_url=billing.pay_url(found)),
+        _context(request, invoice=found, pay_options=billing.pay_options(found)),
     )
 
 

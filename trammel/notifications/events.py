@@ -71,7 +71,9 @@ EVENTS: dict[str, Event] = {
             "Hello {{ customer.name }},\n\nPlease find {{ invoice.kind|lower }} {{ invoice.number }}"
             " attached for {{ invoice.total|money }}"
             "{% if invoice.due_date %}, due {{ invoice.due_date|date }}{% endif %}.\n\n"
-            "{% if invoice.pay_url %}You can pay it online: {{ invoice.pay_url }}\n\n{% endif %}"
+            "{% if invoice.pay_options %}You can pay it online:\n"
+            "{% for way in invoice.pay_options %}- {{ way.name }}: {{ way.url }}\n{% endfor %}"
+            "\n{% endif %}"
             "{% if portal_link %}You can also see it online: {{ portal_link }}\n\n{% endif %}"
             "Thank you,\n{{ business.name }}\n",
         ),
@@ -82,7 +84,10 @@ EVENTS: dict[str, Event] = {
             "Payment received — thank you",
             "Hello {{ customer.name }},\n\nWe received your payment of {{ payment.amount|money }} "
             "on {{ payment.received_on|date }}.{% if credit %} {{ credit|money }} is held as credit "
-            "on your account.{% endif %}\n\nThank you,\n{{ business.name }}\n",
+            "on your account.{% endif %}\n\n"
+            "{% if invoices %}Attached: {{ invoices|join(', ') }}, as {% if invoices|length > 1 %}they "
+            "stand{% else %}it stands{% endif %} now.\n\n{% endif %}"
+            "Thank you,\n{{ business.name }}\n",
         ),
         Event(
             "invoice_overdue",
@@ -91,7 +96,9 @@ EVENTS: dict[str, Event] = {
             "Reminder: invoice {{ invoice.number }} is overdue",
             "Hello {{ customer.name }},\n\nInvoice {{ invoice.number }} was due on "
             "{{ invoice.due_date|date }}. The balance is {{ invoice.balance|money }}.\n\n"
-            "{% if invoice.pay_url %}You can pay it online: {{ invoice.pay_url }}\n\n{% endif %}"
+            "{% if invoice.pay_options %}You can pay it online:\n"
+            "{% for way in invoice.pay_options %}- {{ way.name }}: {{ way.url }}\n{% endfor %}"
+            "\n{% endif %}"
             "If you have already paid, thank you, and please disregard this reminder.\n\n"
             "{{ business.name }}\n",
         ),

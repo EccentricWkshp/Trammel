@@ -261,7 +261,7 @@ test("an invoice with a payment link can be paid online", async () => {
   page = await (await call(environment, browser("GET", `/portal/invoices/${OTHER}/`, { cookie }))).text();
   assert.doesNotMatch(page, /Pay \$95.00 online|javascript:/);
   const home = await (await call(environment, browser("GET", "/portal/", { cookie }))).text();
-  assert.match(home, /href="https:\/\/buy.stripe.com\/test_1" rel="noopener">Pay online/);
+  assert.match(home, /Pay online: <a href="https:\/\/buy.stripe.com\/test_1" rel="noopener">Card<\/a>/);
   page = await (await call(environment, browser("GET", `/portal/invoices/${INVOICE}/?notice=payment-received`, { cookie }))).text();
   assert.match(page, /Your payment is being confirmed/);
   // Paid: no button.
@@ -271,6 +271,32 @@ test("an invoice with a payment link can be paid online", async () => {
   }));
   page = await (await call(environment, browser("GET", `/portal/invoices/${INVOICE}/`, { cookie }))).text();
   assert.doesNotMatch(page, /online<\/a>/);
+});
+
+test("each way to pay gets its own button, https only", async () => {
+  const { environment, cookie } = await shop();
+  const INVOICE = "01900000-0000-7000-8000-000000000032";
+  await call(environment, await syncRequest(environment, "POST", "/_sync/records", {
+    upsert: [{
+      type: "invoice", id: INVOICE, customer: CUSTOMER, job: JOB, sort: "1",
+      data: {
+        kind: "Invoice", number: "INV-9", total: "$95.00", balance: "$95.00", balance_due: true, status: "Issued",
+        pay_url: "https://buy.stripe.com/test_1",
+        pay: [
+          { label: "Pay $95.00 online", name: "Card", url: "https://buy.stripe.com/test_1" },
+          { label: "Pay $95.00 with PayPal", name: "PayPal", url: "https://www.paypal.com/invoice/p/#INV2-1" },
+          { label: "Pay elsewhere", name: "Elsewhere", url: "javascript:alert(1)" },
+        ],
+      },
+    }],
+    delete: [],
+  }));
+  const page = await (await call(environment, browser("GET", `/portal/invoices/${INVOICE}/`, { cookie }))).text();
+  assert.match(page, /href="https:\/\/buy.stripe.com\/test_1" rel="noopener">Pay \$95.00 online<\/a>/);
+  assert.match(page, /href="https:\/\/www.paypal.com\/invoice\/p\/#INV2-1" rel="noopener">Pay \$95.00 with PayPal<\/a>/);
+  assert.doesNotMatch(page, /Pay elsewhere|javascript:/);
+  const home = await (await call(environment, browser("GET", "/portal/", { cookie }))).text();
+  assert.match(home, /Pay online: <a href="https:\/\/buy.stripe.com\/test_1" rel="noopener">Card<\/a> · <a href="https:\/\/www.paypal.com\/invoice\/p\/#INV2-1" rel="noopener">PayPal<\/a>/);
 });
 
 test("store webhooks wait in the inbox; sign-in callbacks go on to Trammel", async () => {

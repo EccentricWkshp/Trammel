@@ -348,6 +348,8 @@ class Payment(AppendOnlyModel):
         ONLINE = "online", "Online store"
         #: Paid by the customer through a Stripe payment link (online payments).
         STRIPE = "stripe", "Stripe"
+        #: Paid by the customer through a PayPal invoice (online payments).
+        PAYPAL = "paypal", "PayPal"
         OTHER = "other", "Other"
 
     customer = models.ForeignKey(

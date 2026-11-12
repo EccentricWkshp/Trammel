@@ -34,11 +34,19 @@ def payment_recorded(payment):
         return
     from trammel.core import templating
 
+    # The invoices it paid, attached as they stand once it's applied.
+    paid = []
+    for allocation in payment.allocations.select_related("invoice").order_by("created_at"):
+        if allocation.amount > 0 and allocation.invoice not in paid:
+            paid.append(allocation.invoice)
+    paid = paid[:5]
     notify(
         "payment_recorded",
         to=[payment.customer.email],
         entity=payment,
+        attachment=[{"kind": "invoice", "id": str(i.pk)} for i in paid] or None,
         context={
+            "invoices": [i.number for i in paid],
             "customer": templating.customer_context(payment.customer),
             "payment": {
                 "amount": payment.amount,

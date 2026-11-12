@@ -60,7 +60,7 @@ printing, laser work. Self-hosted: the data stays on the shop's own hardware.
   the `PORTAL_OFF` setting, turns the portal off without touching anything
   else.
 - **Online payments** — optional: customers pay invoices by card or bank
-  through Stripe, from the portal or an invoice email. Trammel makes each open
+  through Stripe, or through PayPal, from the portal or an invoice email. Trammel makes each open
   invoice a payment link and records what's paid, with no webhook to reach it.
 - **Online orders** — Shopify, Etsy, eBay and WooCommerce orders, and ShipStation
   and Shippo orders from anywhere else, fetched by date come in once each, as

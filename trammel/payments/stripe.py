@@ -14,6 +14,8 @@ from django.conf import settings
 
 from trammel.core import secrets
 
+from .errors import ProviderError
+
 API = "https://api.stripe.com/v1"
 KEY = "payments.stripe_key"
 #: The API version this is written for, so Stripe's answers keep their shape.
@@ -30,10 +32,8 @@ PERMISSIONS = (
 )
 
 
-class StripeError(Exception):
+class StripeError(ProviderError):
     """Stripe refused or couldn't be reached; the message says what to do."""
-
-    status: int | None = None
 
 
 def test_mode(key: str | None = None) -> bool:

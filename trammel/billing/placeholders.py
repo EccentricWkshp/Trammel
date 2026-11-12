@@ -36,7 +36,16 @@ INVOICE = ph.Group(
         P("invoice.paid", "Paid and credited so far"),
         P("invoice.written_off", "Written off"),
         P("invoice.balance", "Balance due"),
+        P(
+            "invoice.payments",
+            "Payments and credits received, each with date, method, reference and amount",
+        ),
+        P("invoice.paid_on", "The day it was paid off, once it is"),
         P("invoice.pay_url", "Where the customer can pay it online, when online payments are on"),
+        P(
+            "invoice.pay_options",
+            "Each way to pay it online, each with name (Card, PayPal), label and url",
+        ),
         P("invoice.notes", "Notes for the customer"),
     ),
 )
@@ -107,7 +116,25 @@ def sample_invoice() -> dict:
         "paid": Decimal("1529.33"),
         "written_off": Decimal("0"),
         "balance": total - Decimal("1529.33"),
+        "payments": [
+            {
+                "kind": "payment",
+                "date": dt.date(2026, 3, 2),
+                "method": "Check",
+                "reference": "1042",
+                "amount": Decimal("1529.33"),
+            }
+        ],
+        "paid_on": None,
         "pay_url": "https://buy.stripe.com/…",
+        "pay_options": [
+            {"name": "Card", "label": "Pay online", "url": "https://buy.stripe.com/…"},
+            {
+                "name": "PayPal",
+                "label": "Pay with PayPal",
+                "url": "https://www.paypal.com/invoice/p/…",
+            },
+        ],
         "notes": "Thank you for your business.",
     }
 

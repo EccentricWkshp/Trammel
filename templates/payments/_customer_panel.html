@@ -1,0 +1,10 @@
+<h2 id="panel-{{ heading_id }}">Online payments</h2>
+<form method="post" action="{% url 'payments:customer_choice' ctx.customer.pk %}" class="inline">{% csrf_token %}
+  <label for="customer-pay-{{ heading_id }}">Offer their invoices through</label>
+  <select id="customer-pay-{{ heading_id }}" name="provider">
+    <option value=""{% if not ctx.chosen %} selected{% endif %}>The shop's primary ({{ ctx.primary }})</option>
+    {% for p in ctx.providers %}<option value="{{ p.key }}"{% if ctx.chosen == p.key %} selected{% endif %}>{{ p.label }}</option>{% endfor %}
+  </select>
+  <button type="submit">Save</button>
+</form>
+<p class="muted small">Only one way to pay is offered at a time, so an invoice can't be paid twice. A single invoice can still be set otherwise from its page.</p>

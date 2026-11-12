@@ -334,11 +334,11 @@ def test_the_settings_page_and_the_invoice_panel(paying, taxes, customer, admin,
     page = admin_client.get("/settings/online-payments/").content.decode()
     assert "Payment Links: Write" in page and "rk_test_abc" not in page
     response = admin_client.post(
-        "/settings/online-payments/", {"enabled": "on", "stripe_key": "pk_live_x"}
+        "/settings/online-payments/", {"stripe-enabled": "on", "stripe-stripe_key": "pk_live_x"}
     )
     assert "it starts with sk_ or rk_" in response.content.decode()
     response = admin_client.post(
-        "/settings/online-payments/", {"enabled": "on", "stripe_key": "rk_test_new"}
+        "/settings/online-payments/", {"stripe-enabled": "on", "stripe-stripe_key": "rk_test_new"}
     )
     assert response.status_code == 302 and secrets.get(stripe.KEY) == "rk_test_new"
     assert "rk_test_new" not in admin_client.get("/settings/online-payments/").content.decode()

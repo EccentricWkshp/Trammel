@@ -72,13 +72,13 @@ def notify(
     *,
     to: list[str] | None = None,
     context: dict | None = None,
-    attachment: dict | None = None,
+    attachment: dict | list | None = None,
     entity=None,
 ) -> EmailLog | None:
     """Render and queue one email. Returns its log row (None if nobody to send to).
 
-    `attachment` names a document the worker renders to PDF:
-    {"kind": "quote" | "invoice", "id": "<uuid>"}.
+    `attachment` names a document the worker renders to PDF, as it stands
+    when sent: {"kind": "quote" | "invoice", "id": "<uuid>"}, or a list of them.
     """
     spec = EVENTS[event]
     recipients = [
@@ -146,7 +146,8 @@ def send_now(payload: dict) -> None:
         from_email=_from() or settings.DEFAULT_FROM_EMAIL,
         to=payload["to"],
     )
-    if spec := payload.get("attachment"):
+    specs = payload.get("attachment") or []
+    for spec in specs if isinstance(specs, list) else [specs]:
         name, data = _render_attachment(spec)
         if data:
             message.attach(name, data, "application/pdf")

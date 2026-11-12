@@ -118,7 +118,7 @@ ${
     ? html`<section class="card" aria-labelledby="waiting-heading"><h2 id="waiting-heading">Waiting for you</h2>
   <ul class="plain portal-list">
   ${open.map((q) => html`<li><a href="/portal/quotes/${q.id}/"><strong>${q.data.kind} ${q.data.number}</strong> · ${q.data.title}</a> — ${q.data.total}${q.data.valid_until ? html`, valid until ${q.data.valid_until}` : ""}. <span class="muted">Ready for you to approve or decline.</span></li>`)}
-  ${unpaid.map((i) => html`<li><a href="/portal/invoices/${i.id}/"><strong>${i.data.kind} ${i.data.number}</strong></a> — ${i.data.balance} to pay${i.data.due ? html`, due ${i.data.due}` : ""}.${payable(i.data) ? html` <a href="${i.data.pay_url}" rel="noopener">Pay online</a>` : ""}</li>`)}
+  ${unpaid.map((i) => html`<li><a href="/portal/invoices/${i.id}/"><strong>${i.data.kind} ${i.data.number}</strong></a> — ${i.data.balance} to pay${i.data.due ? html`, due ${i.data.due}` : ""}.${payOptions(i.data).length ? html` Pay online:${payOptions(i.data).map((o, n) => html` <a href="${o.url}" rel="noopener">${o.name}</a>${n < payOptions(i.data).length - 1 ? " ·" : ""}`)}` : ""}</li>`)}
   </ul></section>`
     : ""
 }
@@ -182,9 +182,16 @@ ${respondSection(site, visitor, found, picks)}`,
   });
 }
 
-/** An invoice that can be paid online: Trammel published a link (https only). */
-function payable(i) {
-  return Boolean(i.balance_due && typeof i.pay_url === "string" && i.pay_url.startsWith("https://"));
+/** The ways an invoice can be paid online, as Trammel published them (https
+ * only): [{label, name, url}]. One published before 0.10.1 has only pay_url. */
+function payOptions(i) {
+  if (!i.balance_due) return [];
+  const given = Array.isArray(i.pay)
+    ? i.pay
+    : i.pay_url
+      ? [{ label: `Pay ${i.balance} online`, name: "Card", url: i.pay_url }]
+      : [];
+  return given.filter((o) => o && typeof o.url === "string" && o.url.startsWith("https://"));
 }
 
 async function invoice(env, site, visitor, id, notice) {
@@ -199,7 +206,7 @@ async function invoice(env, site, visitor, id, notice) {
     body: html`<p class="breadcrumb"><a href="/portal/">Your account</a>${found.job ? html` · <a href="/portal/jobs/${found.job}/">${i.job_number}</a>` : ""}</p>
 <h1>${i.kind} ${i.number}</h1>
 <dl class="facts-inline"><div><dt>Total</dt><dd><strong>${i.total}</strong></dd></div><div><dt>Status</dt><dd>${i.status}</dd></div>${i.balance_due ? html`<div><dt>To pay</dt><dd>${i.balance}</dd></div>` : ""}${i.due ? html`<div><dt>Due</dt><dd>${i.due}</dd></div>` : ""}</dl>
-<p class="actions">${payable(i) ? html`<a class="button primary" href="${i.pay_url}" rel="noopener">Pay ${i.balance} online</a> ` : ""}${i.pdf ? html`<a class="button" href="/portal/invoices/${found.id}/pdf/">Download PDF</a>` : ""}</p>
+<p class="actions">${payOptions(i).map((o) => html`<a class="button primary" href="${o.url}" rel="noopener">${o.label}</a> `)}${i.pdf ? html`<a class="button" href="/portal/invoices/${found.id}/pdf/">Download PDF</a>` : ""}</p>
 ${i.doc ? documentFrame(`/portal/invoices/${found.id}/document/`, `${i.kind} ${i.number}`) : ""}`,
   });
 }

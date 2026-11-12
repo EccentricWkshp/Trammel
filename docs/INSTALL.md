@@ -289,7 +289,7 @@ online stores, at the same paths, so nothing else has to be public:
   notice's signature with eBay's published key before wiping anything. No
   separate relay is needed.
 
-## Online payments (Stripe)
+## Online payments (Stripe and PayPal)
 
 Customers can pay invoices online, by card or bank through Stripe. Trammel
 makes a Stripe payment link for each open invoice's balance (shown in the
@@ -322,6 +322,36 @@ payment that takes days shows as being processed, with no link meanwhile, so
 it can't be paid twice. Stripe's fees come out of what you receive; customers
 pay the invoice amount. A refund is made in Stripe's dashboard, then recorded
 in Trammel as a payment of a negative amount.
+
+### PayPal
+
+PayPal can be on beside Stripe or instead of it. Customers are offered **one**
+way to pay an invoice at a time, so it can't be paid twice: the **primary**
+provider (Settings, Online payments), unless the customer's record says
+otherwise (an Online payments panel on the customer's page) or the invoice
+does (its Online payment panel), which wins. Switching closes the old page
+before the new one is made, and waits while the old one is being paid. If the
+chosen one is off, the other is used. Each open invoice gets one PayPal invoice, numbered exactly as in
+Trammel and sent to nobody: Trammel uses only its pay page, where the customer
+pays with PayPal or a card. When the balance changes the same PayPal invoice
+is updated; once it's no longer owed, it's cancelled. Trammel asks PayPal every
+minute what was paid; there's no webhook to set up.
+
+1. On developer.paypal.com, **Apps & Credentials**, create an app under
+   **Sandbox** with the **Invoicing** feature, and copy its client ID and
+   secret.
+2. **Settings, Online payments, PayPal**: paste them with **Sandbox** ticked,
+   switch PayPal on, save, and **Test the credentials**.
+3. Pay a portal invoice with a sandbox personal account (Apps & Credentials,
+   Sandbox accounts). Within a minute it's recorded (method PayPal, with
+   PayPal's transaction id). Then make the app under **Live**, paste its
+   credentials and untick Sandbox.
+
+PayPal can't send customers back to the portal after paying; they return to it
+themselves. If an invoice's number is already used on your PayPal account (one
+made there by hand), PayPal numbers that one itself, with the Trammel number
+shown as its reference. A refund is made in PayPal, then recorded in Trammel
+as a payment of a negative amount.
 
 ## Shopify order webhooks
 

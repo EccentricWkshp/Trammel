@@ -1,23 +1,38 @@
 {% load trammel %}
-<h2 id="panel-{{ heading_id }}">Online payment{% if ctx.link.test_mode %} <span class="badge warn">test mode</span>{% endif %}</h2>
-{% if ctx.link %}
-<p><label for="pay-link-{{ heading_id }}">Payment link for {{ ctx.link.amount|money }}</label>
-  <input type="text" id="pay-link-{{ heading_id }}" value="{{ ctx.link.url }}" readonly class="copy-box"></p>
-<p class="muted small">Shown to the customer in the portal and in invoice emails. It's made again whenever the balance changes, and stops working once paid.</p>
-{% elif ctx.waiting %}
-<p>A payment is being processed (a bank payment can take a few days); there's no payment link meanwhile.</p>
-{% elif ctx.on and ctx.payable %}
-<p class="muted">The payment link is being made; it appears within a minute.</p>
+<h2 id="panel-{{ heading_id }}">Online payment</h2>
+{% if ctx.waiting %}
+<p>A payment is being processed (a bank payment can take a few days); there's no payment page meanwhile.</p>
 {% elif not ctx.on %}
 <p class="muted">Online payments are off.</p>
+{% elif ctx.payable %}
+<p>Offered through <strong>{{ ctx.choice.provider.label }}</strong> <span class="muted">({{ ctx.choice.why }})</span>{% if ctx.link.test_mode %} <span class="badge warn">{% if ctx.link.provider == "paypal" %}sandbox{% else %}test mode{% endif %}</span>{% endif %}.</p>
+{% if ctx.link %}
+<p><label for="pay-link-{{ heading_id }}">{{ ctx.choice.provider.label }}{% if ctx.link.number %} invoice {{ ctx.link.number }}{% else %} link{% endif %} for {{ ctx.link.amount|money }}</label>
+  <input type="text" id="pay-link-{{ heading_id }}" value="{{ ctx.link.url }}" readonly class="copy-box"></p>
+<p class="muted small">Shown to the customer in the portal and in invoice emails. Kept to the balance as it changes, and closed once paid. Only one way to pay is open at a time, so it can't be paid twice.</p>
+{% else %}
+<p class="muted">The payment page is being made; it appears within a minute.</p>
+{% endif %}
+{% if ctx.can_manage %}
+<div class="actions">
+  {% if ctx.providers|length > 1 %}
+  <form method="post" action="{% url 'payments:invoice_choice' ctx.invoice.pk %}" class="inline">{% csrf_token %}
+    <label for="pay-choice-{{ heading_id }}">Offer it through</label>
+    <select id="pay-choice-{{ heading_id }}" name="provider">
+      <option value=""{% if not ctx.choice.chosen %} selected{% endif %}>As its customer is</option>
+      {% for p in ctx.providers %}<option value="{{ p.key }}"{% if ctx.choice.chosen == p.key %} selected{% endif %}>{{ p.label }}</option>{% endfor %}
+    </select>
+    <button type="submit">Save</button>
+  </form>
+  {% endif %}
+  {% if ctx.link %}<form method="post" action="{% url 'payments:new_link' ctx.invoice.pk %}" class="inline">{% csrf_token %}<button type="submit">Make a new page</button></form>{% endif %}
+</div>
+{% endif %}
 {% endif %}
 {% if ctx.received %}
 <ul class="plain">
   {% for r in ctx.received %}
-  <li>{{ r.amount|money }} on {{ r.paid_at|dt }}{% if r.email %} · {{ r.email }}{% endif %} · {{ r.get_status_display }}{% if r.test_mode %} <span class="badge">test</span>{% endif %}{% if r.reference %} <span class="muted small">{{ r.reference }}</span>{% endif %}</li>
+  <li>{{ r.amount|money }} through {{ r.get_provider_display }} on {{ r.paid_at|dt }}{% if r.email %} · {{ r.email }}{% endif %} · {{ r.get_status_display }}{% if r.test_mode %} <span class="badge">test</span>{% endif %}{% if r.reference %} <span class="muted small">{{ r.reference }}</span>{% endif %}</li>
   {% endfor %}
 </ul>
-{% endif %}
-{% if ctx.can_manage and ctx.on and ctx.payable and not ctx.waiting %}
-<form method="post" action="{% url 'payments:new_link' ctx.invoice.pk %}" class="inline">{% csrf_token %}<button type="submit">Make a new link</button></form>
 {% endif %}

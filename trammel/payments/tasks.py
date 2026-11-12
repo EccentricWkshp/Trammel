@@ -13,17 +13,15 @@ def check(payload):
 
 @task("payments.keep_links")
 def keep_links(payload):
-    """An invoice's balance changed, or it was issued or voided: its link follows."""
-    from . import services, stripe
-    from .models import StripeSettings
+    """An invoice's balance changed, it was issued or voided, or the way it's
+    offered changed (its own choice, its customer's): its page follows."""
+    from . import services
+    from .errors import ProviderError
 
     if not services.active():
         return
+    ids = payload.get("invoices") or ([payload["invoice"]] if payload.get("invoice") else None)
     try:
-        services.keep_links([payload["invoice"]] if payload.get("invoice") else None)
-    except stripe.StripeError as exc:
-        from django.utils import timezone
-
-        StripeSettings.objects.filter(pk=1).update(
-            last_error=str(exc)[:2000], last_error_at=timezone.now()
-        )
+        services.keep_links(ids)
+    except ProviderError as exc:
+        services.note_problem(exc)

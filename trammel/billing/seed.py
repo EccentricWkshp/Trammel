@@ -28,8 +28,16 @@ DEFAULT_TEMPLATE = """\
   .totals { margin-left: auto; width: 45%; margin-top: 10pt; }
   .totals td { border: 0; padding: 2pt 4pt; }
   .totals .grand td { font-weight: bold; font-size: 12pt; border-top: 2px solid #1d1f21; }
-  .stamp { display: inline-block; border: 2px solid #1f5126; color: #1f5126; padding: 2pt 8pt;
-           font-weight: bold; text-transform: uppercase; }
+  .stamp { display: inline-block; margin-top: 8pt; border: 3pt solid #1f5126; color: #1f5126;
+           padding: 4pt 14pt; font-weight: bold; font-size: 18pt; letter-spacing: .08em;
+           text-transform: uppercase; transform: rotate(-4deg); }
+  .stamp small { display: block; font-size: 9pt; letter-spacing: 0; text-transform: none;
+                 text-align: center; }
+  .stamp.partial { border-color: #8a5a00; color: #8a5a00; }
+  .stamp.void { border-color: #8b1a1a; color: #8b1a1a; }
+  h2.section { font-size: 9pt; text-transform: uppercase; letter-spacing: .05em; color: #666;
+               margin: 18pt 0 3pt; }
+  .received { width: 60%; margin-left: auto; }
   .notes { margin-top: 18pt; white-space: pre-wrap; }
   .regs { margin-top: 18pt; font-size: 8.5pt; color: #555; }
 </style>
@@ -40,8 +48,9 @@ DEFAULT_TEMPLATE = """\
     {% if business.logo %}<img class="logo" src="{{ business.logo }}" alt="{{ business.name }}">{% endif %}
     <h1>{{ invoice.kind }}</h1>
     <div>{{ invoice.number }}</div>
-    {% if invoice.status == "Paid" %}<div class="stamp">Paid</div>{% endif %}
-    {% if invoice.status == "Void" %}<div class="stamp">Void</div>{% endif %}
+    {% if invoice.status == "Paid" %}<div class="stamp">Paid{% if invoice.paid_on %}<small>{{ invoice.paid_on|date }}</small>{% endif %}</div>{% endif %}
+    {% if invoice.status == "Partially paid" %}<div class="stamp partial">Partly paid<small>{{ invoice.balance|money }} still due</small></div>{% endif %}
+    {% if invoice.status == "Void" %}<div class="stamp void">Void</div>{% endif %}
   </div>
   <div class="business">
     <strong>{{ business.name }}</strong><br>
@@ -92,6 +101,19 @@ DEFAULT_TEMPLATE = """\
   {% if invoice.written_off %}<tr><td>Written off</td><td class="num">−{{ invoice.written_off|money }}</td></tr>{% endif %}
   {% if not invoice.is_credit_note %}<tr class="grand"><td>Balance due</td><td class="num">{{ invoice.balance|money }}</td></tr>{% endif %}
 </table>
+
+{% if invoice.payments %}
+<div class="received">
+<h2 class="section">Payments received</h2>
+<table>
+  <thead><tr><th>Date</th><th>How</th><th>Reference</th><th class="num">Amount</th></tr></thead>
+  <tbody>
+  {% for p in invoice.payments %}<tr><td>{{ p.date|date }}</td><td>{{ p.method }}</td><td>{{ p.reference }}</td><td class="num">{{ p.amount|money }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
 
 {% if invoice.notes %}<div class="notes">{{ invoice.notes }}</div>{% endif %}
 {% if business.tax_registration_numbers %}<div class="regs">{% for r in business.tax_registration_numbers %}{{ r }}<br>{% endfor %}</div>{% endif %}

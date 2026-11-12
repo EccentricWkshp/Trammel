@@ -32,8 +32,81 @@ class StripeSettings(SingletonModel):
         return "Stripe settings"
 
 
+class PayPalSettings(SingletonModel):
+    """PayPal (0.10.1): its app's client ID, sandbox or live, and how the payment
+    check is doing. The client secret is kept encrypted (core.secrets)."""
+
+    enabled = models.BooleanField(
+        "take payments through PayPal",
+        default=False,
+        help_text="Open invoices get a PayPal invoice to pay, shown in the portal and in "
+        "invoice emails.",
+    )
+    sandbox = models.BooleanField(
+        "sandbox",
+        default=True,
+        help_text="PayPal's sandbox: no real money moves. Use the sandbox app's credentials.",
+    )
+    client_id = models.CharField("client ID", max_length=200, blank=True)
+    checked_through = models.DateTimeField(null=True, blank=True, editable=False)
+    last_check_at = models.DateTimeField(null=True, blank=True, editable=False)
+    last_error = models.TextField(blank=True, editable=False)
+    last_error_at = models.DateTimeField(null=True, blank=True, editable=False)
+
+    class Meta:
+        verbose_name = "PayPal settings"
+
+    def __str__(self) -> str:
+        return "PayPal settings"
+
+
 class Provider(models.TextChoices):
     STRIPE = "stripe", "Stripe"
+    PAYPAL = "paypal", "PayPal"
+
+
+class PaymentsSettings(SingletonModel):
+    """Which provider customers are offered: one at a time, so an invoice can't
+    be paid twice (0.10.1)."""
+
+    primary = models.CharField(
+        "primary provider",
+        max_length=10,
+        choices=Provider.choices,
+        default=Provider.STRIPE,
+        help_text="Customers are offered this one, unless their customer record or the "
+        "invoice says otherwise. If it's off, the other is used.",
+    )
+
+    class Meta:
+        verbose_name = "online payments settings"
+
+    def __str__(self) -> str:
+        return "Online payments settings"
+
+
+class CustomerChoice(models.Model):
+    """A customer offered a provider other than the shop's primary."""
+
+    customer = models.OneToOneField(
+        "customers.Customer", on_delete=models.CASCADE, related_name="payment_choice"
+    )
+    provider = models.CharField(max_length=10, choices=Provider.choices)
+
+    def __str__(self) -> str:
+        return f"{self.customer}: {self.get_provider_display()}"
+
+
+class InvoiceChoice(models.Model):
+    """An invoice offered a particular provider; wins over the customer's."""
+
+    invoice = models.OneToOneField(
+        "billing.Invoice", on_delete=models.CASCADE, related_name="payment_choice"
+    )
+    provider = models.CharField(max_length=10, choices=Provider.choices)
+
+    def __str__(self) -> str:
+        return f"{self.invoice}: {self.get_provider_display()}"
 
 
 class PayLink(models.Model):
@@ -48,6 +121,8 @@ class PayLink(models.Model):
     provider = models.CharField(max_length=10, choices=Provider.choices, default=Provider.STRIPE)
     link_id = models.CharField(max_length=100, unique=True)
     url = models.URLField(max_length=500)
+    #: The provider's own number for it, where it has one (a PayPal invoice's).
+    number = models.CharField(max_length=100, blank=True)
     amount = MoneyField()
     currency = models.CharField(max_length=3)
     #: Where the customer comes back to after paying, as it was when made.

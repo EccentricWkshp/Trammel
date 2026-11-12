@@ -3,34 +3,61 @@
 {% block title %}Online payments{% endblock %}
 {% block content %}
 <h1>Online payments</h1>
-<p class="lede">Customers pay invoices online, by card or bank through Stripe. Trammel makes a payment link for each open invoice's balance, shown in the customer portal and in invoice emails, and asks Stripe every minute what was paid, recording each payment against its invoice. Nothing has to reach this server from the internet.</p>
+<p class="lede">Customers pay invoices online, through Stripe (card or bank) and PayPal. Trammel makes each open invoice a page to pay its balance at each one that's on, shown in the customer portal and in invoice emails, and asks every minute what was paid, recording each payment against its invoice. Nothing has to reach this server from the internet.</p>
 
-<section class="card" aria-labelledby="status-heading">
-  <h2 id="status-heading">Status</h2>
+<section class="card" aria-labelledby="stripe-heading">
+  <h2 id="stripe-heading">Stripe</h2>
   <dl class="facts">
-    <dt>Taking payments</dt><dd>{% if active %}Yes{% if test_mode %} <span class="badge warn">test mode</span>{% endif %}{% elif row.enabled %}No: switched on, but {% if not key_set %}there's no key{% else %}outbound traffic is off (System){% endif %}{% else %}No{% endif %}</dd>
+    <dt>Taking payments</dt><dd>{% if stripe_active %}Yes{% if test_mode %} <span class="badge warn">test mode</span>{% endif %}{% elif row.enabled %}No: switched on, but {% if not key_set %}there's no key{% else %}outbound traffic is off (System){% endif %}{% else %}No{% endif %}</dd>
     <dt>Payment links</dt><dd>{{ links }} open invoice{{ links|pluralize }}</dd>
     <dt>Last check</dt><dd>{% if row.last_check_at %}{{ row.last_check_at|dt }}{% else %}Not yet{% endif %}</dd>
   </dl>
   {% if row.last_error %}<p class="flag flag-late" role="alert">The last check failed{% if row.last_error_at %} at {{ row.last_error_at|dt }}{% endif %}: {{ row.last_error }}</p>{% endif %}
-  <div class="actions">
-    {% if key_set %}<form method="post" action="{% url 'payments:test' %}" class="inline">{% csrf_token %}<button type="submit">Test the key</button></form>{% endif %}
-    {% if active %}<form method="post" action="{% url 'payments:check' %}" class="inline">{% csrf_token %}<button type="submit">Check for payments now</button></form>{% endif %}
-  </div>
-</section>
-
-<section class="card" aria-labelledby="setup-heading">
-  <h2 id="setup-heading">Setting it up</h2>
+  <details{% if not key_set %} open{% endif %}><summary>Setting it up</summary>
   <ol>
     <li>In Stripe's dashboard (Developers, API keys), make a <strong>restricted key</strong> with:
       <ul>{% for name, level in permissions %}<li>{{ name }}: {{ level }}</li>{% endfor %}</ul>
       Products and Prices let each link carry its invoice's amount. Start with a test key (in test mode) and pay an invoice with card 4242 4242 4242 4242 to see it work.</li>
-    <li>Paste the key below, switch payments on, and save. Links are made within a minute.</li>
+    <li>Paste the key below, switch Stripe on, and save. Links are made within a minute.</li>
   </ol>
-  <p class="muted small">Stripe's fees come out of what you receive; customers pay the invoice amount. A refund is made in Stripe's dashboard, then recorded here as a payment of a negative amount. Customers get Trammel's usual payment receipt by email.</p>
+  </details>
   <form method="post" class="stack" novalidate>{% csrf_token %}
     {% include "partials/form_body.html" %}
     <div class="actions"><button type="submit" class="primary">Save</button></div>
   </form>
+  {% if key_set %}<form method="post" action="{% url 'payments:test' %}" class="actions">{% csrf_token %}<button type="submit">Test the key</button></form>{% endif %}
+</section>
+
+<section class="card" aria-labelledby="paypal-heading">
+  <h2 id="paypal-heading">PayPal</h2>
+  <dl class="facts">
+    <dt>Taking payments</dt><dd>{% if paypal.active %}Yes{% if paypal.row.sandbox %} <span class="badge warn">sandbox</span>{% endif %}{% elif paypal.row.enabled %}No: switched on, but {% if not paypal.credentials %}the client ID or secret is missing{% else %}outbound traffic is off (System){% endif %}{% else %}No{% endif %}</dd>
+    <dt>PayPal invoices</dt><dd>{{ paypal.links }} open invoice{{ paypal.links|pluralize }}</dd>
+    <dt>Last check</dt><dd>{% if paypal.row.last_check_at %}{{ paypal.row.last_check_at|dt }}{% else %}Not yet{% endif %}</dd>
+  </dl>
+  {% if paypal.row.last_error %}<p class="flag flag-late" role="alert">The last check failed{% if paypal.row.last_error_at %} at {{ paypal.row.last_error_at|dt }}{% endif %}: {{ paypal.row.last_error }}</p>{% endif %}
+  <details{% if not paypal.credentials %} open{% endif %}><summary>Setting it up</summary>
+  <ol>
+    <li>On developer.paypal.com, Apps &amp; Credentials, create an app under <strong>Sandbox</strong> (and later under <strong>Live</strong>) with the <strong>Invoicing</strong> feature, and copy its client ID and secret.</li>
+    <li>Paste them below with Sandbox ticked, switch PayPal on, and save. Then pay an invoice from the portal with a sandbox personal account to see it work, and swap in the live app's credentials with Sandbox unticked.</li>
+  </ol>
+  <p class="muted small">Each invoice gets one PayPal invoice, numbered exactly as in Trammel and sent to nobody (only its pay page is used); when the balance changes it's updated, and once it's no longer owed it's cancelled. PayPal can't send customers back to the portal after paying.</p>
+  </details>
+  <form method="post" action="{% url 'payments:paypal' %}" class="stack" novalidate>{% csrf_token %}
+    {% include "partials/form_body.html" with form=paypal_form %}
+    <div class="actions"><button type="submit" class="primary">Save</button></div>
+  </form>
+  {% if paypal.credentials %}<form method="post" action="{% url 'payments:test_paypal' %}" class="actions">{% csrf_token %}<button type="submit">Test the credentials</button></form>{% endif %}
+</section>
+
+<section class="card" aria-labelledby="both-heading">
+  <h2 id="both-heading">Which is offered</h2>
+  <p>Customers are offered <strong>one</strong> way to pay an invoice at a time, so it can't be paid twice: the primary provider below, unless their customer record or the invoice itself says otherwise (both are set from those pages). If the one chosen is off, the other is used.</p>
+  <form method="post" action="{% url 'payments:primary' %}" class="stack">{% csrf_token %}
+    {% include "partials/form_body.html" with form=primary_form %}
+    <div class="actions"><button type="submit">Save</button></div>
+  </form>
+  {% if active %}<form method="post" action="{% url 'payments:check' %}" class="actions">{% csrf_token %}<button type="submit">Check for payments now</button></form>{% endif %}
+  <p class="muted small">Fees come out of what you receive; customers pay the invoice amount. A refund is made in Stripe's or PayPal's dashboard, then recorded here as a payment of a negative amount. Customers get Trammel's usual payment receipt by email.</p>
 </section>
 {% endblock %}

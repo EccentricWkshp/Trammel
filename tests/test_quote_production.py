@@ -6,6 +6,7 @@ import datetime as dt
 from decimal import Decimal
 
 import pytest
+from django.utils import timezone
 
 from trammel.catalog.models import Product, RoutingStep
 from trammel.core.models import ShopRates
@@ -140,7 +141,14 @@ def test_when_the_schedule_could_finish_a_quote(shop, admin, admin_client, custo
 
     page = admin_client.get(f"{revision.get_absolute_url()}?tab=production").content.decode()
     assert "Production time" in page and "If it were approved now" in page
-    assert "As a rush job it could finish by" in page and "Promise " in page
+    # The page forecasts from the real time of day: rush is offered when it'd
+    # finish sooner than the normal forecast, as from MONDAY above.
+    real, real_rush = scheduling.forecast(revision), scheduling.forecast(revision, rush=True)
+    sooner = real_rush.finish and real.finish and real_rush.finish < real.finish
+    assert ("As a rush job it could finish by" in page) == bool(sooner)
+    # Offered unless the forecast is the date already promised.
+    offered = timezone.localtime(real.finish).date() != job.promised_date
+    assert ("Promise " in page) == offered
     day = scheduling.forecast(revision).finish.date().isoformat()
     response = admin_client.post(f"/work-orders/quote-promise/{revision.pk}/", {"date": day})
     assert response.status_code == 302

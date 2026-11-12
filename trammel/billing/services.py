@@ -40,20 +40,28 @@ on_payment: list[Callable] = []
 #: (a payment, credit or write-off) or it is voided. Online payments keep the
 #: invoice's payment link to its balance.
 on_balance_changed: list[Callable] = []
-#: `fn(invoice) -> url`: where the customer can pay the invoice online, or "".
-#: Online payments register here; billing knows nothing of the provider.
+#: `fn(invoice) -> [{label, name, url}]`: the ways the customer can pay the
+#: invoice online now ("Pay $95.00 online", "Card", https://…). Online payments
+#: register here; billing knows nothing of the providers.
 pay_links: list[Callable] = []
 
 
-def pay_url(invoice: Invoice) -> str:
-    """Where the customer can pay this invoice online now, or ""."""
+def pay_options(invoice: Invoice) -> list[dict]:
+    """Each way the customer can pay this invoice online now: {label, name, url}."""
     if invoice.status not in OPEN or invoice.is_credit_note or invoice.balance <= 0:
-        return ""
+        return []
+    found = []
     for fn in pay_links:
-        url = fn(invoice)
-        if url and url.startswith("https://"):
-            return url
-    return ""
+        for option in fn(invoice) or []:
+            if str(option.get("url", "")).startswith("https://"):
+                found.append(option)
+    return found
+
+
+def pay_url(invoice: Invoice) -> str:
+    """The first way to pay this invoice online now, or ""."""
+    options = pay_options(invoice)
+    return options[0]["url"] if options else ""
 
 
 # ---------------------------------------------------------------------------
@@ -836,9 +844,53 @@ def document_context(invoice: Invoice) -> dict:
             "written_off": invoice.written_off,
             "balance": invoice.balance,
             "pay_url": pay_url(invoice),
+            "pay_options": pay_options(invoice),
+            "payments": _payments_received(invoice),
+            "paid_on": _paid_on(invoice),
             "notes": invoice.notes,
         },
     }
+
+
+def _payments_received(invoice: Invoice) -> list[dict]:
+    """What has gone against the invoice, oldest first: each payment (its date,
+    how, its reference) and each credit note applied."""
+    if invoice.is_draft or not invoice.pk:
+        return []
+    rows = []
+    for allocation in invoice.allocations.select_related("payment", "credit_note").order_by(
+        "created_at"
+    ):
+        if allocation.payment_id:
+            payment = allocation.payment
+            rows.append(
+                {
+                    "kind": "payment",
+                    "date": payment.received_on,
+                    "method": payment.get_method_display(),
+                    "reference": payment.reference,
+                    "amount": allocation.amount,
+                }
+            )
+        else:
+            rows.append(
+                {
+                    "kind": "credit",
+                    "date": timezone.localdate(allocation.created_at),
+                    "method": "Credit note",
+                    "reference": allocation.credit_note.number,
+                    "amount": allocation.amount,
+                }
+            )
+    return rows
+
+
+def _paid_on(invoice: Invoice):
+    """The day it was paid off: the last payment or credit against it."""
+    if invoice.status != Status.PAID or invoice.is_credit_note:
+        return None
+    dates = [row["date"] for row in _payments_received(invoice)]
+    return max(dates) if dates else None
 
 
 def tax_label_for(det: tax.Determination) -> str:
