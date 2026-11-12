@@ -27,7 +27,6 @@ class AuditEventOut(ModelSchema):
         fields = [
             "id",
             "at",
-            "actor_kind",
             "user",
             "customer_id",
             "api_key_id",
