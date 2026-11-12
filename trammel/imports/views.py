@@ -18,13 +18,17 @@ from trammel.core.services import save_audited
 from trammel.core.web import paginate, permission_required
 from trammel.customers.models import Customer
 
-from . import deletions, ebay, etsy, services, shopify
+from . import deletions, ebay, etsy, services, shippo, shipstation, shopify, woocommerce
+from .http import StoreError
 from .models import (
     DeletionRequest,
     EbaySettings,
     EtsySettings,
     ImportedOrder,
+    ShippoSettings,
+    ShipStationSettings,
     ShopifySettings,
+    WooCommerceSettings,
 )
 
 #: The most a webhook body may be; a Shopify order is a few kilobytes.
@@ -56,6 +60,29 @@ def _stores() -> list[dict]:
             "connected": ebay_config.enabled and ebay_config.is_connected,
             "hint": "eBay collects and pays the sales tax on these sales; they are recorded "
             "that way. Orders whose buyer eBay withholds wait for a customer.",
+        },
+        {
+            "key": "woocommerce",
+            "label": "WooCommerce",
+            "connected": WooCommerceSettings.load().enabled
+            and bool(WooCommerceSettings.load().store_url)
+            and secrets.is_set(woocommerce.KEY_KEY),
+            "hint": "Paid orders (processing or completed) come in; ones still pending or on "
+            "hold wait until they're paid.",
+        },
+        {
+            "key": "shipstation",
+            "label": "ShipStation",
+            "connected": ShipStationSettings.load().enabled and secrets.is_set(shipstation.KEY_KEY),
+            "hint": "Orders from a store connected here aren't brought in twice: their "
+            "shipping details are added to that store's order.",
+        },
+        {
+            "key": "shippo",
+            "label": "Shippo",
+            "connected": ShippoSettings.load().enabled and secrets.is_set(shippo.TOKEN_KEY),
+            "hint": "Orders from a store connected here aren't brought in twice: their "
+            "shipping details are added to that store's order.",
         },
     ]
 
@@ -112,8 +139,19 @@ READERS = {
     "shopify": (ShopifySettings, lambda c, a, b: shopify.fetch(c, a, b), shopify.read),
     "etsy": (EtsySettings, lambda c, a, b: etsy.fetch(c, a, b), etsy.read),
     "ebay": (EbaySettings, lambda c, a, b: ebay.fetch(c, a, b), ebay.read),
+    "woocommerce": (
+        WooCommerceSettings,
+        lambda c, a, b: woocommerce.fetch(c, a, b),
+        woocommerce.read,
+    ),
+    "shipstation": (
+        ShipStationSettings,
+        lambda c, a, b: shipstation.fetch(c, a, b),
+        shipstation.read,
+    ),
+    "shippo": (ShippoSettings, lambda c, a, b: shippo.fetch(c, a, b), shippo.read),
 }
-STORE_ERRORS = (shopify.ShopifyError, etsy.EtsyError, ebay.EbayError, ValidationError)
+STORE_ERRORS = (shopify.ShopifyError, etsy.EtsyError, ebay.EbayError, StoreError, ValidationError)
 
 
 @permission_required("imports.run")
@@ -142,7 +180,11 @@ def fetch(request):
     except STORE_ERRORS as exc:
         messages.error(request, " ".join(getattr(exc, "messages", [str(exc)])))
         return redirect("imports:list")
-    result = services.import_orders([read(order) for order in raw], source, user=request.user)
+    # A gathering service's orders from a store connected here are that store's.
+    direct = frozenset(s["key"] for s in _stores() if s["connected"] and s["key"] != source)
+    result = services.import_orders(
+        [read(order) for order in raw], source, user=request.user, direct=direct
+    )
     audit.record(
         "import.fetch",
         entity_type=f"imports.{model.__name__.lower()}",
@@ -350,7 +392,14 @@ def settings_view(request):
     return _settings_page(request, shopify_form=form if form.is_bound else None)
 
 
-TABS = (("shopify", "Shopify"), ("etsy", "Etsy"), ("ebay", "eBay"))
+TABS = (
+    ("shopify", "Shopify"),
+    ("etsy", "Etsy"),
+    ("ebay", "eBay"),
+    ("woocommerce", "WooCommerce"),
+    ("shipstation", "ShipStation"),
+    ("shippo", "Shippo"),
+)
 
 
 def _back(tab: str):
@@ -358,7 +407,9 @@ def _back(tab: str):
     return redirect(f"{reverse('imports:settings')}?tab={tab}")
 
 
-def _settings_page(request, *, shopify_form=None, etsy_form=None, ebay_form=None):
+def _settings_page(
+    request, *, shopify_form=None, etsy_form=None, ebay_form=None, key_form=None, key_tab=None
+):
     """Settings, Online stores: a tab per store. A form that came back with an
     error opens its own tab."""
     tab = (
@@ -366,6 +417,8 @@ def _settings_page(request, *, shopify_form=None, etsy_form=None, ebay_form=None
         if etsy_form is not None
         else "ebay"
         if ebay_form is not None
+        else key_tab
+        if key_form is not None
         else "shopify"
         if shopify_form is not None and shopify_form.is_bound
         else request.GET.get("tab", "shopify")
@@ -377,11 +430,8 @@ def _settings_page(request, *, shopify_form=None, etsy_form=None, ebay_form=None
         EtsySettings.load(),
         EbaySettings.load(),
     )
-    on = {
-        "shopify": config.enabled,
-        "etsy": etsy_config.enabled and etsy_config.is_connected,
-        "ebay": ebay_config.enabled and ebay_config.is_connected,
-    }
+    on = {s["key"]: s["connected"] for s in _stores()}
+    on["shopify"] = config.enabled
     context = {
         "tab": tab,
         "tabs": [
@@ -396,6 +446,14 @@ def _settings_page(request, *, shopify_form=None, etsy_form=None, ebay_form=None
             "webhook_url": request.build_absolute_uri(reverse("imports:shopify_webhook"))
             if config.webhooks_enabled
             else "",
+        }
+    elif tab in KEY_STORES:
+        store = KEY_STORES[tab]
+        model = store["model"]
+        context |= {
+            "key_store": store,
+            "key_form": key_form or store["form"](instance=model.load(), prefix=tab),
+            "key_connected": on[tab],
         }
     elif tab == "etsy":
         context |= {
@@ -430,6 +488,190 @@ def test_connection(request):
             request, f"Connected to {config.shop_domain}: {len(orders)} order(s) today."
         )
     return _back("shopify")
+
+
+# ---------------------------------------------------------------------------
+# WooCommerce, ShipStation and Shippo: stores reached with a pasted key
+# ---------------------------------------------------------------------------
+
+
+class _KeyStoreForm(forms.ModelForm):
+    """A store's switch and its keys, kept as encrypted secrets."""
+
+    #: {form field: secret key}
+    SECRETS: dict = {}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for name, key in self.SECRETS.items():
+            if secrets.is_set(key):
+                self.fields[name].help_text += " Saved; leave blank to keep it."
+
+    def clean(self):
+        data = super().clean()
+        if data.get("enabled"):
+            for name, key in self.SECRETS.items():
+                if not (data.get(name) or "").strip() and not secrets.is_set(key):
+                    self.add_error(name, "Enter this to connect.")
+        return data
+
+
+class WooCommerceForm(_KeyStoreForm):
+    consumer_key = forms.CharField(
+        label="Consumer key",
+        required=False,
+        widget=_secret_box(),
+        help_text="The ck_ key from WooCommerce, Settings, Advanced, REST API.",
+    )
+    consumer_secret = forms.CharField(
+        label="Consumer secret",
+        required=False,
+        widget=_secret_box(),
+        help_text="The cs_ secret shown with it.",
+    )
+    SECRETS = {"consumer_key": woocommerce.KEY_KEY, "consumer_secret": woocommerce.SECRET_KEY}
+
+    class Meta:
+        model = WooCommerceSettings
+        fields = ["enabled", "store_url"]
+
+    def clean_store_url(self):
+        return woocommerce.check_url(self.cleaned_data.get("store_url", ""))
+
+    def clean(self):
+        data = super().clean()
+        if data.get("enabled") and not data.get("store_url"):
+            self.add_error("store_url", "Enter the store's address to connect it.")
+        return data
+
+
+class ShipStationForm(_KeyStoreForm):
+    api_key = forms.CharField(
+        label="API key",
+        required=False,
+        widget=_secret_box(),
+        help_text="From ShipStation, Settings, Account, API Settings.",
+    )
+    api_secret = forms.CharField(
+        label="API secret", required=False, widget=_secret_box(), help_text="Shown with the key."
+    )
+    SECRETS = {"api_key": shipstation.KEY_KEY, "api_secret": shipstation.SECRET_KEY}
+
+    class Meta:
+        model = ShipStationSettings
+        fields = ["enabled"]
+
+
+class ShippoForm(_KeyStoreForm):
+    token = forms.CharField(
+        label="Live API token",
+        required=False,
+        widget=_secret_box(),
+        help_text="The shippo_live_ token from Shippo, Settings, Advanced, API.",
+    )
+    SECRETS = {"token": shippo.TOKEN_KEY}
+
+    class Meta:
+        model = ShippoSettings
+        fields = ["enabled"]
+
+
+KEY_STORES = {
+    "woocommerce": {
+        "key": "woocommerce",
+        "label": "WooCommerce",
+        "model": WooCommerceSettings,
+        "form": WooCommerceForm,
+        "steps": [
+            "In WordPress, open WooCommerce, Settings, Advanced, REST API, and add a key.",
+            "Give it a description such as Trammel, choose a user who can see orders, and "
+            "set the permissions to Read.",
+            "Copy the consumer key and secret shown once, and enter them here with the "
+            "store's address.",
+        ],
+        "note": "WooCommerce is your own store, so you collect and pay its sales tax. Paid "
+        "orders (processing or completed) come in; carrier and tracking come from the "
+        "Shipment Tracking extension when the store uses it.",
+    },
+    "shipstation": {
+        "key": "shipstation",
+        "label": "ShipStation",
+        "model": ShipStationSettings,
+        "form": ShipStationForm,
+        "steps": [
+            "In ShipStation, open Settings, Account, API Settings.",
+            "Generate the API key and secret if there aren't any, and enter both here.",
+        ],
+        "note": "ShipStation gathers orders from your stores. An order from a store "
+        "connected here isn't brought in twice: its carrier, tracking and ship date are "
+        "added to that store's order, and its buyer to one waiting for a customer. Orders "
+        "from other places (Amazon, Walmart, ones made in ShipStation) come in as sales; "
+        "Amazon, Walmart, Etsy and eBay are recorded as paying the sales tax themselves.",
+    },
+    "shippo": {
+        "key": "shippo",
+        "label": "Shippo",
+        "model": ShippoSettings,
+        "form": ShippoForm,
+        "steps": [
+            "In Shippo, open Settings, Advanced, API.",
+            "Copy the live token (shippo_live_…, not the test one), and enter it here.",
+        ],
+        "note": "Shippo gathers orders from your stores. An order from a store connected "
+        "here isn't brought in twice: its carrier, tracking and ship date are added to that "
+        "store's order, and its buyer to one waiting for a customer. Orders from other "
+        "places come in as sales; Amazon, Walmart, Etsy and eBay are recorded as paying the "
+        "sales tax themselves.",
+    },
+}
+
+
+def _key_store(key: str) -> dict:
+    store = KEY_STORES.get(key)
+    if store is None:
+        raise Http404
+    return store
+
+
+@permission_required("imports.manage")
+@require_POST
+def key_store_settings(request, key):
+    store = _key_store(key)
+    config = store["model"].load()
+    before = audit.snapshot(config)
+    form = store["form"](request.POST, instance=config, prefix=key)
+    if not form.is_valid():
+        return _settings_page(request, key_form=form, key_tab=key)
+    save_audited(
+        form.save(commit=False), before=before, summary=f"Edited {store['label']} settings"
+    )
+    for name, secret_key in form.SECRETS.items():
+        if value := (form.cleaned_data.get(name) or "").strip():
+            secrets.put(secret_key, value)
+            audit.record(
+                "credential.set",
+                entity_type="core.credential",
+                entity_id=secret_key,
+                summary=f"Changed the {store['label']} {form.fields[name].label.lower()}",
+            )
+    messages.success(request, f"{store['label']} settings saved.")
+    return _back(key)
+
+
+@permission_required("imports.manage")
+@require_POST
+def key_store_test(request, key):
+    """Ask the store for today's orders, to show the connection works."""
+    store = _key_store(key)
+    try:
+        today = timezone.localdate()
+        model, fetch_orders, _read = READERS[key]
+        orders = fetch_orders(model.load(), today, today)
+    except (StoreError, ValidationError) as exc:
+        messages.error(request, " ".join(getattr(exc, "messages", [str(exc)])))
+    else:
+        messages.success(request, f"Connected to {store['label']}: {len(orders)} order(s) today.")
+    return _back(key)
 
 
 # ---------------------------------------------------------------------------

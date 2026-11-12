@@ -132,7 +132,57 @@ class EbaySettings(OAuthStore):
         return "eBay settings"
 
 
-SOURCES = {"shopify": "Shopify", "etsy": "Etsy", "ebay": "eBay"}
+class WooCommerceSettings(SingletonModel):
+    """One WooCommerce store, reached with a REST API key. The consumer key and
+    secret are encrypted secrets, never here."""
+
+    enabled = models.BooleanField("connect WooCommerce", default=False)
+    store_url = models.CharField(
+        "store address",
+        max_length=200,
+        blank=True,
+        help_text="The WordPress site the store runs on, such as https://shop.example.com.",
+    )
+
+    class Meta:
+        verbose_name = "WooCommerce settings"
+
+    def __str__(self) -> str:
+        return "WooCommerce settings"
+
+
+class ShipStationSettings(SingletonModel):
+    """A ShipStation account. Its API key and secret are encrypted secrets."""
+
+    enabled = models.BooleanField("connect ShipStation", default=False)
+
+    class Meta:
+        verbose_name = "ShipStation settings"
+
+    def __str__(self) -> str:
+        return "ShipStation settings"
+
+
+class ShippoSettings(SingletonModel):
+    """A Shippo account. Its API token is an encrypted secret."""
+
+    enabled = models.BooleanField("connect Shippo", default=False)
+
+    class Meta:
+        verbose_name = "Shippo settings"
+
+    def __str__(self) -> str:
+        return "Shippo settings"
+
+
+SOURCES = {
+    "shopify": "Shopify",
+    "etsy": "Etsy",
+    "ebay": "eBay",
+    "woocommerce": "WooCommerce",
+    "shipstation": "ShipStation",
+    "shippo": "Shippo",
+}
 
 
 class ImportedOrder(models.Model):

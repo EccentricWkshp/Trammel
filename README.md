@@ -46,11 +46,14 @@ printing, laser work. Self-hosted: the data stays on the shop's own hardware.
   Staff can view the portal as a customer sees it, read-only. One switch, or
   the `PORTAL_OFF` setting, turns the portal off without touching anything
   else.
-- **Online orders** — Shopify, Etsy and eBay orders fetched by date come in once
-  each, as paid sales at the store's prices and tax, with their customers; tax a
+- **Online orders** — Shopify, Etsy, eBay and WooCommerce orders, and ShipStation
+  and Shippo orders from anywhere else, fetched by date come in once each, as
+  paid sales at the store's prices and tax, with their customers; tax a
   marketplace pays itself is kept apart from tax you owe, and eBay's account
-  deletion requests are wiped and reviewed. Orders whose buyer
-  the store withheld wait for a customer; one that has to be made becomes a job.
+  deletion requests are wiped and reviewed. An order ShipStation or Shippo
+  passes on from a connected store only adds its shipping details. Orders whose
+  buyer the store withheld wait for a customer; one that has to be made
+  becomes a job.
 - **Running it** — users and roles, audit log, email notifications, the REST
   API, scheduled backups with off-site copies (a network folder or
   S3-compatible storage), restore and export, and an update check.

@@ -25,6 +25,8 @@ urlpatterns = [
     path("settings/ebay/disconnect/", views.ebay_disconnect, name="ebay_disconnect"),
     path("settings/ebay/test/", views.ebay_test, name="ebay_test"),
     path("ebay/callback/", views.ebay_callback, name="ebay_callback"),
+    path("settings/store/<slug:key>/", views.key_store_settings, name="key_store_settings"),
+    path("settings/store/<slug:key>/test/", views.key_store_test, name="key_store_test"),
     path("deletions/", views.deletion_list, name="deletions"),
     path("deletions/new/", views.deletion_new, name="deletion_new"),
     path(

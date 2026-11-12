@@ -87,7 +87,7 @@
   {% endif %}
 </section>
 
-{% else %}
+{% elif tab == "ebay" %}
 <section class="panel" aria-labelledby="ebay-heading">
   <h2 id="ebay-heading">eBay</h2>
   <p class="small">eBay collects and pays the sales tax on its sales as the marketplace facilitator; eBay sales record it that way. eBay withholds the buyer's details on some orders, which then wait on the Online orders page for a customer.</p>
@@ -130,6 +130,28 @@
   <p class="small">eBay tells every app when an eBay account closes, and the buyer's data has to go. eBay needs a public HTTPS address that answers its challenge, which Trammel doesn't host: a small relay on the internet can take eBay's notices and forward each one to Trammel's API (<code class="nowrap">POST /api/v1/imports/ebay/deletion-notices</code>, with an API key holding only "Forward eBay account deletion notices"). You can also enter a notice by hand.</p>
   <p class="small">When a notice arrives, the buyer's details in the stored eBay orders are wiped at once. Their customer record waits for you to anonymize it or dismiss the request; sales and tax figures always stay.</p>
   <p><a class="button" href="{% url 'imports:deletions' %}">Deletion requests{% if deletion_requests %} ({{ deletion_requests }} to review){% endif %}</a></p>
+</section>
+
+{% elif key_store %}
+<section class="panel" aria-labelledby="key-store-heading">
+  <h2 id="key-store-heading">{{ key_store.label }}</h2>
+  <details>
+    <summary>Getting the {% if key_store.key == "shippo" %}token{% else %}keys{% endif %} from {{ key_store.label }}</summary>
+    <ol class="small">{% for step in key_store.steps %}<li>{{ step }}</li>{% endfor %}</ol>
+  </details>
+  <p class="small">{{ key_store.note }}</p>
+  <form method="post" action="{% url 'imports:key_store_settings' key_store.key %}" class="stack" novalidate>{% csrf_token %}
+    {% if key_form.non_field_errors %}
+    <div class="form-errors" role="alert">{% for e in key_form.non_field_errors %}<p>{{ e }}</p>{% endfor %}</div>
+    {% endif %}
+    {% for field in key_form %}
+    <div class="field{% if field.widget_type == 'checkbox' %} field-check{% endif %}">{{ field.as_field_group }}</div>
+    {% endfor %}
+    <div class="actions"><button type="submit" class="primary">Save</button></div>
+  </form>
+  {% if key_connected %}
+  <form method="post" action="{% url 'imports:key_store_test' key_store.key %}">{% csrf_token %}<button type="submit">Test the connection</button></form>
+  {% endif %}
 </section>
 {% endif %}
 </div>

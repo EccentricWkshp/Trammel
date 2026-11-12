@@ -11,6 +11,11 @@ The store's order id keeps an order from being imported twice. Fetching a date
 range again is safe: an order already imported only has its shipping, payment
 and cancellation news updated, never its issued sale. An order whose buyer the
 store withheld waits for staff to supply a customer (FR-IMP-3).
+
+ShipStation and Shippo pass on other stores' orders. One from a store Trammel
+imports itself (`direct`) is never a second sale: it only adds what the
+store's own order is missing (carrier, tracking, ship date, and the buyer of
+an order waiting for one).
 """
 
 from __future__ import annotations
@@ -27,6 +32,7 @@ from django.utils import timezone
 from trammel.core import audit
 from trammel.core.access import SYSTEM
 
+from . import origins
 from .models import SOURCES, ImportedOrder
 
 ZERO = Decimal("0")
@@ -40,6 +46,10 @@ class Result:
     updated: int = 0
     pending: int = 0
     skipped: int = 0
+    #: From a store Trammel imports itself: added to that store's own order...
+    merged: int = 0
+    #: ...or not imported from that store yet, so left for it.
+    elsewhere: int = 0
     errors: list[str] = field(default_factory=list)
 
     def summary(self, label: str) -> str:
@@ -51,7 +61,17 @@ class Result:
                 f"{self.pending} waiting for a customer (the store withheld the buyer's details)"
             )
         if self.skipped:
-            parts.append(f"{self.skipped} test or canceled, skipped")
+            parts.append(f"{self.skipped} not paid, test or canceled, skipped")
+        if self.merged:
+            parts.append(
+                f"{self.merged} from stores Trammel imports itself, their shipping details "
+                "added to those orders"
+            )
+        if self.elsewhere:
+            parts.append(
+                f"{self.elsewhere} from stores Trammel imports itself but not fetched there "
+                "yet, left for them (fetch those stores, then this again)"
+            )
         if self.errors:
             parts.append(f"{len(self.errors)} couldn't be imported")
         return "; ".join(parts) + "."
@@ -84,15 +104,16 @@ def _moment(value) -> dt.datetime | None:
     return None
 
 
-def import_orders(orders: list[dict], source: str, *, user=None) -> Result:
+def import_orders(orders: list[dict], source: str, *, user=None, direct=frozenset()) -> Result:
     """Bring in orders read by a platform's reader. One order failing doesn't
-    stop the rest: each is its own savepoint."""
+    stop the rest: each is its own savepoint. `direct` names the stores Trammel
+    imports itself, whose orders a gathering service mustn't bring in again."""
     result = Result()
     for order in orders:
         label = order.get("order_number") or order.get("external_order_id") or "?"
         try:
             with transaction.atomic():
-                outcome = _import_one(order, source, user=user)
+                outcome = _import_one(order, source, user=user, direct=direct)
         except (ValidationError, ValueError, ArithmeticError) as exc:
             message = " ".join(getattr(exc, "messages", [str(exc)]))
             result.errors.append(f"Order {label}: {message}")
@@ -101,7 +122,7 @@ def import_orders(orders: list[dict], source: str, *, user=None) -> Result:
     return result
 
 
-def _import_one(order: dict, source: str, *, user) -> str:
+def _import_one(order: dict, source: str, *, user, direct=frozenset()) -> str:
     external_id = str(order.get("external_order_id") or "")
     if not external_id:
         raise ValidationError("It has no order id.")
@@ -113,7 +134,14 @@ def _import_one(order: dict, source: str, *, user) -> str:
     if row is not None:
         _refresh(row, order, source, user=user)
         return "updated"
-    if order.get("test") or order.get("cancelled_at"):
+    origin = order.get("origin") or ""
+    if origin and origin != source and origin in direct:
+        own = _own_order(origin, order)
+        if own is None:
+            return "elsewhere"
+        _add_missing(own, order, user=user, via=source)
+        return "merged"
+    if order.get("test") or order.get("unpaid") or order.get("cancelled_at"):
         return "skipped"
     row = ImportedOrder(source=source, external_order_id=external_id)
     _fill(row, order)
@@ -188,6 +216,57 @@ def _refresh(row: ImportedOrder, order: dict, source: str, *, user) -> None:
         )
     row.problem = "\n".join(n for n in notes if n)
     row.save()
+
+
+def _own_order(origin: str, order: dict) -> ImportedOrder | None:
+    """The order as imported from the store it came from, by its order number
+    ("#1001" and "1001" alike) or the store's own id for it."""
+    wanted = origins.number(order.get("order_number"))
+    if not wanted:
+        return None
+    return (
+        ImportedOrder.objects.select_for_update()
+        .filter(source=origin)
+        .filter(
+            Q(order_number__iexact=wanted)
+            | Q(order_number__iexact=f"#{wanted}")
+            | Q(external_order_id=wanted)
+        )
+        .first()
+    )
+
+
+def _add_missing(row: ImportedOrder, order: dict, *, user, via: str) -> None:
+    """What a gathering service knows that the store's own order lacks: the
+    carrier, tracking number and ship date, and, for an order waiting for a
+    customer because the store withheld the buyer, the buyer (which makes its
+    sale). Nothing the store said is overwritten, and an issued sale never
+    changes."""
+    via = LABELS.get(via, via)
+    added = []
+    for name, limit in (("carrier", 60), ("tracking", 100)):
+        if not getattr(row, name) and order.get(name):
+            setattr(row, name, str(order[name])[:limit])
+            added.append(name)
+    if not row.shipped_on and _date(order.get("shipped_on")):
+        row.shipped_on = _date(order.get("shipped_on"))
+        added.append("ship date")
+    row.save()
+    if row.status == ImportedOrder.Status.PENDING and not order.get("customer_unavailable"):
+        buyer = order.get("customer") or {}
+        row.payload = {**row.payload, "customer": buyer, "customer_unavailable": False}
+        row.save(update_fields=["payload", "updated_at"])
+        customer = find_or_create_customer(buyer, source=row.source, buyer_id=row.buyer_id)
+        make_sale(row, customer, user=user)
+        added.append("buyer")
+    if added:
+        audit.record(
+            "import.details",
+            entity_type="imports.importedorder",
+            entity_id=str(row.pk),
+            entity_label=str(row),
+            summary=f"{row}: {', '.join(added)} added from {via}",
+        )
 
 
 def find_or_create_customer(buyer: dict, *, source: str = "", buyer_id: str = ""):
@@ -286,7 +365,9 @@ def make_sale(row: ImportedOrder, customer, *, address=None, user=None):
         fulfillment=Invoice.Fulfillment.SHIPPING if address else Invoice.Fulfillment.PICKUP,
         shipping=_d(order.get("shipping")),
         notes=(order.get("notes") or "")[:2000],
-        internal_notes=f"Imported from {label} order {row.order_number}.",
+        internal_notes=f"Imported from {label} order {row.order_number}"
+        + (f" (from {order['origin_label']})" if order.get("origin_label") else "")
+        + ".",
     )
     # Shipped to the order's address (its tax location), and paid on the day.
     invoice.ship_to = address
