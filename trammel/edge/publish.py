@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 
@@ -66,10 +67,44 @@ def _size(n) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _css() -> tuple[str, bytes]:
-    path = finders.find("trammel.css")
+def _asset(name: str, prefix: str, suffix: str) -> tuple[str, bytes]:
+    path = finders.find(name)
     data = open(path, "rb").read() if path else b""  # noqa: SIM115, PTH123
-    return f"portal-{hashlib.sha256(data).hexdigest()[:12]}.css", data
+    return f"{prefix}-{hashlib.sha256(data).hexdigest()[:12]}{suffix}", data
+
+
+def _css() -> tuple[str, bytes]:
+    return _asset("trammel.css", "portal", ".css")
+
+
+def _uploads() -> dict:
+    from trammel.portal import uploads
+
+    if not uploads.is_on():
+        return {"enabled": False}
+    return {
+        "enabled": True,
+        "limit_mb": uploads.limit_mb(),
+        "per_send": uploads.PER_SEND,
+        "kinds_label": uploads.KINDS_LABEL,
+    }
+
+
+def _hooks() -> dict:
+    """The online stores the Worker takes webhooks and callbacks for."""
+    if not modules.is_enabled("imports"):
+        return {}
+    from trammel.imports import shopify
+    from trammel.imports.models import EbaySettings, EtsySettings, ShopifySettings
+
+    shop = ShopifySettings.load()
+    ebay = EbaySettings.load()
+    return {
+        "shopify": bool(shop.enabled and shop.webhooks_enabled and shopify.webhook_secret(shop)),
+        "etsy": EtsySettings.load().enabled,
+        "ebay": ebay.enabled,
+        "ebay_deletion": ebay.enabled,
+    }
 
 
 def _code_email() -> dict:
@@ -96,14 +131,24 @@ def _code_email() -> dict:
 
 
 def site_item() -> Item:
+    from django.conf import settings
+
+    from trammel.agreements.models import AgreementSettings
     from trammel.core.logo import data_uri
     from trammel.core.models import BusinessProfile
 
     business = BusinessProfile.load()
     css_name, css = _css()
+    js_name, js = _asset("signature.js", "signature", ".js")
     data = {
         "portal_on": portal_open(),
         "css": css_name,
+        "signature_js": js_name,
+        "signing": AgreementSettings.load().signature_enabled,
+        "uploads": _uploads(),
+        "hooks": _hooks(),
+        # Where the owner's browser goes on to, from a store's sign-in.
+        "local_url": settings.BASE_URL.rstrip("/"),
         "business": {
             "name": business.name,
             "logo": data_uri(business) if business.show_logo else "",
@@ -119,7 +164,10 @@ def site_item() -> Item:
         if not data["portal_on"]:
             # Closed (FR-PRT-8): everyone signed out at once.
             client.end_sessions()
-        return data, {f"assets/{css_name}": (css, "text/css")}
+        return data, {
+            f"assets/{css_name}": (css, "text/css"),
+            f"assets/{js_name}": (js, "text/javascript"),
+        }
 
     return Item("config", "site", fingerprint(data), build)
 
@@ -191,14 +239,42 @@ def quote_items(customer, site_fp: str) -> Iterator[Item]:
     revisions = QuoteRevision.objects.filter(
         quote__job__customer=customer, status__in=SHOWN_QUOTES
     ).select_related("quote__job")
+    from .models import EdgeAnswer
+
     for rev in revisions:
         approval = Approval.objects.filter(revision=rev).first()
         open_ = quotes.can_answer(rev)
+        answering = _answering(rev) if open_ else None
+        # An answer refused here (the latest), by id: a second refusal worded the
+        # same still replaces "received" on the customer's page.
+        refused = (
+            EdgeAnswer.objects.filter(revision=rev)
+            .order_by("-at", "-pk")
+            .values_list("pk", "message")
+            .first()
+            if rev.status in ("sent", "expired", "declined") and not approval
+            else None
+        )
+        problem = refused[1] if refused else None
         source = fingerprint(
-            str(rev.pk), rev.status, rev.updated_at, approval and approval.pk, open_, site_fp
+            str(rev.pk),
+            rev.status,
+            rev.updated_at,
+            approval and approval.pk,
+            open_,
+            answering,
+            refused,
+            site_fp,
         )
 
-        def build(rev=rev, approval=approval, open_=open_, source=source):
+        def build(
+            rev=rev,
+            approval=approval,
+            open_=open_,
+            source=source,
+            answering=answering,
+            problem=problem,
+        ):
             key = f"doc/quote/{rev.pk}/{source[:12]}"
             html = quotes.render_html(rev)
             objects = {f"{key}.html": (html.encode(), "text/html; charset=utf-8")}
@@ -225,6 +301,8 @@ def quote_items(customer, site_fp: str) -> Iterator[Item]:
                 }
                 if approval
                 else None,
+                "respond": answering,
+                "problem": problem or "",
             }
             return data, objects
 
@@ -236,6 +314,107 @@ def quote_items(customer, site_fp: str) -> Iterator[Item]:
             customer=str(customer.pk),
             job=str(rev.quote.job_id),
             sort=(rev.sent_at or rev.created_at).isoformat(),
+        )
+
+
+#: Totals are worked out for every combination of choices up to this many.
+MAX_COMBINATIONS = 64
+
+
+def _answering(rev) -> dict:
+    """What answering a quote takes (FR-PRT-3, FR-QUO-11): the terms, whether to
+    sign, the choices it offers, and the total for each combination of them."""
+    import itertools
+
+    from trammel.agreements.models import AgreementSettings
+    from trammel.quotes import services as quotes
+
+    offered = quotes.choices(rev)
+    groups = [
+        {
+            "name": g["name"],
+            "default": str(g["chosen"].pk) if g["chosen"] else str(g["lines"][0].pk),
+            "lines": [
+                {
+                    "id": str(line.pk),
+                    "description": line.description,
+                    "price": _money(line.line_total),
+                }
+                for line in g["lines"]
+            ],
+        }
+        for g in offered["groups"]
+    ]
+    options = [
+        {"id": str(line.pk), "description": line.description, "price": _money(line.line_total)}
+        for line in offered["options"]
+    ]
+    combos = [[line["id"] for line in g["lines"]] for g in groups]
+    subsets = [
+        list(chosen)
+        for n in range(len(options) + 1)
+        for chosen in itertools.combinations([o["id"] for o in options], n)
+    ]
+    totals = {}
+    count = len(subsets) * math.prod(len(c) for c in combos)
+    if count <= MAX_COMBINATIONS:
+        for picks in itertools.product(*combos) if combos else [()]:
+            for extra in subsets:
+                chosen = [*picks, *extra]
+                figures = quotes.totals_with(rev, quotes.picked(rev, chosen))
+                deposit = rev.deposit_for(figures["total"])
+                totals[",".join(sorted(chosen))] = {
+                    "total": _money(figures["total"]),
+                    "deposit": _money(deposit) if deposit else "",
+                }
+    else:
+        default = [g["default"] for g in groups]
+        totals[",".join(sorted(default))] = {
+            "total": _money(rev.total),
+            "deposit": _money(rev.deposit_amount) if rev.deposit_amount else "",
+        }
+    return {
+        "agreement": quotes.terms_to_accept(rev),
+        "signing": AgreementSettings.load().signature_enabled,
+        "choices": {"groups": groups, "options": options},
+        "totals": totals,
+    }
+
+
+def upload_items(customer) -> Iterator[Item]:
+    """Files the customer sent from the edge portal, for 90 days (FR-PRT-7)."""
+    import datetime as dt
+
+    from .models import EdgeUpload
+
+    labels = {
+        "pending": "Waiting for us to look at it",
+        "accepted": "Accepted",
+        "declined": "Not used",
+    }
+    since = timezone.now() - dt.timedelta(days=90)
+    for row in EdgeUpload.objects.filter(customer=customer, at__gte=since).select_related("upload"):
+        if row.upload is not None:
+            status, reason = (
+                labels.get(row.upload.status, row.upload.get_status_display()),
+                row.upload.reason,
+            )
+        else:
+            status, reason = "Not taken", row.reason
+        data = {
+            "name": row.name,
+            "status": status,
+            "reason": reason,
+            "at": _d(timezone.localtime(row.at)),
+        }
+        yield Item(
+            "upload",
+            str(row.pk),
+            fingerprint(data),
+            lambda data=data: (data, {}),
+            customer=str(customer.pk),
+            job=str(row.job_id) if row.job_id else None,
+            sort=row.at.isoformat(),
         )
 
 
@@ -471,3 +650,4 @@ def items() -> Iterator[Item]:
         yield from note_items(customer)
         yield from file_items(customer)
         yield from access_items(customer)
+        yield from upload_items(customer)

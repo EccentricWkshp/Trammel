@@ -20,14 +20,18 @@ from .models import EdgeSettings
 
 TOKEN_KEY = "edge.api_token"
 WORKER_DIR = Path(__file__).parent / "worker"
+EBAY_TOKEN_KEY = "edge.ebay_token"
 #: The entry point first: Cloudflare runs the first module.
 MODULES = (
     "worker.js",
     "auth.js",
     "crypto.js",
     "db.js",
+    "hooks.js",
     "html.js",
     "portal.js",
+    "respond.js",
+    "send.js",
     "smtp.js",
     "sync.js",
 )
@@ -35,6 +39,18 @@ MODULES = (
 
 class DeployError(Exception):
     pass
+
+
+def ebay_token() -> str:
+    """The verification token eBay is given with the deletion notices address,
+    made the first time it's wanted (eBay wants 32 to 80 letters and digits)."""
+    import secrets as random
+
+    token = secrets.get(EBAY_TOKEN_KEY)
+    if not token:
+        token = random.token_hex(24)
+        secrets.put(EBAY_TOKEN_KEY, token)
+    return token
 
 
 def worker_modules() -> dict[str, bytes]:
@@ -114,6 +130,7 @@ def deploy() -> None:
             {"type": "r2_bucket", "name": "FILES", "bucket_name": bucket},
             {"type": "secret_text", "name": "SYNC_KEY", "text": client.sync_key()},
             {"type": "secret_text", "name": "SMTP", "text": json.dumps(smtp)},
+            {"type": "secret_text", "name": "EBAY_TOKEN", "text": ebay_token()},
             {"type": "plain_text", "name": "TRAMMEL_VERSION", "text": django_settings.APP_VERSION},
         ],
     )

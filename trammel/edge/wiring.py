@@ -2,7 +2,7 @@
 customers, the built-in pages are off and portal links point at it; codes staff
 make are hashed for it too."""
 
-from trammel.core import modules
+from trammel.core import modules, public
 from trammel.portal import services as portal
 
 
@@ -25,4 +25,5 @@ def _code_made(row, raw: str) -> None:
 
 
 portal.elsewhere.append(_elsewhere)
+public.providers.append(_elsewhere)
 portal.on_code_made.append(_code_made)

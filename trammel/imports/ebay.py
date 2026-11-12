@@ -67,6 +67,86 @@ def token_url(config: EbaySettings) -> str:
     return f"{host(config, 'api')}/identity/v1/oauth2/token"
 
 
+# ---------------------------------------------------------------------------
+# Account deletion notices: eBay's signature (0.9.1, through the edge portal)
+# ---------------------------------------------------------------------------
+
+_app_token: dict = {}
+_public_keys: dict = {}
+
+
+def app_token(config: EbaySettings) -> str:
+    """An application token (client credentials), for eBay's public keys; kept
+    in memory until it's nearly due, never mixed with the seller's token."""
+    now = timezone.now()
+    if _app_token.get("token") and _app_token.get("until", now) > now:
+        return _app_token["token"]
+    client_id, cert = _app(config)
+    basic = base64.b64encode(f"{client_id}:{cert}".encode()).decode()
+    payload, _ = _request(
+        "POST",
+        token_url(config),
+        data={"grant_type": "client_credentials", "scope": "https://api.ebay.com/oauth/api_scope"},
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Authorization": f"Basic {basic}",
+        },
+    )
+    seconds = int(payload.get("expires_in") or 7200)
+    _app_token.update(
+        token=payload["access_token"], until=now + dt.timedelta(seconds=max(60, seconds - 300))
+    )
+    return _app_token["token"]
+
+
+def _pem(key: str) -> bytes:
+    """eBay's key as PEM: it sends it with its line breaks taken out."""
+    body = (
+        key.replace("-----BEGIN PUBLIC KEY-----", "")
+        .replace("-----END PUBLIC KEY-----", "")
+        .replace("\n", "")
+        .replace("\r", "")
+        .strip()
+    )
+    lines = [body[i : i + 64] for i in range(0, len(body), 64)]
+    return (
+        "-----BEGIN PUBLIC KEY-----\n" + "\n".join(lines) + "\n-----END PUBLIC KEY-----\n"
+    ).encode()
+
+
+def public_key(config: EbaySettings, kid: str) -> bytes:
+    if kid not in _public_keys:
+        payload, _ = _request(
+            "GET",
+            f"{host(config, 'api')}/commerce/notification/v1/public_key/{kid}",
+            headers={"Authorization": f"Bearer {app_token(config)}"},
+        )
+        _public_keys[kid] = _pem(payload.get("key", ""))
+    return _public_keys[kid]
+
+
+def verify_notification(config: EbaySettings, body: bytes, header: str) -> bool:
+    """Whether a notice is eBay's own: X-EBAY-SIGNATURE is base64 JSON naming
+    the key (kid) and an ECDSA signature over the body, checked against the
+    public key eBay publishes for it."""
+    from cryptography.exceptions import InvalidSignature
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.hazmat.primitives.serialization import load_pem_public_key
+
+    try:
+        signed = json.loads(base64.b64decode(header or ""))
+        kid, signature = signed["kid"], base64.b64decode(signed["signature"])
+    except ValueError, KeyError, TypeError:
+        return False
+    try:
+        key = load_pem_public_key(public_key(config, kid))
+        key.verify(signature, body, ec.ECDSA(hashes.SHA1()))  # noqa: S303 — eBay's choice
+    except InvalidSignature, ValueError, TypeError:
+        return False
+    return True
+
+
 def _request(method: str, url: str, *, data: dict | None = None, headers: dict | None = None):
     """One call to eBay, its errors said in words a seller can act on."""
     try:

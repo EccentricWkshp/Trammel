@@ -87,8 +87,25 @@ def settings_page(request):
             "token_set": secrets.is_set(deploy.TOKEN_KEY),
             "permissions": cloudflare.PERMISSIONS,
             "counts": counts,
+            **_ebay(row),
         },
     )
+
+
+def _ebay(row) -> dict:
+    """Where eBay sends account deletion notices, when the portal takes them."""
+    from trammel.core import modules
+
+    if not (row.active and modules.is_enabled("imports")):
+        return {}
+    from trammel.imports.models import EbaySettings
+
+    if not EbaySettings.load().enabled:
+        return {}
+    return {
+        "ebay_endpoint": f"{row.public_url}/imports/ebay/deletion/",
+        "ebay_token": deploy.ebay_token(),
+    }
 
 
 @admin_required

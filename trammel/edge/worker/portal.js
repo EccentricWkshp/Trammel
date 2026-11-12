@@ -14,6 +14,8 @@ import {
 } from "./auth.js";
 import { inbox, record, records } from "./db.js";
 import { DOCUMENT_HEADERS, html, page, redirect, respond } from "./html.js";
+import { picksFrom, respondSection, takeAnswer } from "./respond.js";
+import { sendSection, takeFiles } from "./send.js";
 
 const ID = "[0-9a-fA-F-]{36}";
 
@@ -91,11 +93,12 @@ function invoiceList(invoices) {
 async function home(env, site, visitor, notice) {
   const db = env.DB;
   const customer = visitor.customerId;
-  const [jobs, quotes, invoices, files] = await Promise.all([
+  const [jobs, quotes, invoices, files, sent] = await Promise.all([
     records(db, "job", { customer }),
     records(db, "quote", { customer }),
     records(db, "invoice", { customer }),
     records(db, "file", { customer }),
+    records(db, "upload", { customer }),
   ]);
   const open = waiting(quotes);
   const unpaid = invoices.filter((i) => i.data.balance_due);
@@ -116,25 +119,28 @@ ${
     : ""
 }
 <section aria-labelledby="jobs-heading"><h2 id="jobs-heading">Your jobs</h2>${jobsTable(jobs)}</section>
-${accountFiles.length ? html`<section aria-labelledby="files-heading"><h2 id="files-heading">Files</h2>${filesList(accountFiles)}</section>` : ""}`,
+${accountFiles.length ? html`<section aria-labelledby="files-heading"><h2 id="files-heading">Files</h2>${filesList(accountFiles)}</section>` : ""}
+${sendSection(site, sent.filter((s) => !s.job), null)}`,
   });
 }
 
-async function job(env, site, visitor, id) {
+async function job(env, site, visitor, id, notice) {
   const found = await own(env, visitor, "job", id);
   if (!found) return null;
   const db = env.DB;
-  const [quotes, invoices, agreements, files, notes] = await Promise.all([
+  const [quotes, invoices, agreements, files, notes, sent] = await Promise.all([
     records(db, "quote", { job: id }),
     records(db, "invoice", { job: id }),
     records(db, "agreement", { job: id }),
     records(db, "file", { job: id }),
     records(db, "note", { job: id }),
+    records(db, "upload", { job: id }),
   ]);
   const j = found.data;
   return page({
     site,
     visitor,
+    notice,
     title: `${j.number} ${j.title}`,
     body: html`<p class="breadcrumb"><a href="/portal/">Your account</a></p>
 <h1>${j.number} · ${j.title}</h1>
@@ -143,7 +149,8 @@ ${quotes.length ? html`<section><h2>Quotes</h2>${quoteList(quotes)}</section>` :
 ${invoices.length ? html`<section><h2>Invoices</h2>${invoiceList(invoices)}</section>` : ""}
 ${agreements.length ? html`<section><h2>Agreements</h2><ul class="plain">${agreements.map((a) => html`<li>${a.data.title}, accepted ${a.data.accepted}${a.data.pdf ? html` · <a href="/portal/agreements/${a.id}/pdf/">PDF</a>` : ""}</li>`)}</ul></section>` : ""}
 ${notes.length ? html`<section><h2>Updates</h2><ul class="plain portal-updates">${notes.map((n) => html`<li><span class="muted small">${n.data.at}${n.data.author ? html` · ${n.data.author}` : ""}</span><p class="prewrap">${n.data.text}</p>${n.data.photo ? html`<a href="/portal/notes/${n.id}/photo/"><img src="/portal/notes/${n.id}/photo/" alt="" class="portal-thumb"></a>` : ""}</li>`)}</ul></section>` : ""}
-${files.length ? html`<section><h2>Files</h2>${filesList(files)}</section>` : ""}`,
+${files.length ? html`<section><h2>Files</h2>${filesList(files)}</section>` : ""}
+${sendSection(site, sent, id)}`,
   });
 }
 
@@ -151,21 +158,23 @@ function documentFrame(src, title) {
   return html`<iframe class="document-preview" src="${src}" title="${title}" sandbox></iframe>`;
 }
 
-async function quote(env, site, visitor, id) {
+async function quote(env, site, visitor, id, notice, picks) {
   const found = await own(env, visitor, "quote", id);
   if (!found) return null;
   const q = found.data;
   return page({
     site,
     visitor,
+    notice,
     title: `${q.kind} ${q.number}`,
     body: html`<p class="breadcrumb"><a href="/portal/">Your account</a>${found.job ? html` · <a href="/portal/jobs/${found.job}/">${q.job_number}</a>` : ""}</p>
 <h1>${q.kind} ${q.number} · ${q.title}</h1>
 <dl class="facts-inline"><div><dt>Total</dt><dd><strong>${q.total}</strong></dd></div><div><dt>Status</dt><dd>${q.status}</dd></div>${q.valid_until ? html`<div><dt>Valid until</dt><dd>${q.valid_until}</dd></div>` : ""}</dl>
 ${q.approval ? html`<p class="card">Approved by ${q.approval.by} on ${q.approval.at}.</p>` : ""}
-${q.open ? html`<p class="card">To approve or decline this ${q.noun}, please contact us.</p>` : ""}
 <p class="actions">${q.pdf ? html`<a class="button" href="/portal/quotes/${found.id}/pdf/">Download PDF</a>` : ""}</p>
-${q.doc ? documentFrame(`/portal/quotes/${found.id}/document/`, `${q.kind} ${q.number}`) : ""}`,
+${q.doc ? documentFrame(`/portal/quotes/${found.id}/document/`, `${q.kind} ${q.number}`) : ""}
+${q.respond && q.respond.choices && (q.respond.choices.groups.length || q.respond.choices.options.length) ? html`<p class="muted small">The document shows the standard choices; yours are in the total below.</p>` : ""}
+${respondSection(site, visitor, found, picks)}`,
   });
 }
 
@@ -276,8 +285,9 @@ export async function handlePortal(request, env, site) {
     return respond("Forbidden", { status: 403 });
   }
 
-  if (path === "/portal/static/" + (site.css || "-")) {
-    const found = await object(env, `assets/${site.css}`, {
+  const asset = path.startsWith("/portal/static/") ? path.slice("/portal/static/".length) : "";
+  if (asset && (asset === site.css || asset === site.signature_js)) {
+    const found = await object(env, `assets/${asset}`, {
       headers: { "Cache-Control": "public, max-age=31536000, immutable" },
     });
     return found || new Response("Not found", { status: 404 });
@@ -344,8 +354,22 @@ export async function handlePortal(request, env, site) {
 
   let match;
   if (path === "/portal/") return respond(await home(env, site, visitor, notice));
+  if (path === "/portal/send/" && request.method === "POST") {
+    const data = await form(request);
+    const back = data.get("job") ? `/portal/jobs/${String(data.get("job")).replace(/[^0-9a-fA-F-]/g, "")}/` : "/portal/";
+    const problem = await takeFiles(env, site, visitor, data, ip, async (jobId) =>
+      Boolean(await own(env, visitor, "job", jobId)),
+    );
+    return redirect(`${back}?notice=${problem || "files-sent"}`);
+  }
+  if ((match = path.match(new RegExp(`^/portal/quotes/(${ID})/respond/$`))) && request.method === "POST") {
+    const found = await own(env, visitor, "quote", match[1]);
+    if (!found) return notFound(site, visitor);
+    const problem = await takeAnswer(env, visitor, found, await form(request), ip);
+    return redirect(`/portal/quotes/${found.id}/?notice=${problem || "answer-received"}`);
+  }
   if ((match = path.match(new RegExp(`^/portal/jobs/(${ID})/$`)))) {
-    const body = await job(env, site, visitor, match[1]);
+    const body = await job(env, site, visitor, match[1], notice);
     return body ? respond(body) : notFound(site, visitor);
   }
   if ((match = path.match(new RegExp(`^/portal/(quotes|invoices)/(${ID})/(document/|pdf/)?$`)))) {
@@ -358,7 +382,10 @@ export async function handlePortal(request, env, site) {
     if (match[3] === "pdf/") {
       return (await object(env, found.data.pdf, { download: found.data.pdf_name })) || notFound(site, visitor);
     }
-    const body = type === "quote" ? await quote(env, site, visitor, match[2]) : await invoice(env, site, visitor, match[2]);
+    const body =
+      type === "quote"
+        ? await quote(env, site, visitor, match[2], notice, picksFrom(url.searchParams))
+        : await invoice(env, site, visitor, match[2]);
     return respond(body);
   }
   if ((match = path.match(new RegExp(`^/portal/agreements/(${ID})/pdf/$`)))) {

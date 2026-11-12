@@ -235,6 +235,24 @@ within 30 seconds. **Stop using it** on the same page removes everything
 published and brings Trammel's own pages back. Updating Trammel updates the
 Worker to match, within the hour.
 
+### Online stores through the portal on Cloudflare
+
+While the portal is on Cloudflare, it also stands in for Trammel with the
+online stores, at the same paths, so nothing else has to be public:
+
+- **Shopify webhooks** go to the portal's address
+  (`https://<portal address>/imports/shopify/webhook/`, shown on Settings,
+  Online stores). The portal keeps each one for Trammel, which checks
+  Shopify's signature before taking the order.
+- **Etsy's and eBay's sign-in** come back to the portal's address, which sends
+  your browser on to Trammel (your browser can reach it; the internet can't).
+  Settings, Online stores shows the addresses to give Etsy and eBay.
+- **eBay's account deletion notices**: Settings, Portal on Cloudflare shows the
+  endpoint and verification token to give eBay (Alerts & Notifications in its
+  developer portal). The portal answers eBay's check; Trammel checks each
+  notice's signature with eBay's published key before wiping anything. No
+  separate relay is needed.
+
 ## Shopify order webhooks
 
 Fetching orders by date needs nothing from the internet. Webhooks, which bring
@@ -257,6 +275,9 @@ webhooks are switched on, and only accepts requests Shopify has signed. Fetch
 by date now and then anyway: Shopify gives up on a webhook it can't deliver.
 
 ## eBay account deletion notices
+
+With the customer portal on Cloudflare, it takes these for you (see above).
+Otherwise:
 
 eBay won't switch an app's keys on for real orders until the app deals with
 its marketplace account deletion notices, and those need a public HTTPS address

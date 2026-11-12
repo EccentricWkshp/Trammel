@@ -279,6 +279,7 @@ class DeletionRequest(models.Model):
     class Via(models.TextChoices):
         API = "api", "Forwarded to the API"
         HAND = "hand", "Entered by hand"
+        EDGE = "edge", "Through the portal on Cloudflare"
 
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     source = models.CharField(max_length=20, default="ebay")

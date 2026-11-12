@@ -10,7 +10,7 @@ import logging
 from django.db import transaction
 from django.utils import timezone
 
-from trammel.core import access, audit
+from trammel.core import access, audit, modules
 
 from . import client, publish
 from .models import EdgeSettings, Published
@@ -174,7 +174,176 @@ def _access_code_used(event) -> None:
     )
 
 
+def _quote_response(event) -> None:
+    """An answer to a quote (FR-PRT-3): applied through the quote services, as
+    Trammel's own portal does; one that can't be is kept for the customer."""
+    from django.core.exceptions import PermissionDenied, ValidationError
+
+    from trammel.agreements.models import AgreementSettings
+    from trammel.core import signature as signatures
+    from trammel.core.lifecycle import TransitionError
+    from trammel.portal import services as portal
+    from trammel.quotes import services as quotes
+    from trammel.quotes.models import QuoteRevision
+
+    from .models import EdgeAnswer
+
+    data = event["data"]
+    customer = _customer(event)
+    revision = (
+        QuoteRevision.objects.filter(
+            pk=data.get("revision") or None, quote__job__customer=customer
+        ).first()
+        if customer
+        else None
+    )
+    if revision is None:
+        return
+    noun = revision.quote.noun
+    name = (data.get("name") or "").strip()[:150]
+    actor = portal._actor(customer, name or customer.name)
+    comment = (data.get("comment") or "").strip()[:2000]
+    try:
+        with transaction.atomic(), audit.acting_as(actor, source="portal"):
+            if not quotes.can_answer(revision):
+                raise ValidationError(
+                    f"This {noun} could no longer be answered when your answer arrived."
+                )
+            if data.get("answer") == "approve":
+                agreement = quotes.terms_to_accept(revision)
+                if agreement and data.get("terms") != agreement["hash"]:
+                    raise ValidationError(
+                        "The terms changed before your approval arrived. Please read them "
+                        "again and approve."
+                    )
+                signing = AgreementSettings.load().signature_enabled
+                drawn = signatures.clean(data.get("signature", "")) if signing else b""
+                how = data.get("how") or "signed in"
+                quotes.approve(
+                    revision,
+                    actor=actor,
+                    approved_by_name=name,
+                    approved_at=_at(event),
+                    notes="\n\n".join(
+                        filter(None, [f"In the portal on Cloudflare, {how}.", comment])
+                    ),
+                    accept_agreement=agreement is not None,
+                    method="portal",
+                    agreement_method="signature" if signing else "click",
+                    ip=event.get("ip") or None,
+                    signature=drawn,
+                    picks=data.get("picks") or [],
+                )
+            else:
+                quotes.decline(revision, actor=actor, reason=comment or "Declined in the portal.")
+    except (ValidationError, TransitionError, PermissionDenied) as exc:
+        message = " ".join(getattr(exc, "messages", [str(exc)]))[:500]
+        EdgeAnswer.objects.create(revision=revision, message=message)
+
+
+def _upload(event) -> None:
+    """A file a customer sent (FR-PRT-7): fetched, taken in for review through the
+    portal's own checks, and removed from Cloudflare."""
+    import urllib.parse
+    from types import SimpleNamespace
+
+    from django.core.exceptions import ValidationError
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    from trammel.jobs.models import Job
+    from trammel.portal import uploads
+
+    from .models import EdgeUpload
+
+    data = event["data"]
+    key = data.get("key", "")
+    customer = _customer(event)
+    if customer is not None and not EdgeUpload.objects.filter(pk=data["id"]).exists():
+        job = Job.objects.filter(pk=data.get("job") or None, customer=customer).first()
+        content = client.call("GET", f"/_sync/objects/{urllib.parse.quote(key)}", raw=True)
+        visitor = SimpleNamespace(customer=customer, name=data.get("sent_by") or customer.name)
+        sent = SimpleUploadedFile(
+            data.get("name") or "file", content, content_type=data.get("type") or None
+        )
+        try:
+            made, problems = uploads.send(
+                visitor, [sent], job=job, note=data.get("note", ""), ip=event.get("ip") or None
+            )
+        except ValidationError as exc:
+            made, problems = [], exc.messages
+        EdgeUpload.objects.create(
+            id=data["id"],
+            customer=customer,
+            job=job,
+            upload=made[0] if made else None,
+            name=(data.get("name") or "file")[:255],
+            reason="" if made else "; ".join(problems)[:500],
+            at=_at(event),
+        )
+    if key:
+        client.delete_object(key)
+
+
+def _shopify_webhook(event) -> None:
+    if not modules.is_enabled("imports"):
+        return
+    from trammel.imports import shopify
+
+    data = event["data"]
+    status = shopify.take_webhook(
+        (data.get("body") or "").encode(), data.get("hmac", ""), data.get("shop", "")
+    )
+    if status != 200:
+        log.warning("A Shopify webhook relayed by the edge portal was refused (%s).", status)
+
+
+def _ebay_deletion(event) -> None:
+    """eBay's account deletion notice: its signature checked here, with eBay's
+    published key, before anything is wiped."""
+    if not modules.is_enabled("imports"):
+        return
+    import json
+
+    from trammel.imports import deletions, ebay
+    from trammel.imports.models import DeletionRequest, EbaySettings
+
+    data = event["data"]
+    body = (data.get("body") or "").encode()
+    config = EbaySettings.load()
+    try:
+        genuine = ebay.verify_notification(config, body, data.get("signature", ""))
+    except ebay.EbayError as exc:
+        raise client.EdgeError(f"Couldn't check an eBay deletion notice: {exc}") from None
+    if not genuine:
+        audit.record(
+            "imports.deletion_refused",
+            summary="Refused an eBay account deletion notice relayed by the portal on "
+            "Cloudflare: its signature isn't eBay's",
+            actor=access.ANONYMOUS,
+        )
+        return
+    notice = json.loads(body)
+    if (notice.get("metadata") or {}).get("topic", "MARKETPLACE_ACCOUNT_DELETION") != (
+        "MARKETPLACE_ACCOUNT_DELETION"
+    ):
+        return
+    note = notice.get("notification") or {}
+    who = note.get("data") or {}
+    deletions.receive(
+        username=who.get("username", ""),
+        user_id=who.get("userId", ""),
+        eias_token=who.get("eiasToken", ""),
+        notification_id=note.get("notificationId", ""),
+        event_date=note.get("eventDate"),
+        via=DeletionRequest.Via.EDGE,
+    )
+
+
 HANDLERS = {
+    "quote_response": _quote_response,
+    "upload": _upload,
+    "shopify_webhook": _shopify_webhook,
+    "ebay_deletion": _ebay_deletion,
     "code_sent": _code_sent,
     "mail_failed": _mail_failed,
     "signed_in": _signed_in,
@@ -214,6 +383,11 @@ def run() -> dict:
     try:
         counts = push()
         counts["applied"] = pull()
+        if counts["applied"]:
+            # What customers did shows there at once: approved, taken in, refused.
+            again = push()
+            counts["pushed"] += again["pushed"]
+            counts["removed"] += again["removed"]
     except Exception as exc:  # noqa: BLE001 — shown on the settings page, retried next time
         EdgeSettings.objects.filter(pk=1).update(
             last_error=str(exc)[:2000], last_error_at=timezone.now()

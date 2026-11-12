@@ -88,6 +88,29 @@ def webhook_secret(config: ShopifySettings) -> str:
     return api_secret or client_secret or ""
 
 
+def take_webhook(body: bytes, signature: str, shop: str) -> int:
+    """An order webhook, checked and queued: the HTTP status to answer with.
+    Nothing is read before Shopify's signature (an HMAC of the exact body)
+    checks out. Also takes webhooks relayed by the portal on Cloudflare."""
+    from trammel.core import tasks
+
+    config = ShopifySettings.load()
+    if not (config.enabled and config.webhooks_enabled and webhook_secret(config)):
+        return 404
+    if not verify_webhook(config, body, signature):
+        return 401
+    if (shop or "").lower() != normalize_domain(config.shop_domain):
+        return 401
+    try:
+        order = json.loads(body)
+    except ValueError:
+        return 400
+    if not isinstance(order, dict) or not order.get("id"):
+        return 200  # nothing to import; don't make Shopify retry
+    tasks.enqueue("imports.shopify_order", {"order": order})
+    return 200
+
+
 def verify_webhook(config: ShopifySettings, body: bytes, signature: str) -> bool:
     """X-Shopify-Hmac-Sha256: base64 HMAC-SHA256 of the exact body, constant-time."""
     secret = webhook_secret(config)

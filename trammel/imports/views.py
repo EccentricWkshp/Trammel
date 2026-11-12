@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import datetime as dt
-import json
 
 from django import forms
 from django.contrib import messages
@@ -13,7 +12,7 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
-from trammel.core import access, audit, secrets, sorting, tasks
+from trammel.core import access, audit, public, secrets, sorting
 from trammel.core.services import save_audited
 from trammel.core.web import paginate, permission_required
 from trammel.customers.models import Customer
@@ -443,7 +442,7 @@ def _settings_page(
         context |= {
             "form": shopify_form or ShopifyForm(instance=config),
             "config": config,
-            "webhook_url": request.build_absolute_uri(reverse("imports:shopify_webhook"))
+            "webhook_url": public.url(request, "imports:shopify_webhook")
             if config.webhooks_enabled
             else "",
         }
@@ -466,7 +465,8 @@ def _settings_page(
         context |= {
             "ebay_form": ebay_form or EbayForm(instance=ebay_config, prefix="ebay"),
             "ebay": ebay_config,
-            "ebay_callback": request.build_absolute_uri(reverse("imports:ebay_callback")),
+            "ebay_callback": public.url(request, "imports:ebay_callback"),
+            "public_stand_in": public.base(),
             "ebay_waiting": secrets.is_set(ebay.PENDING_KEY),
             "deletion_requests": deletions.open_count(),
         }
@@ -695,20 +695,12 @@ def shopify_webhook(request):
     length = int(request.META.get("CONTENT_LENGTH") or 0)
     if length > MAX_WEBHOOK_BYTES:
         return HttpResponse(status=413)
-    body = request.body
-    if not shopify.verify_webhook(config, body, request.headers.get("X-Shopify-Hmac-Sha256", "")):
-        return HttpResponse(status=401)
-    shop = (request.headers.get("X-Shopify-Shop-Domain") or "").lower()
-    if shop != shopify.normalize_domain(config.shop_domain):
-        return HttpResponse(status=401)
-    try:
-        order = json.loads(body)
-    except ValueError:
-        return HttpResponse(status=400)
-    if not isinstance(order, dict) or not order.get("id"):
-        return HttpResponse(status=200)  # nothing to import; don't make Shopify retry
-    tasks.enqueue("imports.shopify_order", {"order": order})
-    return HttpResponse(status=200)
+    status = shopify.take_webhook(
+        request.body,
+        request.headers.get("X-Shopify-Hmac-Sha256", ""),
+        request.headers.get("X-Shopify-Shop-Domain") or "",
+    )
+    return HttpResponse(status=status)
 
 
 # ---------------------------------------------------------------------------
@@ -741,7 +733,9 @@ class EtsyForm(forms.ModelForm):
 
 
 def _etsy_callback_url(request) -> str:
-    return request.build_absolute_uri(reverse("imports:etsy_callback"))
+    # The address Etsy sends the browser back to: the portal on Cloudflare
+    # passes it on to Trammel when it stands in (0.9.x).
+    return public.url(request, "imports:etsy_callback")
 
 
 @permission_required("imports.manage")

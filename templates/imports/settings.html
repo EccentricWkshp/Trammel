@@ -129,6 +129,7 @@
   <h3>Account deletion notices</h3>
   <p class="small">eBay tells every app when an eBay account closes, and the buyer's data has to go. eBay needs a public HTTPS address that answers its challenge, which Trammel doesn't host: a small relay on the internet can take eBay's notices and forward each one to Trammel's API (<code class="nowrap">POST /api/v1/imports/ebay/deletion-notices</code>, with an API key holding only "Forward eBay account deletion notices"). You can also enter a notice by hand.</p>
   <p class="small">When a notice arrives, the buyer's details in the stored eBay orders are wiped at once. Their customer record waits for you to anonymize it or dismiss the request; sales and tax figures always stay.</p>
+  {% if public_stand_in %}<p class="small"><strong>With the customer portal on Cloudflare, it takes eBay's notices for you:</strong> its address and the verification token to give eBay are on Settings, Portal on Cloudflare.</p>{% endif %}
   <p><a class="button" href="{% url 'imports:deletions' %}">Deletion requests{% if deletion_requests %} ({{ deletion_requests }} to review){% endif %}</a></p>
 </section>
 

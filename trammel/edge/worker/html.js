@@ -78,17 +78,31 @@ const NOTICES = {
   "code-sent":
     "If that address is on file with us, we've sent it a sign-in code. It's good for 10 minutes.",
   "signed-out": "You're signed out.",
+  "answer-received": "Thank you. We've received your answer and will confirm it here shortly.",
+  "files-sent": "Thank you. We've received your files and will look at them shortly.",
+};
+/** Problems, shown as errors. Only these texts are ever shown from a link. */
+const PROBLEMS = {
   "code-wrong": "That code didn't work. Check it, or ask for a new one.",
   "access-wrong": "That code didn't work. Check it, or contact us for a new one.",
-  "too-many": "Too many tries. Please wait a while and try again.",
   "mail-failed": "We couldn't send the email just now. Please try again in a few minutes.",
+  "answer-closed": "This can no longer be answered here.",
+  "answer-name": "Enter your full name to approve.",
+  "answer-terms-changed": "The terms have changed since this page was opened. Please read them again.",
+  "answer-accept": "Tick the box to accept the terms.",
+  "answer-sign": "Sign in the box to approve.",
+  "send-off": "Sending files isn't available right now.",
+  "send-none": "Choose at least one file to send.",
+  "send-too-many": "That's more files than can be sent at once.",
+  "send-too-big": "A file is larger than we can take.",
 };
 
 /** The page frame. `site` is the shop's published settings; `visitor` the
  * signed-in customer, if any. */
 export function page({ site, title, visitor = null, notice = "", body }) {
   const business = site?.business || {};
-  const text = NOTICES[notice];
+  const text = NOTICES[notice] || PROBLEMS[notice];
+  const kind = PROBLEMS[notice] ? "error" : "info";
   return html`<!doctype html>
 <html lang="en">
 <head>
@@ -112,7 +126,7 @@ export function page({ site, title, visitor = null, notice = "", body }) {
   }
 </header>
 <main id="main" class="page portal-page">
-  ${text ? html`<div class="messages" role="status"><p class="message info">${text}</p></div>` : ""}
+  ${text ? html`<div class="messages" role="${kind === "error" ? "alert" : "status"}"><p class="message ${kind}">${text}</p></div>` : ""}
   ${body}
 </main>
 <footer class="footer">${business.name || ""}${business.phone ? html` · ${business.phone}` : ""}${business.email ? html` · ${business.email}` : ""}</footer>

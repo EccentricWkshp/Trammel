@@ -68,6 +68,37 @@ class Published(models.Model):
         return f"{self.type} {self.key}"
 
 
+class EdgeUpload(models.Model):
+    """A file a customer sent from the edge portal (FR-PRT-7), and what became of
+    it: taken in for review, or not taken and why. Its id is the Worker's, so
+    what the customer sees there is updated in place."""
+
+    id = models.UUIDField(primary_key=True)
+    customer = models.ForeignKey("customers.Customer", on_delete=models.CASCADE, related_name="+")
+    job = models.ForeignKey("jobs.Job", null=True, blank=True, on_delete=models.SET_NULL)
+    upload = models.ForeignKey(
+        "portal.Upload", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    name = models.CharField(max_length=255)
+    reason = models.CharField(max_length=500, blank=True)
+    at = models.DateTimeField()
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class EdgeAnswer(models.Model):
+    """A customer's answer to a quote from the edge portal that couldn't be
+    applied, and why: shown to them there (FR-PRT-3)."""
+
+    revision = models.ForeignKey("quotes.QuoteRevision", on_delete=models.CASCADE, related_name="+")
+    message = models.CharField(max_length=500)
+    at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self) -> str:
+        return self.message
+
+
 class EdgeAccessCode(models.Model):
     """A code staff made for a customer (FR-PRT-10), hashed with the edge's sync
     key so the Worker can check it. Made with the code, the one time it's known."""

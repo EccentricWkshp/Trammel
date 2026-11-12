@@ -7,6 +7,7 @@
 // SYNC_KEY and SMTP (secrets), TRAMMEL_VERSION.
 
 import { ensureSchema, record } from "./db.js";
+import { handleHook } from "./hooks.js";
 import { html, page, respond } from "./html.js";
 import { handlePortal } from "./portal.js";
 import { cleanup, handleSync } from "./sync.js";
@@ -30,12 +31,13 @@ export default {
     if (url.pathname === "/" || url.pathname === "/portal") {
       return Response.redirect(`${url.origin}/portal/`, 301);
     }
-    if (!url.pathname.startsWith("/portal/")) {
-      return new Response("Not found", { status: 404, headers: { "Content-Type": "text/plain" } });
-    }
     await ensureSchema(env.DB);
     const config = await record(env.DB, "config", "site");
     const site = config ? config.data : null;
+    if (url.pathname.startsWith("/imports/")) return handleHook(request, env, site);
+    if (!url.pathname.startsWith("/portal/")) {
+      return new Response("Not found", { status: 404, headers: { "Content-Type": "text/plain" } });
+    }
     if (!site || !site.portal_on) return closed(site);
     return handlePortal(request, env, site);
   },

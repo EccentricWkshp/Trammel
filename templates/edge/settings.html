@@ -25,6 +25,11 @@
   {% else %}
   <p>Not deployed{% if row.deployed_at %} (stopped){% endif %}. While it isn't, the portal is served by Trammel itself, if it's switched on.</p>
   {% endif %}
+  {% if ebay_endpoint %}
+  <h3>eBay account deletion notices</h3>
+  <p class="small">The portal on Cloudflare takes eBay's notices for you; Trammel checks each one's signature before wiping anything. In eBay's developer portal (Alerts &amp; Notifications), give eBay this address and verification token:</p>
+  <dl class="facts"><dt>Endpoint</dt><dd><code>{{ ebay_endpoint }}</code></dd><dt>Verification token</dt><dd><code>{{ ebay_token }}</code></dd></dl>
+  {% endif %}
   {% if row.deploying or row.deploy_log %}
   <h3>{% if row.deploying %}Deploying…{% else %}The last deploy{% endif %}</h3>
   <ol class="deploy-log">{% for step in row.deploy_log %}<li>{{ step.text }}</li>{% endfor %}</ol>

@@ -137,7 +137,7 @@ def test_publishing_what_a_customer_may_see(live, grace, admin):  # noqa: F811
     portal.set_access(grace, False, user=None)
     sync.run()
     assert not live.of("customer") and not live.of("quote") and not live.of("job")
-    assert set(live.objects) == {f"assets/{site['css']}"}
+    assert set(live.objects) == {f"assets/{site['css']}", f"assets/{site['signature_js']}"}
     assert set(Published.objects.values_list("type", flat=True)) == {"config"}
 
 
