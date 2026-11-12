@@ -23,6 +23,7 @@ PERMISSIONS = (
     ("Account", "D1", "Edit"),
     ("Account", "Workers R2 Storage", "Edit"),
     ("Account", "Account Settings", "Read"),
+    ("Account", "Turnstile", "Edit", "for the bot check on signing in"),
     ("Zone", "Workers Routes", "Edit", "for a custom address"),
     ("Zone", "Zone", "Read", "for a custom address"),
 )
@@ -174,6 +175,51 @@ def workers_dev(token, account, name) -> str:
         data={"enabled": True},
     )
     return f"https://{name}.{sub}.workers.dev"
+
+
+def put_secret(token, account, name, key, value):
+    """Set one of the Worker's secrets without uploading it again."""
+    return call(
+        token,
+        "PUT",
+        f"/accounts/{account}/workers/scripts/{name}/secrets",
+        data={"name": key, "text": value, "type": "secret_text"},
+    )
+
+
+def turnstile(token, account, name, hostname, sitekey="") -> dict:
+    """The bot check for the sign-in pages: the widget for `hostname`, made the
+    first time ({sitekey, secret}) or kept up to date ({sitekey})."""
+    body = {"name": name, "domains": [hostname], "mode": "managed"}
+    if sitekey:
+        try:
+            call(token, "PUT", f"/accounts/{account}/challenges/widgets/{sitekey}", data=body)
+            return {"sitekey": sitekey}
+        except CloudflareError as exc:
+            if getattr(exc, "status", None) != 404:
+                raise
+    made = call(token, "POST", f"/accounts/{account}/challenges/widgets", data=body)
+    return {"sitekey": made["sitekey"], "secret": made["secret"]}
+
+
+def remove(token, account, name, database_id="", bucket_name="", sitekey=""):
+    """Take the Worker, its database, bucket (emptied first) and bot check off
+    the account. What's already gone is passed over."""
+
+    def gone(method, path):
+        try:
+            call(token, method, path)
+        except CloudflareError as exc:
+            if getattr(exc, "status", None) != 404:
+                raise
+
+    gone("DELETE", f"/accounts/{account}/workers/scripts/{name}?force=true")
+    if database_id:
+        gone("DELETE", f"/accounts/{account}/d1/database/{database_id}")
+    if bucket_name:
+        gone("DELETE", f"/accounts/{account}/r2/buckets/{bucket_name}")
+    if sitekey:
+        gone("DELETE", f"/accounts/{account}/challenges/widgets/{sitekey}")
 
 
 def zone_for(token, hostname) -> dict:

@@ -24,6 +24,44 @@ export function clientIp(request) {
   return request.headers.get("CF-Connecting-IP") || "";
 }
 
+/** Whether the bot check passed, or there isn't one (FR-PRT-6, 0.9.2). */
+export async function passedBotCheck(env, site, form, ip, { fetcher = fetch } = {}) {
+  if (!site?.turnstile || !env.TURNSTILE_SECRET) return true;
+  const answer = String(form.get("cf-turnstile-response") || "");
+  if (!answer) return false;
+  const body = new FormData();
+  body.append("secret", env.TURNSTILE_SECRET);
+  body.append("response", answer);
+  if (ip) body.append("remoteip", ip);
+  try {
+    const response = await fetcher("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+      method: "POST",
+      body,
+    });
+    const outcome = await response.json();
+    return Boolean(outcome.success);
+  } catch {
+    return false;
+  }
+}
+
+/** Requests of a kind from one IP address (its /64) in the last hour. */
+export async function recentFrom(env, kind, ip) {
+  const key = ipKey(ip);
+  if (!key) return 0;
+  return count(
+    env.DB,
+    "SELECT COUNT(*) AS n FROM attempts WHERE kind = ? AND ip_key = ? AND at >= ?",
+    kind,
+    key,
+    earlier(3600 * 1000),
+  );
+}
+
+export async function noteAttempt(env, kind, ip) {
+  await attempt(env.DB, kind, "", ip, true);
+}
+
 async function count(db, sql, ...args) {
   const row = await db.prepare(sql).bind(...args).first();
   return row ? Number(row.n) : 0;

@@ -351,6 +351,19 @@ HANDLERS = {
 }
 
 
+#: An event that fails this many times is skipped, so one bad event can't
+#: hold up everything after it.
+MAX_TRIES = 5
+
+
+def _apply(event) -> None:
+    handler = HANDLERS.get(event["kind"])
+    if handler is None:
+        log.warning("Edge inbox: no handler for %s", event["kind"])
+        return
+    handler(event)
+
+
 def pull() -> int:
     """Apply the inbox in order, each event once, then let the Worker drop what's
     been applied. Returns how many were applied."""
@@ -361,17 +374,48 @@ def pull() -> int:
         if not events:
             break
         for event in events:
-            handler = HANDLERS.get(event["kind"])
-            with transaction.atomic():
-                if handler is not None:
-                    handler(event)
-                else:
-                    log.warning("Edge inbox: no handler for %s", event["kind"])
+            seq = str(event["seq"])
+            try:
+                with transaction.atomic():
+                    _apply(event)
+                    EdgeSettings.objects.filter(pk=1).update(inbox_after=event["seq"])
+            except Exception as exc:
+                tries = settings.failures.get(seq, 0) + 1
+                settings.failures = {**settings.failures, seq: tries}
+                EdgeSettings.objects.filter(pk=1).update(failures=settings.failures)
+                if tries < MAX_TRIES:
+                    raise  # tried again next time
+                audit.record(
+                    "edge.event_skipped",
+                    summary=f"Skipped a {event['kind']} from the portal on Cloudflare after "
+                    f"{tries} tries: {exc}"[:500],
+                    actor=access.SYSTEM,
+                )
                 EdgeSettings.objects.filter(pk=1).update(inbox_after=event["seq"])
+            if seq in settings.failures:
+                settings.failures = {k: v for k, v in settings.failures.items() if k != seq}
+                EdgeSettings.objects.filter(pk=1).update(failures=settings.failures)
             settings.inbox_after = event["seq"]
             applied += 1
         client.ack(settings.inbox_after)
     return applied
+
+
+def check() -> None:
+    """Before syncing: a Worker database that isn't the one Trammel knew (made
+    afresh, or deleted and made again) gets everything published again and its
+    inbox read from the start; one that has lost records gets them back."""
+    settings = EdgeSettings.load()
+    health = client.health()
+    instance = health.get("instance", "")
+    known = Published.objects.count()
+    if instance and instance != settings.instance:
+        if settings.instance:
+            log.warning("The edge portal's database is a new one: publishing everything again.")
+        Published.objects.all().delete()
+        EdgeSettings.objects.filter(pk=1).update(instance=instance, inbox_after=0, failures={})
+    elif known and health.get("records", known) < known // 2:
+        Published.objects.all().delete()
 
 
 def run() -> dict:
@@ -381,6 +425,7 @@ def run() -> dict:
     if not settings.active:
         return {}
     try:
+        check()
         counts = push()
         counts["applied"] = pull()
         if counts["applied"]:

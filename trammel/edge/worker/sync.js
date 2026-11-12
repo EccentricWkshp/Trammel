@@ -47,10 +47,12 @@ export async function handleSync(request, env) {
   if (path === "health" && request.method === "GET") {
     const records = await db.prepare("SELECT COUNT(*) AS n FROM records").first();
     const waiting = await db.prepare("SELECT COUNT(*) AS n FROM inbox").first();
+    const instance = await db.prepare("SELECT value FROM meta WHERE key = 'instance'").first();
     return json({
       ok: true,
       version: env.TRAMMEL_VERSION || "",
       schema: SCHEMA_VERSION,
+      instance: instance?.value || "",
       records: Number(records?.n || 0),
       inbox: Number(waiting?.n || 0),
     });
@@ -131,8 +133,21 @@ export async function handleSync(request, env) {
   return json({ error: "No such call." }, 404);
 }
 
-/** The scheduled cleanup: expired sessions and codes, old attempts. */
+/** The scheduled cleanup: expired sessions and codes, old attempts, and
+ * files customers sent that Trammel never collected (after 30 days). */
 export async function cleanup(env) {
+  await cleanupRows(env);
+  const month = Date.now() - 30 * 24 * 3600 * 1000;
+  let cursor;
+  do {
+    const listed = await env.FILES.list({ prefix: "upload/", cursor, limit: 1000 });
+    const old = listed.objects.filter((o) => o.uploaded && new Date(o.uploaded).getTime() < month);
+    if (old.length) await env.FILES.delete(old.map((o) => o.key));
+    cursor = listed.truncated ? listed.cursor : undefined;
+  } while (cursor);
+}
+
+async function cleanupRows(env) {
   await ensureSchema(env.DB);
   const now = new Date().toISOString();
   const month = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();

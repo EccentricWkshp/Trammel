@@ -13,6 +13,7 @@
     <dt>Customers use</dt><dd><a href="{{ row.public_url }}/portal/" target="_blank" rel="noopener">{{ row.public_url }}/portal/</a></dd>
     <dt>Deployed</dt><dd>{{ row.deployed_at|dt }} (Trammel {{ row.deployed_version }}){% if row.account_name %} · {{ row.account_name }}{% endif %}</dd>
     <dt>Last sync</dt><dd>{% if row.last_sync_at %}{{ row.last_sync_at|dt }}{% else %}Not yet{% endif %}</dd>
+    <dt>Bot check on signing in</dt><dd>{% if row.turnstile_sitekey %}On (Cloudflare Turnstile){% else %}Off (give the token Turnstile permission and deploy again){% endif %}</dd>
     <dt>Published</dt><dd>{% for type, n in counts.items %}{{ n }} {{ type }}{{ n|pluralize }}{% if not forloop.last %}, {% endif %}{% empty %}Nothing yet{% endfor %}</dd>
   </dl>
   {% if row.last_error %}<p class="flag flag-late" role="alert">The last sync failed{% if row.last_error_at %} at {{ row.last_error_at|dt }}{% endif %}: {{ row.last_error }}</p>{% endif %}
@@ -24,6 +25,10 @@
   <p class="muted small">Stopping removes everything published to Cloudflare and signs customers out there; Trammel's own portal pages come back (they need this server reachable from the internet). The Worker, database and storage stay on Cloudflare, empty, for next time.</p>
   {% else %}
   <p>Not deployed{% if row.deployed_at %} (stopped){% endif %}. While it isn't, the portal is served by Trammel itself, if it's switched on.</p>
+  {% if row.database_id or row.public_url %}
+  <form method="post" action="{% url 'edge:remove' %}" class="actions">{% csrf_token %}<button type="submit" class="danger">Remove it from Cloudflare</button>
+    <span class="muted small">Deletes the Worker, its database, its storage and its bot check from your Cloudflare account.</span></form>
+  {% endif %}
   {% endif %}
   {% if ebay_endpoint %}
   <h3>eBay account deletion notices</h3>

@@ -56,6 +56,12 @@ export async function ensureSchema(db) {
       .bind(String(SCHEMA_VERSION))
       .run();
   }
+  // Which database this is: a new one (deleted, or deployed afresh) gets a new
+  // id, and Trammel publishes everything again and reads its inbox from the start.
+  await db
+    .prepare("INSERT OR IGNORE INTO meta (key, value) VALUES ('instance', ?)")
+    .bind(crypto.randomUUID())
+    .run();
   ready = true;
 }
 

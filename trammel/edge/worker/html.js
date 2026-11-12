@@ -42,10 +42,20 @@ function render(value) {
 }
 
 /** Every page's headers: no script but our own, nothing from elsewhere. */
+function policy(extra = "") {
+  const scripts = extra ? `'self' ${extra}` : "'self'";
+  const frames = extra ? `'self' ${extra}` : "'self'";
+  return (
+    `default-src 'none'; img-src 'self' data:; style-src 'self'; script-src ${scripts}; ` +
+    `frame-src ${frames}; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`
+  );
+}
+
+/** Where Cloudflare's bot check is served from, allowed on the sign-in pages. */
+export const TURNSTILE = "https://challenges.cloudflare.com";
+
 const SECURITY = {
-  "Content-Security-Policy":
-    "default-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'; " +
-    "frame-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+  "Content-Security-Policy": policy(),
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "same-origin",
   "Strict-Transport-Security": "max-age=31536000",
@@ -63,11 +73,19 @@ export const DOCUMENT_HEADERS = {
   "Cache-Control": "no-store",
 };
 
-export function respond(body, { status = 200, headers = {} } = {}) {
+export function respond(body, { status = 200, headers = {}, turnstile = false } = {}) {
+  const csp = turnstile ? { "Content-Security-Policy": policy(TURNSTILE) } : {};
   return new Response(String(body), {
     status,
-    headers: { "Content-Type": "text/html; charset=utf-8", ...SECURITY, ...headers },
+    headers: { "Content-Type": "text/html; charset=utf-8", ...SECURITY, ...csp, ...headers },
   });
+}
+
+/** The bot check's widget and script, when the shop has one. */
+export function botCheck(site) {
+  if (!site?.turnstile) return "";
+  return html`<div class="cf-turnstile" data-sitekey="${site.turnstile}"></div>
+<script src="${TURNSTILE}/turnstile/v0/api.js" async defer></script>`;
 }
 
 export function redirect(location, headers = {}) {
@@ -86,6 +104,8 @@ const PROBLEMS = {
   "code-wrong": "That code didn't work. Check it, or ask for a new one.",
   "access-wrong": "That code didn't work. Check it, or contact us for a new one.",
   "mail-failed": "We couldn't send the email just now. Please try again in a few minutes.",
+  "bot-check": "Please complete the check that you're a person, then try again.",
+  "send-too-often": "That's a lot of files in a short time. Please try again later.",
   "answer-closed": "This can no longer be answered here.",
   "answer-name": "Enter your full name to approve.",
   "answer-terms-changed": "The terms have changed since this page was opened. Please read them again.",

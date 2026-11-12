@@ -213,6 +213,8 @@ things are done once, by hand, in Cloudflare's dashboard:
    - Account · D1 · Edit
    - Account · Workers R2 Storage · Edit
    - Account · Account Settings · Read
+   - Account · Turnstile · Edit (a bot check on the sign-in pages; without
+     it the portal still works, without the check)
    - Zone · Workers Routes · Edit, and Zone · Zone · Read (only for your own
      address; limit them to that domain)
 
@@ -232,8 +234,16 @@ can still view the portal as a customer sees it), and links in emails point at
 Cloudflare. Customers' access, the portal switch and `PORTAL_OFF` work as
 before: turning the portal off closes it on Cloudflare and signs everyone out
 within 30 seconds. **Stop using it** on the same page removes everything
-published and brings Trammel's own pages back. Updating Trammel updates the
-Worker to match, within the hour.
+published and brings Trammel's own pages back; **Remove it from Cloudflare**
+then deletes the Worker, its database, its storage and its bot check. Updating
+Trammel updates the Worker to match, within the hour.
+
+A closed, declined or canceled job comes off Cloudflare 90 days after it last
+changed (Settings, Portal on Cloudflare sets how long; 0 takes it off at
+once). If Cloudflare can't be reached, customers' actions wait there and
+Trammel catches up when it can; after ten minutes admins see a banner. If the
+portal's database is ever lost or made again, Trammel publishes everything
+again by itself.
 
 ### Online stores through the portal on Cloudflare
 

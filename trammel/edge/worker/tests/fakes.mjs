@@ -62,7 +62,7 @@ export function fakeR2() {
   return {
     store,
     async put(key, body, options = {}) {
-      store.set(key, { bytes: bytes(body), httpMetadata: options.httpMetadata || {} });
+      store.set(key, { bytes: bytes(body), httpMetadata: options.httpMetadata || {}, uploaded: new Date() });
     },
     async get(key) {
       const found = store.get(key);
@@ -80,7 +80,9 @@ export function fakeR2() {
     },
     async list({ prefix = "" } = {}) {
       return {
-        objects: [...store.keys()].filter((k) => k.startsWith(prefix)).map((key) => ({ key })),
+        objects: [...store.entries()]
+          .filter(([k]) => k.startsWith(prefix))
+          .map(([key, o]) => ({ key, uploaded: o.uploaded })),
         truncated: false,
       };
     },

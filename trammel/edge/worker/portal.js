@@ -5,6 +5,9 @@ import {
   choose,
   clientIp,
   endSession,
+  noteAttempt,
+  passedBotCheck,
+  recentFrom,
   normalizeEmail,
   requestCode,
   startSession,
@@ -13,11 +16,12 @@ import {
   visitor as currentVisitor,
 } from "./auth.js";
 import { inbox, record, records } from "./db.js";
-import { DOCUMENT_HEADERS, html, page, redirect, respond } from "./html.js";
+import { DOCUMENT_HEADERS, botCheck, html, page, redirect, respond } from "./html.js";
 import { picksFrom, respondSection, takeAnswer } from "./respond.js";
 import { sendSection, takeFiles } from "./send.js";
 
 const ID = "[0-9a-fA-F-]{36}";
+const SENDS_PER_HOUR = 20;
 
 function form(request) {
   return request.formData();
@@ -211,6 +215,7 @@ ${
   <form method="post" class="stack">
     <div class="field"><label for="portal-email">Email address</label>
       <input type="email" id="portal-email" name="email" autocomplete="email" required autofocus></div>
+    ${botCheck(site)}
     <div class="actions"><button type="submit" class="primary">Send me a code</button></div>
   </form>
   <p class="muted small">Have a sign-in code from us? <a href="/portal/sign-in/access-code/">Enter it here</a>.</p>`
@@ -246,6 +251,7 @@ function accessPage(site, notice) {
 <form method="post" class="stack">
   <div class="field"><label for="access-code">The code we gave you</label>
     <input id="access-code" name="code" autocomplete="off" autocapitalize="characters" required autofocus></div>
+  ${botCheck(site)}
   <div class="actions"><button type="submit" class="primary">Sign in</button></div>
 </form></section>`,
   });
@@ -293,14 +299,17 @@ export async function handlePortal(request, env, site) {
     return found || new Response("Not found", { status: 404 });
   }
 
+  const checked = { turnstile: Boolean(site.turnstile) };
   if (path === "/portal/sign-in/") {
     if (request.method === "POST") {
-      const email = normalizeEmail((await form(request)).get("email"));
+      const data = await form(request);
+      if (!(await passedBotCheck(env, site, data, ip))) return redirect("/portal/sign-in/?notice=bot-check");
+      const email = normalizeEmail(data.get("email"));
       const sent = await requestCode(env, site, email, ip);
       if (!sent) return redirect("/portal/sign-in/?notice=mail-failed");
       return redirect(`/portal/sign-in/code/?email=${encodeURIComponent(email)}&notice=code-sent`);
     }
-    return respond(signInPage(site, notice));
+    return respond(signInPage(site, notice), checked);
   }
   if (path === "/portal/sign-in/code/") {
     if (request.method === "POST") {
@@ -321,7 +330,11 @@ export async function handlePortal(request, env, site) {
   }
   if (path === "/portal/sign-in/access-code/") {
     if (request.method === "POST") {
-      const customer = await useAccessCode(env, (await form(request)).get("code"), ip);
+      const data = await form(request);
+      if (!(await passedBotCheck(env, site, data, ip))) {
+        return redirect("/portal/sign-in/access-code/?notice=bot-check");
+      }
+      const customer = await useAccessCode(env, data.get("code"), ip);
       if (!customer) return redirect("/portal/sign-in/access-code/?notice=access-wrong");
       const cookie = await startSession(env, { customers: [customer], givenBy: customer.givenBy || "staff" });
       await inbox(
@@ -332,7 +345,7 @@ export async function handlePortal(request, env, site) {
       );
       return redirect("/portal/", { "Set-Cookie": cookie });
     }
-    return respond(accessPage(site, notice));
+    return respond(accessPage(site, notice), checked);
   }
   if (path === "/portal/sign-out/" && request.method === "POST") {
     const cookie = await endSession(env, request);
@@ -355,6 +368,11 @@ export async function handlePortal(request, env, site) {
   let match;
   if (path === "/portal/") return respond(await home(env, site, visitor, notice));
   if (path === "/portal/send/" && request.method === "POST") {
+    // Sending is limited per IP address, as well as by Trammel per customer.
+    if ((await recentFrom(env, "send", ip)) >= SENDS_PER_HOUR) {
+      return redirect("/portal/?notice=send-too-often");
+    }
+    await noteAttempt(env, "send", ip);
     const data = await form(request);
     const back = data.get("job") ? `/portal/jobs/${String(data.get("job")).replace(/[^0-9a-fA-F-]/g, "")}/` : "/portal/";
     const problem = await takeFiles(env, site, visitor, data, ip, async (jobId) =>

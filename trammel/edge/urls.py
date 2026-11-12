@@ -9,4 +9,5 @@ urlpatterns = [
     path("deploy/", views.start_deploy, name="deploy"),
     path("sync/", views.sync_now, name="sync"),
     path("stop/", views.stop, name="stop"),
+    path("remove/", views.remove, name="remove"),
 ]

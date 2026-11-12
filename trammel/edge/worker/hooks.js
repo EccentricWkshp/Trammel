@@ -7,6 +7,13 @@ import { sha256Hex } from "./crypto.js";
 import { inbox } from "./db.js";
 
 const MAX_BODY = 1_000_000;
+/** Past this many waiting, store notices are turned away (they're retried). */
+export const MAX_WAITING = 5000;
+
+async function full(env) {
+  const row = await env.DB.prepare("SELECT COUNT(*) AS n FROM inbox").first();
+  return Number(row?.n || 0) >= MAX_WAITING;
+}
 
 function plain(text, status) {
   return new Response(text, { status, headers: { "Content-Type": "text/plain" } });
@@ -25,6 +32,7 @@ export async function handleHook(request, env, site) {
   const path = url.pathname;
 
   if (path === "/imports/shopify/webhook/" && request.method === "POST" && hooks.shopify) {
+    if (await full(env)) return plain("Busy", 503);
     const text = await body(request);
     if (text === null) return plain("Too large", 413);
     await inbox(env.DB, "shopify_webhook", {
@@ -53,6 +61,7 @@ export async function handleHook(request, env, site) {
       });
     }
     if (request.method === "POST") {
+      if (await full(env)) return plain("Busy", 503);
       const text = await body(request);
       if (text === null) return plain("Too large", 413);
       await inbox(env.DB, "ebay_deletion", {

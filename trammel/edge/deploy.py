@@ -19,6 +19,7 @@ from . import client, cloudflare
 from .models import EdgeSettings
 
 TOKEN_KEY = "edge.api_token"
+TURNSTILE_KEY = "edge.turnstile_secret"
 WORKER_DIR = Path(__file__).parent / "worker"
 EBAY_TOKEN_KEY = "edge.ebay_token"
 #: The entry point first: Cloudflare runs the first module.
@@ -131,6 +132,11 @@ def deploy() -> None:
             {"type": "secret_text", "name": "SYNC_KEY", "text": client.sync_key()},
             {"type": "secret_text", "name": "SMTP", "text": json.dumps(smtp)},
             {"type": "secret_text", "name": "EBAY_TOKEN", "text": ebay_token()},
+            {
+                "type": "secret_text",
+                "name": "TURNSTILE_SECRET",
+                "text": secrets.get(TURNSTILE_KEY) or "",
+            },
             {"type": "plain_text", "name": "TRAMMEL_VERSION", "text": django_settings.APP_VERSION},
         ],
     )
@@ -143,6 +149,8 @@ def deploy() -> None:
     else:
         _log("Serving it at its workers.dev address")
         url = cloudflare.workers_dev(token, account["id"], row.worker_name)
+
+    _bot_check(token, account["id"], row, url)
 
     _log(f"Checking that {url} answers")
     health = None
@@ -176,6 +184,27 @@ def deploy() -> None:
     _log(f"Done: the customer portal is at {url}/portal/")
 
 
+def _bot_check(token, account, row, url) -> None:
+    """Cloudflare Turnstile on the sign-in pages. Without the token's Turnstile
+    permission, the portal goes ahead without it (signing in is rate-limited
+    anyway); the log says so."""
+    from urllib.parse import urlparse
+
+    _log("Setting up the bot check on signing in (Turnstile)")
+    try:
+        widget = cloudflare.turnstile(
+            token, account, row.worker_name, urlparse(url).hostname, row.turnstile_sitekey
+        )
+    except cloudflare.CloudflareError as exc:
+        _log(f"Going ahead without the bot check: {exc}")
+        EdgeSettings.objects.filter(pk=1).update(turnstile_sitekey="")
+        return
+    if widget.get("secret"):
+        secrets.put(TURNSTILE_KEY, widget["secret"])
+        cloudflare.put_secret(token, account, row.worker_name, "TURNSTILE_SECRET", widget["secret"])
+    EdgeSettings.objects.filter(pk=1).update(turnstile_sitekey=widget["sitekey"])
+
+
 def run_deploy() -> None:
     """The background task: deploy, logging how it went."""
     EdgeSettings.load()  # the row exists before it's updated
@@ -200,3 +229,34 @@ def stop() -> None:
 
     Published.objects.all().delete()
     EdgeSettings.objects.filter(pk=1).update(active=False)
+
+
+def remove() -> None:
+    """Take everything off Cloudflare: what's published, then the Worker, its
+    database, its bucket and its bot check. Deploying again starts afresh."""
+    row = EdgeSettings.load()
+    token = secrets.get(TOKEN_KEY)
+    if not (token and row.account_id):
+        raise DeployError("There's nothing on Cloudflare to remove.")
+    stop()
+    cloudflare.remove(
+        token,
+        row.account_id,
+        row.worker_name,
+        database_id=row.database_id,
+        bucket_name=row.bucket,
+        sitekey=row.turnstile_sitekey,
+    )
+    secrets.clear(TURNSTILE_KEY)
+    EdgeSettings.objects.filter(pk=1).update(
+        database_id="",
+        bucket="",
+        public_url="",
+        deployed_version="",
+        deployed_at=None,
+        instance="",
+        inbox_after=0,
+        failures={},
+        turnstile_sitekey="",
+        deploy_log=[],
+    )

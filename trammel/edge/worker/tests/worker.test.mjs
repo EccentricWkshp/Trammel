@@ -105,7 +105,9 @@ test("sync calls must be signed, and fresh", async () => {
   assert.equal((await worker.fetch(wrongKey, environment)).status, 403);
   const health = await worker.fetch(await syncRequest(environment, "GET", "/_sync/health"), environment);
   assert.equal(health.status, 200);
-  assert.deepEqual(await health.json(), { ok: true, version: "0.9.0", schema: 1, records: 0, inbox: 0 });
+  const body = await health.json();
+  assert.match(body.instance, /^[0-9a-f-]{36}$/);
+  assert.deepEqual({ ...body, instance: "" }, { ok: true, version: "0.9.0", schema: 1, instance: "", records: 0, inbox: 0 });
 });
 
 test("the portal is closed until Trammel opens it", async () => {

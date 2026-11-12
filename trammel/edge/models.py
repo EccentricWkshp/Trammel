@@ -25,6 +25,12 @@ class EdgeSettings(SingletonModel):
         help_text="Such as portal.example.com, on a domain whose DNS is on Cloudflare. "
         "Leave it blank for the account's free workers.dev address.",
     )
+    keep_closed_days = models.PositiveSmallIntegerField(
+        "keep closed jobs for (days)",
+        default=90,
+        help_text="A closed, declined or canceled job, and everything with it, comes off "
+        "Cloudflare this many days after it last changed. 0 takes it off at once.",
+    )
     worker_name = models.CharField(max_length=63, default="trammel-portal", editable=False)
     database_id = models.CharField(max_length=64, blank=True, editable=False)
     bucket = models.CharField(max_length=63, blank=True, editable=False)
@@ -38,6 +44,13 @@ class EdgeSettings(SingletonModel):
     active = models.BooleanField(default=False, editable=False)
     #: The last inbox event applied.
     inbox_after = models.BigIntegerField(default=0, editable=False)
+    #: Which Worker database this is (it says): a new one gets everything again.
+    instance = models.CharField(max_length=64, blank=True, editable=False)
+    #: Inbox events that failed, by number: how many times, until one is skipped.
+    failures = models.JSONField(default=dict, editable=False)
+    #: The bot check on signing in (Cloudflare Turnstile): its site key; the
+    #: secret is kept encrypted.
+    turnstile_sitekey = models.CharField(max_length=100, blank=True, editable=False)
     last_sync_at = models.DateTimeField(null=True, blank=True, editable=False)
     last_error = models.TextField(blank=True, editable=False)
     last_error_at = models.DateTimeField(null=True, blank=True, editable=False)

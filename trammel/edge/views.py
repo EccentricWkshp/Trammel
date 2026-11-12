@@ -46,7 +46,7 @@ class EdgeForm(forms.ModelForm):
 
     class Meta:
         model = EdgeSettings
-        fields = ["hostname", "account_id"]
+        fields = ["hostname", "account_id", "keep_closed_days"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -138,6 +138,22 @@ def sync_now(request):
             request,
             f"Synced: {result.get('pushed', 0)} published, {result.get('removed', 0)} taken down, "
             f"{result.get('applied', 0)} customer actions applied.",
+        )
+    return redirect("edge:settings")
+
+
+@admin_required
+@require_POST
+def remove(request):
+    try:
+        deploy.remove()
+    except (deploy.DeployError, cloudflare.CloudflareError, client.EdgeError) as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(
+            request,
+            "Removed from Cloudflare: the Worker, its database, its storage and its bot check. "
+            "Deploying again starts afresh.",
         )
     return redirect("edge:settings")
 

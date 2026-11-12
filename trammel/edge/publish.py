@@ -130,6 +130,34 @@ def _code_email() -> dict:
     return {"enabled": tpl.enabled, "subject": subject, "body": body}
 
 
+def _turnstile() -> str:
+    from .models import EdgeSettings
+
+    return EdgeSettings.load().turnstile_sitekey
+
+
+#: A job in one of these, untouched for the days set, comes off Cloudflare.
+CLOSED = ("closed", "declined", "cancelled")
+
+
+def hidden_jobs(customer) -> set:
+    """The customer's jobs no longer published: closed (or declined, canceled)
+    and untouched for the days kept (0.9.2)."""
+    import datetime as dt
+
+    from trammel.jobs.models import Job
+
+    from .models import EdgeSettings
+
+    days = EdgeSettings.load().keep_closed_days
+    cutoff = timezone.now() - dt.timedelta(days=days)
+    return set(
+        Job.objects.filter(
+            customer=customer, status__in=CLOSED, updated_at__lte=cutoff
+        ).values_list("pk", flat=True)
+    )
+
+
 def site_item() -> Item:
     from django.conf import settings
 
@@ -149,6 +177,7 @@ def site_item() -> Item:
         "hooks": _hooks(),
         # Where the owner's browser goes on to, from a store's sign-in.
         "local_url": settings.BASE_URL.rstrip("/"),
+        "turnstile": _turnstile(),
         "business": {
             "name": business.name,
             "logo": data_uri(business) if business.show_logo else "",
@@ -642,12 +671,18 @@ def items() -> Iterator[Item]:
     if not portal_open():
         return
     for customer in customers():
+        hidden = {str(pk) for pk in hidden_jobs(customer)}
         yield customer_item(customer)
-        yield from job_items(customer)
-        yield from quote_items(customer, site.fingerprint)
-        yield from invoice_items(customer, site.fingerprint)
-        yield from agreement_items(customer, site.fingerprint)
-        yield from note_items(customer)
-        yield from file_items(customer)
+        for item in (
+            *job_items(customer),
+            *quote_items(customer, site.fingerprint),
+            *invoice_items(customer, site.fingerprint),
+            *agreement_items(customer, site.fingerprint),
+            *note_items(customer),
+            *file_items(customer),
+            *upload_items(customer),
+        ):
+            # A closed job past keeping takes everything with it (0.9.2).
+            if (item.id if item.type == "job" else item.job) not in hidden:
+                yield item
         yield from access_items(customer)
-        yield from upload_items(customer)

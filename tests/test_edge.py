@@ -31,6 +31,7 @@ class FakeWorker:
         self.records, self.objects, self.inbox = {}, {}, []
         self.acked = 0
         self.calls = []
+        self.instance = "db-1"
 
     def call(
         self, method, path, *, data=None, body=None, content_type=None, base_url=None, raw=False
@@ -42,7 +43,13 @@ class FakeWorker:
         # What the real client sends must verify on the other side.
         assert client.signature(client.sync_key(), stamp, method, path, body or b"")
         if path == "/_sync/health":
-            return {"ok": True, "version": "test", "schema": 1}
+            return {
+                "ok": True,
+                "version": "test",
+                "schema": 1,
+                "instance": self.instance,
+                "records": len(self.records),
+            }
         if path == "/_sync/records":
             for r in data["upsert"]:
                 self.records[(r["type"], r["id"])] = r
@@ -121,7 +128,9 @@ def test_publishing_what_a_customer_may_see(live, grace, admin):  # noqa: F811
     # Nothing changed: nothing pushed again.
     before = len(live.calls)
     assert sync.run()["pushed"] == 0
-    assert all(path.startswith("/_sync/inbox") for _, path in live.calls[before:])
+    assert all(
+        path.startswith(("/_sync/inbox", "/_sync/health")) for _, path in live.calls[before:]
+    )
 
     # A change re-renders the quote: its document moves, the old one goes.
     old_doc = quote["data"]["doc"]
@@ -240,12 +249,17 @@ class FakeCloudflare:
         self.accounts = [{"id": f"acct{i}", "name": f"Account {i}"} for i in range(accounts)]
         self.subdomain = subdomain
         self.calls = []
+        self.turnstile_refused = False
 
     def call(self, token, method, path, *, data=None, query=None, body=None, content_type=None):
         self.calls.append((method, path, data, query, body))
         assert token == "cf-token"
         if path == "/accounts":
             return self.accounts
+        if path.endswith("/challenges/widgets"):
+            if self.turnstile_refused:
+                raise cloudflare.CloudflareError("Authentication error (10000)")
+            return {"sitekey": "0x4AAA", "secret": "ts-secret"}
         if path.endswith("/d1/database") and method == "GET":
             return []
         if path.endswith("/d1/database"):
@@ -273,7 +287,10 @@ def test_deploying_over_cloudflares_api(monkeypatch, portal_on, worker, admin_cl
     monkeypatch.setattr(deploy.time, "sleep", lambda s: None)
     page = admin_client.get("/settings/edge-portal/").content.decode()
     assert "Workers Scripts, Edit" in page and "port 465" in page
-    admin_client.post("/settings/edge-portal/", {"api_token": "cf-token", "hostname": ""})
+    admin_client.post(
+        "/settings/edge-portal/",
+        {"api_token": "cf-token", "hostname": "", "keep_closed_days": "90"},
+    )
     assert secrets.get(deploy.TOKEN_KEY) == "cf-token"
     assert "cf-token" not in admin_client.get("/settings/edge-portal/").content.decode()
 
