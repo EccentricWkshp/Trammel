@@ -267,6 +267,11 @@ def default_shop_hours() -> list[list[str] | None]:
     return [["08:00", "16:00"]] * 5 + [None, None]
 
 
+def default_shop_crew() -> list[int]:
+    """One person working, each day of the week (Monday first)."""
+    return [1] * 7
+
+
 class BusinessProfile(SingletonModel):
     """Who the business is (FR-ADM-1, FR-ADM-3)."""
 
@@ -334,6 +339,9 @@ class BusinessProfile(SingletonModel):
     # Seven entries, Monday first: ["HH:MM", "HH:MM"] for a working day, null for
     # a day off. Read through trammel.core.workhours.
     shop_hours = models.JSONField(default=default_shop_hours)
+    #: How many people work each day (Monday first): the hands-on work the
+    #: schedule can fit side by side.
+    shop_crew = models.JSONField(default=default_shop_crew)
     unit_system = models.CharField(
         max_length=10, choices=UnitSystem.choices, default=UnitSystem.IMPERIAL
     )

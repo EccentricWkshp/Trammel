@@ -87,6 +87,7 @@ def test_main_menu_follows_the_workflow(admin_client):
         "Jobs",
         "Quotes",
         "Work orders",
+        "Schedule",
         "Time",
         "Stock",
         "Purchasing",

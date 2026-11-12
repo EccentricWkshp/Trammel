@@ -26,6 +26,9 @@ class WorkOrdersConfig(ModuleConfig):
             ),
             Permission("workorders.reopen", "Reopen work orders"),
         ),
-        menu=(MenuEntry("Work orders", "workorders:list", "workorders.view", "main", 40),),
+        menu=(
+            MenuEntry("Work orders", "workorders:list", "workorders.view", "main", 40),
+            MenuEntry("Schedule", "workorders:schedule", "workorders.view", "main", 45),
+        ),
         sequences=(SequenceDef("work_order", "Work orders", "WO"),),
     )

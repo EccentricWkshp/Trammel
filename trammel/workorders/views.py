@@ -13,7 +13,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils.http import content_disposition_header, url_has_allowed_host_and_scheme
-from django.utils.timezone import localtime, now
+from django.utils.timezone import now
 from django.views.decorators.http import require_POST
 
 from trammel.core import access, audit, modules, panels, sorting, templating, units
@@ -147,10 +147,17 @@ def wo_list(request):
     params = request.GET.copy()
     params.pop("page", None)
     params["status"] = status
+    page = paginate(request, qs)
+    # When each is scheduled to finish, in the shop plan.
+    from . import scheduling
+
+    plan = scheduling.build()
+    for wo in page:
+        wo.scheduled = plan.for_work_order(wo)
     return render(
         request,
         "workorders/list.html",
-        {"page": paginate(request, qs), "status": status, "query": params.urlencode(), **sort},
+        {"page": page, "status": status, "query": params.urlencode(), **sort},
     )
 
 
@@ -202,7 +209,13 @@ def wo_detail(request, pk):
     actor = request.actor
     can_edit = access.has_perm(actor, "workorders.edit", wo) and wo.is_editable
     operations = services.operation_tree(wo)
-    finish = services.estimate_finish(wo, operations)
+    # When the shop schedule has it starting and finishing, behind the work
+    # ahead of it in the queue; a work order it doesn't plan (waiting, say)
+    # gets an estimate of its own.
+    from . import scheduling
+
+    scheduled = scheduling.build().for_work_order(wo)
+    finish = scheduled.finish if scheduled else services.estimate_finish(wo, operations)
     if can_edit:
         options = services.parent_options(operations)
         for op in operations:
@@ -217,6 +230,7 @@ def wo_detail(request, pk):
             "items": wo.items.select_related("completed_by", "source_revision__quote"),
             "finish": finish,
             "finish_late": _late(wo, finish),
+            "scheduled": scheduled,
             "can_nest": [op for op in operations if op.depth < Operation.MAX_DEPTH],
             "done_count": wo.operations.exclude(status="pending").count(),
             "items_left": wo.items.filter(status="pending").count(),
@@ -347,19 +361,10 @@ def _parent(wo, value: str):
 
 
 def _late(wo, finish) -> tuple[str, object] | None:
-    """The first date the estimated finish misses: (what it is, the date)."""
-    if finish is None:
-        return None
-    day = localtime(finish).date()
-    job = wo.job
-    for label, date in (
-        ("the job's promised date", job.promised_date),
-        ("the job's due date", job.due_date),
-        ("the work order's target", wo.target_completion),
-    ):
-        if date and day > date:
-            return label, date
-    return None
+    """The first date the planned finish misses: (what it is, the date)."""
+    from .scheduling import late
+
+    return late(wo, finish)
 
 
 def _ops_tab(wo):

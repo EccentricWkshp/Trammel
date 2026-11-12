@@ -84,9 +84,16 @@ class WorkOrderOut(ModelSchema):
     operations: list[OperationOut]
     #: Items to include: resold products from the quote.
     items: list[IncludedItemOut]
-    #: When the work still to do should be finished, from its planned time and
-    #: waits in shop hours; null when nothing left has planned time.
+    #: When the work still to do should be finished: in the shop schedule,
+    #: behind the work ahead of it in the queue, or for a work order the
+    #: schedule doesn't plan (waiting, say) on its own. Null when nothing left
+    #: has planned time.
     estimated_finish: datetime | None
+    #: When the shop schedule has it starting and finishing, and its place in
+    #: the queue; null when it isn't planned.
+    scheduled_start: datetime | None
+    scheduled_finish: datetime | None
+    queue_position: int | None
 
     class Meta:
         model = WorkOrder
@@ -113,8 +120,34 @@ class WorkOrderOut(ModelSchema):
         return list(obj.items.all())
 
     @staticmethod
+    def _planned(obj):
+        if not hasattr(obj, "_planned"):
+            from . import scheduling
+
+            obj._planned = scheduling.build().for_work_order(obj)
+        return obj._planned
+
+    @staticmethod
     def resolve_estimated_finish(obj):
+        planned = WorkOrderOut._planned(obj)
+        if planned is not None:
+            return planned.finish
         return services.estimate_finish(obj, getattr(obj, "_tree", None))
+
+    @staticmethod
+    def resolve_scheduled_start(obj):
+        planned = WorkOrderOut._planned(obj)
+        return planned.start if planned else None
+
+    @staticmethod
+    def resolve_scheduled_finish(obj):
+        planned = WorkOrderOut._planned(obj)
+        return planned.finish if planned else None
+
+    @staticmethod
+    def resolve_queue_position(obj):
+        planned = WorkOrderOut._planned(obj)
+        return planned.position if planned else None
 
 
 class WorkOrderCreateIn(Schema):

@@ -351,7 +351,10 @@ def module_list(request):
             "dependents": [d.name for d in modules.dependents_of(m.key, enabled)],
             "depends_on": [modules.get_manifest(d).name for d in m.depends_on],
         }
-        for m in modules.manifests()
+        # The core modules first, as installed; then the rest by name.
+        for m in sorted(
+            modules.manifests(), key=lambda m: (not m.core, "" if m.core else m.name.casefold())
+        )
     ]
     return render(request, "core/modules.html", {"rows": rows})
 

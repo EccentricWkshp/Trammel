@@ -1,11 +1,12 @@
 from django.urls import path
 
-from . import views
+from . import schedule_views, views
 
 app_name = "workorders"
 
 urlpatterns = [
     path("", views.wo_list, name="list"),
+    path("schedule/", schedule_views.schedule, name="schedule"),
     path("new/", views.wo_new, name="new"),
     path("new/<uuid:job_pk>/", views.wo_create, name="create"),
     path("<uuid:pk>/", views.wo_detail, name="detail"),

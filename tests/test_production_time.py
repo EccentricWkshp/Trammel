@@ -95,7 +95,7 @@ def test_a_work_order_gets_the_waits_and_an_estimated_finish(admin_client, work_
 
     url = f"/work-orders/{work_order.pk}/?tab=operations"
     page = admin_client.get(url).content.decode()
-    assert "Estimated finish" in page and "Then wait 12 hours" in page
+    assert "Scheduled" in page and "Then wait 12 hours" in page
     assert "After the job" not in page
     # The printed traveler has no page styles to space the parts apart.
     traveler = admin_client.get(f"/work-orders/{work_order.pk}/traveler/").content.decode()

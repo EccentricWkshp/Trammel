@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}Schedule{% endblock %}
+{% block content %}
+<div class="heading-row">
+  <h1>Schedule</h1>
+  <nav class="schedule-weeks" aria-label="Weeks">
+    <a class="button" href="?week={{ previous }}" rel="prev">← Previous week</a>
+    {% if not this_week %}<a class="button" href="?">This week</a>{% endif %}
+    <a class="button" href="?week={{ next }}" rel="next">Next week →</a>
+  </nav>
+</div>
+<p class="muted">Every open work order's operations, laid onto shop hours, the crew and the machines in queue order: rush and high priority first, then the earliest promised or due date. It's worked out afresh each time, from planned time less time logged. Work orders waiting on something aren't planned until they resume.</p>
+
+<h2>Week of {{ first|d }}</h2>
+<div class="table-wrap schedule-wrap">
+<svg class="schedule" viewBox="0 0 {{ width }} {{ height }}" role="img" aria-labelledby="schedule-title" preserveAspectRatio="xMinYMin meet">
+  <title id="schedule-title">The shop schedule for the week of {{ first|d }}; the same week is listed by day below.</title>
+  {% for col in columns %}
+  {% if col.off %}<rect class="day-off" x="{{ col.x }}" y="0" width="{{ col.w }}" height="{{ height }}"></rect>{% endif %}
+  <line class="day-line" x1="{{ col.x }}" x2="{{ col.x }}" y1="0" y2="{{ height }}"></line>
+  <text class="day-name" x="{{ col.mid }}" y="15" text-anchor="middle">{{ col.day|date:"D" }} {{ col.day|date:"n/j" }}</text>
+  <text class="day-hours" x="{{ col.mid }}" y="30" text-anchor="middle">{% if col.off %}Off{% else %}{{ col.span.0|time:"g:i A" }}–{{ col.span.1|time:"g:i A" }}{% endif %}</text>
+  {% endfor %}
+  {% for row in rows %}
+  <rect class="row-band" x="0" y="{{ row.y }}" width="{{ width }}" height="{{ row.h }}"></rect>
+  <text class="row-name" x="8" y="{{ row.label_y }}">{{ row.name|truncatechars:22 }}</text>
+  {% for item in row.items %}
+  <a href="{{ item.wo.get_absolute_url }}">
+    <rect class="bar p{{ item.priority }}{% if item.late %} late{% endif %}{% if item.kind == 'machine' %} machine{% endif %}" x="{{ item.x }}" y="{{ item.y }}" width="{{ item.w }}" height="{{ item.h }}" rx="3"><title>{{ item.wo.number }} {{ item.wo.title }} · {{ item.op.name }} · {% if item.kind == "machine" %}machine time{% else %}hands-on{% endif %}{% if item.machine %} on {{ item.machine }}{% endif %} · {{ item.start|date:"D" }} {{ item.start|t }}–{{ item.end|t }}{% if item.late %} · running late{% endif %} · {{ item.wo.job.get_priority_display }} priority</title></rect>
+  </a>
+  {% endfor %}
+  {% for label in row.labels %}<text class="bar-label" x="{{ label.x }}" y="{{ label.y }}" text-anchor="middle">{{ label.text }}</text>{% endfor %}
+  {% endfor %}
+</svg>
+</div>
+<p class="schedule-detail" id="schedule-detail" aria-live="polite">Point at or tap a bar to see its work order and operation.</p>
+{% if key %}
+<ul class="plain schedule-key" aria-label="Work orders this week">
+  {% for k in key %}<li><span class="swatch p{{ k.priority }}" aria-hidden="true">{{ k.short }}</span> <a href="{{ k.wp.wo.get_absolute_url }}">{{ k.wp.wo.number }}</a> {{ k.wp.wo.title }}{% if k.wp.late %} <span class="flag flag-late">late</span>{% endif %}</li>{% endfor %}
+</ul>
+{% endif %}
+<p class="muted small schedule-legend">Each bar is a work order's operation, numbered as in the key and colored by the job's priority:
+  {% for p in priorities %}<span class="swatch p{{ p.value }}">{{ p.label }}</span> {% endfor %}
+  Solid is hands-on, lighter is machine time; a dashed outline means the work order is running late.</p>
+<script src="{% static 'schedule.js' %}" defer></script>
+
+<section aria-labelledby="load-heading">
+  <h2 id="load-heading">Load this week</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th scope="col">For</th><th scope="col" class="num">Booked</th><th scope="col" class="num">Available</th><th scope="col">Load</th></tr></thead>
+    <tbody>{% for load in loads %}
+      <tr><td>{{ load.name }}</td><td class="num">{{ load.booked|minutes }}</td><td class="num">{{ load.available|minutes }}</td>
+        <td><meter min="0" max="100" value="{{ load.percent }}" low="70" high="90" optimum="50" aria-label="{{ load.name }} load">{{ load.percent }}%</meter> {{ load.percent }}%</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+</section>
+
+<section aria-labelledby="days-heading">
+  <h2 id="days-heading">Day by day</h2>
+  {% for d in by_day %}
+  <h3>{{ d.day|date:"l" }} {{ d.day|d }}{% if not d.span %} <span class="muted small">off</span>{% endif %}</h3>
+  {% if d.items %}
+  <ul class="plain schedule-day">
+    {% for i in d.items %}
+    <li><span class="nowrap">{{ i.start|t }}–{{ i.end|t }}</span> · {% if i.kind == "machine" %}{{ i.machine|default:"Machine time" }}{% else %}Hands-on{% if i.machine %} at {{ i.machine }}{% endif %}{% endif %} · <a href="{{ i.wo.get_absolute_url }}">{{ i.wo.number }}</a> {{ i.op.name }}{% if i.late %} <span class="flag flag-late">late</span>{% endif %}</li>
+    {% endfor %}
+  </ul>
+  {% elif d.span %}<p class="muted small">Nothing planned.</p>{% endif %}
+  {% endfor %}
+</section>
+
+<section aria-labelledby="queue-heading">
+  <h2 id="queue-heading">The queue</h2>
+  {% if queue %}
+  <div class="table-wrap"><table>
+    <thead><tr><th scope="col" class="num">#</th><th scope="col">Work order</th><th scope="col">Job</th><th scope="col">Priority</th><th scope="col">Promised or due</th><th scope="col">Starts</th><th scope="col">Finishes</th></tr></thead>
+    <tbody>{% for wp in queue %}{% with job=wp.wo.job %}
+      <tr>
+        <td class="num">{{ wp.position }}</td>
+        <td><a href="{{ wp.wo.get_absolute_url }}"><strong>{{ wp.wo.number }}</strong></a> {{ wp.wo.title }}</td>
+        <td>{{ job.number }} <span class="muted">{{ job.customer.name }}</span></td>
+        <td>{{ job.get_priority_display }}</td>
+        <td>{{ job.promised_date|d|default:job.due_date|default:"—" }}</td>
+        <td>{% if wp.start %}{{ wp.start|mdt }}{% else %}—{% endif %}</td>
+        <td>{% if wp.beyond %}<span class="flag flag-risk">More than six months out</span>
+          {% elif wp.finish %}{{ wp.finish|mdt }}{% with miss=wp.late %}{% if miss %} <span class="flag flag-late">After {{ miss.0 }} ({{ miss.1|d }})</span>{% endif %}{% endwith %}
+          {% else %}<span class="muted">No planned time</span>{% endif %}</td>
+      </tr>
+    {% endwith %}{% endfor %}</tbody>
+  </table></div>
+  {% else %}<p class="muted">No open work orders.</p>{% endif %}
+  {% if plan.waiting %}
+  <h3>Waiting, not planned</h3>
+  <ul class="plain">{% for wo in plan.waiting %}<li><a href="{{ wo.get_absolute_url }}">{{ wo.number }}</a> {{ wo.title }} <span class="muted small">waiting on {{ wo.get_waiting_on_display|lower }}</span></li>{% endfor %}</ul>
+  {% endif %}
+</section>
+{% endblock %}

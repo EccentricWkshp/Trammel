@@ -117,7 +117,9 @@ class BusinessProfileForm(forms.ModelForm):
     RESALE = ("resale_certificate_number", "resale_certificate_expires")
     #: A works box, start and end for each day, Monday (0) first. The tab shows
     #: them as a table (hour_rows), and they're kept in shop_hours.
-    HOURS = tuple(f"day{d}_{part}" for d in range(7) for part in ("works", "starts", "ends"))
+    HOURS = tuple(
+        f"day{d}_{part}" for d in range(7) for part in ("works", "starts", "ends", "crew")
+    )
     LOGO = ("logo_file", "remove_logo")
 
     #: The settings page's tabs: (key, label, its titled groups of fields). Each tab
@@ -198,6 +200,7 @@ class BusinessProfileForm(forms.ModelForm):
 
     def _add_hour_fields(self):
         shifts = workhours.shifts_from(self.instance.shop_hours)
+        crew = workhours.crew_from(self.instance.shop_crew)
 
         def clock(label):
             return forms.TimeInput(attrs={"type": "time", "aria-label": label}, format="%H:%M")
@@ -214,6 +217,16 @@ class BusinessProfileForm(forms.ModelForm):
                     initial=shift[i] if shift else None,
                     widget=clock(f"{name} {part}"),
                 )
+            self.fields[f"day{d}_crew"] = forms.IntegerField(
+                label=f"People working {name}",
+                required=False,
+                min_value=0,
+                max_value=99,
+                initial=crew[d],
+                widget=forms.NumberInput(
+                    attrs={"aria-label": f"People working {name}", "class": "crew-input"}
+                ),
+            )
 
     def hour_rows(self):
         """The hours tab's table: a row per day, from the day the week starts on,
@@ -229,6 +242,7 @@ class BusinessProfileForm(forms.ModelForm):
                     "works": self[f"day{d}_works"],
                     "starts": self[f"day{d}_starts"],
                     "ends": self[f"day{d}_ends"],
+                    "crew": self[f"day{d}_crew"],
                     "minutes": workhours.shift_minutes(*shift) if shift else 0,
                     "overnight": bool(shift) and shift[1] <= shift[0],
                 }
@@ -253,6 +267,9 @@ class BusinessProfileForm(forms.ModelForm):
                 if f"day{d}_{part}" not in self.errors:
                     self.add_error(f"day{d}_{part}", f"Give the time {names[d]} {part}.")
             shifts.append(None if missing else (data[f"day{d}_starts"], data[f"day{d}_ends"]))
+        self._crew = [
+            1 if data.get(f"day{d}_crew") is None else data[f"day{d}_crew"] for d in range(7)
+        ]
         if self.errors:
             return
         if not any(shifts):
@@ -289,6 +306,7 @@ class BusinessProfileForm(forms.ModelForm):
         profile = super().save(commit=False)
         if self._shifts is not None:
             profile.shop_hours = workhours.stored(self._shifts)
+            profile.shop_crew = self._crew
         if self._logo:
             profile.logo, profile.logo_type = self._logo
         elif self.cleaned_data.get("remove_logo"):

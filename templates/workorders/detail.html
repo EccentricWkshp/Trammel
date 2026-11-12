@@ -14,7 +14,10 @@
       <div><dt>Job due</dt><dd>{{ job.due_date|d|default:"—" }}</dd></div>
       <div><dt>Operations</dt><dd>{{ done_count }} of {{ operations|length }} done</dd></div>
       {% if items %}<div><dt>Items to include</dt><dd>{{ items_left }} left</dd></div>{% endif %}
-      {% if finish %}<div><dt>Estimated finish</dt><dd>{{ finish|mdt }}{% if finish_late %} <span class="flag flag-late">After {{ finish_late.0 }} ({{ finish_late.1|d }})</span>{% endif %}</dd></div>{% endif %}
+      {% if scheduled %}
+      <div><dt>Scheduled</dt><dd>{% if scheduled.beyond %}<span class="flag flag-risk">More than six months out</span>{% elif scheduled.start %}{{ scheduled.start|mdt }} to {{ finish|mdt }}{% elif finish %}Nothing left but a wait, until {{ finish|mdt }}{% else %}<span class="muted">No planned time</span>{% endif %}{% if finish_late %} <span class="flag flag-late">After {{ finish_late.0 }} ({{ finish_late.1|d }})</span>{% endif %}
+        <br><a class="small" href="{% url 'workorders:schedule' %}?week={{ scheduled.start|default:finish|date:'Y-m-d' }}">Number {{ scheduled.position }} in the queue</a></dd></div>
+      {% elif finish %}<div><dt>Estimated finish</dt><dd>{{ finish|mdt }}{% if finish_late %} <span class="flag flag-late">After {{ finish_late.0 }} ({{ finish_late.1|d }})</span>{% endif %}{% if wo.status == "waiting" %}<br><span class="muted small">On its own: waiting work orders aren't scheduled.</span>{% endif %}</dd></div>{% endif %}
     </dl>
   </div>
   <div class="actions">

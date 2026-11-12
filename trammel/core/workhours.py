@@ -44,6 +44,18 @@ def shifts_from(value) -> tuple[Shift | None, ...]:
     return tuple(days)
 
 
+def crew_from(value) -> tuple[int, ...]:
+    """The stored crew counts (seven, Monday first), each 0 or more; anything
+    unreadable counts as one person."""
+    out = []
+    for i in range(7):
+        try:
+            out.append(max(0, int(value[i])))
+        except IndexError, KeyError, TypeError, ValueError:
+            out.append(1)
+    return tuple(out)
+
+
 def stored(shifts: Sequence[Shift | None]) -> list[list[str] | None]:
     """`shifts` the way BusinessProfile.shop_hours keeps them."""
     return [[t.strftime("%H:%M") for t in shift] if shift else None for shift in shifts]
@@ -57,6 +69,8 @@ ALL_DAY: tuple[Shift, ...] = ((dt.time(0), dt.time(0)),) * 7
 class Hours:
     shifts: tuple[Shift | None, ...]  # by Python weekday: Monday is 0
     zone: dt.tzinfo
+    #: People working each day, by weekday: the hands-on work side by side.
+    crew: tuple[int, ...] = (1,) * 7
 
     @classmethod
     def same_days(
@@ -75,7 +89,7 @@ class Hours:
             zone = zoneinfo.ZoneInfo(profile.timezone)
         except zoneinfo.ZoneInfoNotFoundError, ValueError:
             zone = dt.UTC
-        return cls(shifts_from(profile.shop_hours), zone)
+        return cls(shifts_from(profile.shop_hours), zone, crew_from(profile.shop_crew))
 
     @property
     def usable(self) -> bool:
@@ -95,6 +109,10 @@ class Hours:
             return None
         begins = dt.datetime.combine(day, shift[0])
         return begins, begins + dt.timedelta(minutes=shift_minutes(*shift))
+
+    def crew_on(self, day: dt.date) -> int:
+        """People working in the shift starting on `day`."""
+        return self.crew[day.weekday()] if self.shift_on(day) else 0
 
     def minutes_on(self, day: dt.date) -> int:
         """Working minutes in the shift starting on `day`."""

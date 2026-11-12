@@ -361,11 +361,15 @@ def test_connecting_and_fetching_from_the_pages(
     assert "Enter this to connect." in response.content.decode()
     admin_client.post(
         "/imports/settings/store/shipstation/",
-        {"shipstation-enabled": "on", "shipstation-api_key": "k1", "shipstation-api_secret": "s1"},
+        {
+            "shipstation-enabled": "on",
+            "shipstation-api_key": "ss-key-ABC",
+            "shipstation-api_secret": "s1",
+        },
     )
-    assert secrets.get(shipstation.KEY_KEY) == "k1"
+    assert secrets.get(shipstation.KEY_KEY) == "ss-key-ABC"
     page = admin_client.get("/imports/settings/?tab=shipstation").content.decode()
-    assert "Saved; leave blank to keep it." in page and "k1" not in page
+    assert "Saved; leave blank to keep it." in page and "ss-key-ABC" not in page
 
     _shopify_connected()
     own = order(1001, fulfillments=[])

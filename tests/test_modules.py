@@ -63,3 +63,15 @@ def test_menus_follow_permissions(admin, staff):
     assert menu_for(staff, "admin") == []
     admin_labels = [i.label for i in menu_for(admin, "admin")]
     assert {"Business", "Users", "Roles", "Modules", "Audit log"} <= set(admin_labels)
+
+
+@pytest.mark.django_db
+def test_the_modules_page_lists_core_first_then_the_rest_by_name(admin_client):
+    from trammel.core import modules as registry
+
+    rows = admin_client.get("/settings/modules/").context["rows"]
+    names = [r["m"].name for r in rows]
+    core = [m.name for m in registry.manifests() if m.core]
+    assert names[: len(core)] == core
+    rest = names[len(core) :]
+    assert rest == sorted(rest, key=str.casefold) and rest

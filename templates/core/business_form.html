@@ -26,17 +26,18 @@
   {% endif %}
   {% if tab == "hours" %}
   <div class="table-wrap"><table class="shop-hours">
-    <thead><tr><th scope="col">Day</th><th scope="col">Starts</th><th scope="col">Ends</th><th scope="col">Hours</th></tr></thead>
+    <thead><tr><th scope="col">Day</th><th scope="col">Starts</th><th scope="col">Ends</th><th scope="col">People working</th><th scope="col">Hours</th></tr></thead>
     <tbody>{% for row in form.hour_rows %}
       <tr>
         <th scope="row"><label>{{ row.works }} {{ row.name }}</label></th>
         <td>{{ row.starts }}{{ row.starts.errors }}</td>
         <td>{{ row.ends }}{{ row.ends.errors }}</td>
+        <td>{{ row.crew }}{{ row.crew.errors }}</td>
         <td>{% if row.minutes %}{{ row.minutes|minutes }}{% if row.overnight %}, past midnight{% endif %}{% else %}<span class="muted">Off</span>{% endif %}</td>
       </tr>
     {% endfor %}</tbody>
   </table></div>
-  <p class="muted small">Tick each day the shop works. A day that ends at or before it starts runs past midnight: 10:00 PM to 6:00 AM is an 8-hour night shift, counted as the day it starts. The same start and end time works around the clock.</p>
+  <p class="muted small">Tick each day the shop works. A day that ends at or before it starts runs past midnight: 10:00 PM to 6:00 AM is an 8-hour night shift, counted as the day it starts. The same start and end time works around the clock. People working is how many can do hands-on work at once: the schedule fits that much side by side, while machines each run one job at a time.</p>
   {% else %}
   <div{% if tab == "documents" and section != "Logo" %} class="check-grid"{% endif %}>
   {% for field in fields %}
