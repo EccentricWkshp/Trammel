@@ -20,6 +20,8 @@ from .models import EdgeSettings
 
 TOKEN_KEY = "edge.api_token"
 TURNSTILE_KEY = "edge.turnstile_secret"
+#: The secret key of a bot check made by hand (turnstile_own_sitekey).
+TURNSTILE_OWN_KEY = "edge.turnstile_own_secret"
 WORKER_DIR = Path(__file__).parent / "worker"
 EBAY_TOKEN_KEY = "edge.ebay_token"
 #: The entry point first: Cloudflare runs the first module.
@@ -101,17 +103,7 @@ def deploy() -> None:
     smtp = smtp_settings()
 
     _log("Checking the API token")
-    accounts = cloudflare.accounts(token)
-    if row.account_id:
-        account = next((a for a in accounts if a["id"] == row.account_id), None)
-        if account is None:
-            raise DeployError("The token can't reach the account chosen.")
-    elif len(accounts) == 1:
-        account = accounts[0]
-    elif not accounts:
-        raise DeployError("The token can't reach any Cloudflare account.")
-    else:
-        raise DeployError("The token can reach several accounts; choose one.")
+    account = _account(token, row)
     row.account_id, row.account_name = account["id"], account["name"]
     row.save(update_fields=["account_id", "account_name", "updated_at"])
 
@@ -135,7 +127,7 @@ def deploy() -> None:
             {
                 "type": "secret_text",
                 "name": "TURNSTILE_SECRET",
-                "text": secrets.get(TURNSTILE_KEY) or "",
+                "text": _turnstile_secret(row),
             },
             {"type": "plain_text", "name": "TRAMMEL_VERSION", "text": django_settings.APP_VERSION},
         ],
@@ -151,30 +143,49 @@ def deploy() -> None:
         url = cloudflare.workers_dev(token, account["id"], row.worker_name)
 
     _bot_check(token, account["id"], row, url)
-
-    _log(f"Checking that {url} answers")
-    health = None
-    for wait in (0, 3, 5, 10, 15, 20):
-        time.sleep(wait)
-        try:
-            health = client.health(base_url=url)
-            break
-        except client.EdgeError:
-            continue
-    if not health:
-        raise DeployError(
-            f"Deployed, but {url} doesn't answer yet (a new address can take a few minutes). "
-            "Deploy again shortly."
-        )
     EdgeSettings.objects.filter(pk=1).update(
         database_id=database_id,
         bucket=bucket,
         public_url=url,
         deployed_version=django_settings.APP_VERSION,
         deployed_at=timezone.now(),
-        active=True,
-        last_error="",
     )
+    if row.hostname:
+        _wait_for_dns(row.hostname)
+
+    _log(f"Checking that {url} answers")
+    for wait in (0, 3, 5, 10, 15, 20):
+        time.sleep(wait)
+        try:
+            client.health(base_url=url)
+            break
+        except client.EdgeError:
+            continue
+    else:
+        EdgeSettings.objects.filter(pk=1).update(awaiting_address=True)
+        _log(
+            f"Deployed, but {url} doesn't answer from here yet. A new address can take up to "
+            "30 minutes to reach every DNS server; Trammel keeps checking and puts the portal "
+            "live by itself when it answers."
+        )
+        return
+    _go_live(url)
+
+
+def _wait_for_dns(hostname) -> None:
+    """Wait, up to two minutes, for a new address to be in Cloudflare's DNS
+    before anything here looks it up (see cloudflare.in_public_dns)."""
+    _log(f"Waiting for {hostname} to be in DNS")
+    for wait in (0, 5, 10, 15, 20, 30, 40):
+        time.sleep(wait)
+        if cloudflare.in_public_dns(hostname):
+            return
+    _log(f"{hostname} isn't in DNS yet; checking anyway")
+
+
+def _go_live(url) -> None:
+    """The Worker answers: serve customers from it, and publish to it."""
+    EdgeSettings.objects.filter(pk=1).update(active=True, awaiting_address=False, last_error="")
     _log("Publishing to it")
     from . import sync
 
@@ -184,19 +195,86 @@ def deploy() -> None:
     _log(f"Done: the customer portal is at {url}/portal/")
 
 
+def finish_waiting() -> None:
+    """Run with each sync: a deploy whose address didn't answer yet goes live
+    once it does."""
+    row = EdgeSettings.load()
+    if not row.awaiting_address or row.active or row.deploying or not row.public_url:
+        return
+    try:
+        client.health(base_url=row.public_url)
+    except client.EdgeError:
+        return
+    _log(f"{row.public_url} answers now")
+    try:
+        _go_live(row.public_url)
+    except (DeployError, client.EdgeError) as exc:
+        _log(f"Stopped: {exc}")
+
+
+def _account(token, row) -> dict:
+    """The Cloudflare account to deploy to. With its id given, that account (an
+    account API token reaches only its own, and may not list it); otherwise the
+    one account the token can list."""
+    if row.account_id:
+        try:
+            return cloudflare.account(token, row.account_id)
+        except cloudflare.CloudflareError as exc:
+            if getattr(exc, "status", None) in (403, 404):
+                raise DeployError(
+                    "The token can't reach the account whose ID is given. Check the ID, "
+                    "and that the token was made in that account or can reach it."
+                ) from None
+            raise
+    try:
+        accounts = cloudflare.accounts(token)
+    except cloudflare.CloudflareError as exc:
+        raise DeployError(
+            f"Couldn't list the token's accounts ({exc}). Enter the Cloudflare account ID "
+            "on this page and deploy again."
+        ) from None
+    if len(accounts) == 1:
+        return accounts[0]
+    if not accounts:
+        raise DeployError(
+            "The token can't list any Cloudflare account. Enter the account ID on this page "
+            "and deploy again."
+        )
+    raise DeployError("The token can reach several accounts; enter the ID of the one to use.")
+
+
+def _turnstile_secret(row) -> str:
+    if row.turnstile_own_sitekey:
+        return secrets.get(TURNSTILE_OWN_KEY) or ""
+    return secrets.get(TURNSTILE_KEY) or ""
+
+
 def _bot_check(token, account, row, url) -> None:
-    """Cloudflare Turnstile on the sign-in pages. Without the token's Turnstile
-    permission, the portal goes ahead without it (signing in is rate-limited
+    """Cloudflare Turnstile on the sign-in pages: the one whose keys were pasted
+    in, or one made over the API. Without either (an account API token can't
+    make one), the portal goes ahead without it (signing in is rate-limited
     anyway); the log says so."""
     from urllib.parse import urlparse
 
+    if row.turnstile_own_sitekey:
+        if not secrets.get(TURNSTILE_OWN_KEY):
+            _log("Going ahead without the bot check: paste its secret key on this page too.")
+            EdgeSettings.objects.filter(pk=1).update(turnstile_sitekey="")
+            return
+        _log("Using the bot check whose keys are on this page (Turnstile)")
+        EdgeSettings.objects.filter(pk=1).update(turnstile_sitekey=row.turnstile_own_sitekey)
+        return
     _log("Setting up the bot check on signing in (Turnstile)")
     try:
         widget = cloudflare.turnstile(
             token, account, row.worker_name, urlparse(url).hostname, row.turnstile_sitekey
         )
     except cloudflare.CloudflareError as exc:
-        _log(f"Going ahead without the bot check: {exc}")
+        _log(
+            f"Going ahead without the bot check: {exc}. An account API token can't set one "
+            "up; to have one, make a Turnstile widget in Cloudflare's dashboard and paste "
+            "its keys on this page."
+        )
         EdgeSettings.objects.filter(pk=1).update(turnstile_sitekey="")
         return
     if widget.get("secret"):
@@ -208,7 +286,7 @@ def _bot_check(token, account, row, url) -> None:
 def run_deploy() -> None:
     """The background task: deploy, logging how it went."""
     EdgeSettings.load()  # the row exists before it's updated
-    EdgeSettings.objects.filter(pk=1).update(deploying=True, deploy_log=[])
+    EdgeSettings.objects.filter(pk=1).update(deploying=True, deploy_log=[], awaiting_address=False)
     try:
         deploy()
     except (DeployError, cloudflare.CloudflareError, client.EdgeError) as exc:
@@ -228,7 +306,7 @@ def stop() -> None:
     from .models import Published
 
     Published.objects.all().delete()
-    EdgeSettings.objects.filter(pk=1).update(active=False)
+    EdgeSettings.objects.filter(pk=1).update(active=False, awaiting_address=False)
 
 
 def remove() -> None:
@@ -245,7 +323,8 @@ def remove() -> None:
         row.worker_name,
         database_id=row.database_id,
         bucket_name=row.bucket,
-        sitekey=row.turnstile_sitekey,
+        # A bot check made by hand stays: it isn't Trammel's to delete.
+        sitekey="" if row.turnstile_sitekey == row.turnstile_own_sitekey else row.turnstile_sitekey,
     )
     secrets.clear(TURNSTILE_KEY)
     EdgeSettings.objects.filter(pk=1).update(

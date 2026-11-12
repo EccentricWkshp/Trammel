@@ -23,7 +23,7 @@ PERMISSIONS = (
     ("Account", "D1", "Edit"),
     ("Account", "Workers R2 Storage", "Edit"),
     ("Account", "Account Settings", "Read"),
-    ("Account", "Turnstile", "Edit", "for the bot check on signing in"),
+    ("Account", "Turnstile", "Edit", "for the bot check on signing in; user tokens only"),
     ("Zone", "Workers Routes", "Edit", "for a custom address"),
     ("Zone", "Zone", "Read", "for a custom address"),
 )
@@ -40,8 +40,8 @@ def _explain(errors) -> str:
         if code == 10042 or "enable R2" in message:
             return (
                 "R2 isn't turned on for this Cloudflare account yet. Open R2 in the "
-                "Cloudflare dashboard once and turn it on (Cloudflare may ask for a "
-                "payment method, even for the free allowance), then deploy again."
+                "Cloudflare dashboard once and turn it on (Cloudflare asks for a "
+                "payment method first, even for the free allowance), then deploy again."
             )
         parts.append(f"{message} ({code})" if code else message)
     return "; ".join(parts) or "Cloudflare refused the request."
@@ -91,6 +91,13 @@ def call(token, method, path, *, data=None, query=None, body=None, content_type=
 def accounts(token) -> list[dict]:
     """The accounts the token can reach: [{id, name}]."""
     return [{"id": a["id"], "name": a.get("name", "")} for a in call(token, "GET", "/accounts")]
+
+
+def account(token, account_id) -> dict:
+    """One account, by its id: {id, name}. Works for an account API token,
+    which is made in (and can reach) only its own account."""
+    found = call(token, "GET", f"/accounts/{account_id}") or {}
+    return {"id": found.get("id") or account_id, "name": found.get("name", "")}
 
 
 def database(token, account, name) -> str:
@@ -220,6 +227,30 @@ def remove(token, account, name, database_id="", bucket_name="", sitekey=""):
         gone("DELETE", f"/accounts/{account}/r2/buckets/{bucket_name}")
     if sitekey:
         gone("DELETE", f"/accounts/{account}/challenges/widgets/{sitekey}")
+
+
+#: Cloudflare's public resolver, asked over HTTPS, so the local one isn't.
+PUBLIC_DNS = "https://cloudflare-dns.com/dns-query"
+
+
+def in_public_dns(hostname) -> bool:
+    """Whether a new address is in DNS yet, asked of Cloudflare's resolver
+    directly. Asking the shop's own resolver too soon would have it remember
+    "no such name" for as long as the domain says (30 minutes on Cloudflare)."""
+    url = f"{PUBLIC_DNS}?{urllib.parse.urlencode({'name': hostname, 'type': 'A'})}"
+    request = urllib.request.Request(  # noqa: S310
+        url,
+        headers={
+            "Accept": "application/dns-json",
+            "User-Agent": f"Trammel/{settings.APP_VERSION}",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:  # noqa: S310
+            answer = json.loads(response.read() or b"{}")
+    except urllib.error.URLError, TimeoutError, OSError, ValueError:
+        return False
+    return answer.get("Status") == 0 and bool(answer.get("Answer"))
 
 
 def zone_for(token, hostname) -> dict:

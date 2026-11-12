@@ -13,7 +13,7 @@
     <dt>Customers use</dt><dd><a href="{{ row.public_url }}/portal/" target="_blank" rel="noopener">{{ row.public_url }}/portal/</a></dd>
     <dt>Deployed</dt><dd>{{ row.deployed_at|dt }} (Trammel {{ row.deployed_version }}){% if row.account_name %} · {{ row.account_name }}{% endif %}</dd>
     <dt>Last sync</dt><dd>{% if row.last_sync_at %}{{ row.last_sync_at|dt }}{% else %}Not yet{% endif %}</dd>
-    <dt>Bot check on signing in</dt><dd>{% if row.turnstile_sitekey %}On (Cloudflare Turnstile){% else %}Off (give the token Turnstile permission and deploy again){% endif %}</dd>
+    <dt>Bot check on signing in</dt><dd>{% if row.turnstile_sitekey %}On (Cloudflare Turnstile){% else %}Off (paste a Turnstile widget's keys below, or give a user token the Turnstile permission, and deploy again){% endif %}</dd>
     <dt>Published</dt><dd>{% for type, n in counts.items %}{{ n }} {{ type }}{{ n|pluralize }}{% if not forloop.last %}, {% endif %}{% empty %}Nothing yet{% endfor %}</dd>
   </dl>
   {% if row.last_error %}<p class="flag flag-late" role="alert">The last sync failed{% if row.last_error_at %} at {{ row.last_error_at|dt }}{% endif %}: {{ row.last_error }}</p>{% endif %}
@@ -24,7 +24,11 @@
   </div>
   <p class="muted small">Stopping removes everything published to Cloudflare and signs customers out there; Trammel's own portal pages come back (they need this server reachable from the internet). The Worker, database and storage stay on Cloudflare, empty, for next time.</p>
   {% else %}
+  {% if row.awaiting_address %}
+  <p role="status">Deployed to Cloudflare, waiting for <a href="{{ row.public_url }}/portal/" target="_blank" rel="noopener">{{ row.public_url }}</a> to answer from here. A new address can take up to 30 minutes to reach every DNS server (yours included); Trammel checks every 30 seconds and puts the portal live by itself when it answers. Until then, the portal is served by Trammel itself, if it's switched on.</p>
+  {% else %}
   <p>Not deployed{% if row.deployed_at %} (stopped){% endif %}. While it isn't, the portal is served by Trammel itself, if it's switched on.</p>
+  {% endif %}
   {% if row.database_id or row.public_url %}
   <form method="post" action="{% url 'edge:remove' %}" class="actions">{% csrf_token %}<button type="submit" class="danger">Remove it from Cloudflare</button>
     <span class="muted small">Deletes the Worker, its database, its storage and its bot check from your Cloudflare account.</span></form>
@@ -44,10 +48,11 @@
 <section class="card" aria-labelledby="setup-heading">
   <h2 id="setup-heading">Setting it up</h2>
   <ol>
-    <li>In Cloudflare's dashboard, make an API token (My Profile, API Tokens, Create Token, Custom token) with these permissions:
+    <li>In Cloudflare's dashboard, make an API token with these permissions. Cloudflare recommends an account API token (Manage Account, Account API Tokens, Create Token); a user token (My Profile, API Tokens) works too.
       <ul>{% for p in permissions %}<li>{{ p.0 }}, {{ p.1 }}, {{ p.2 }}{% if p.3 %} <span class="muted">({{ p.3 }})</span>{% endif %}</li>{% endfor %}</ul>
     </li>
-    <li>If Cloudflare asks, turn on R2 (Cloudflare's file storage) once in its dashboard.</li>
+    <li>With an account API token, enter the account ID below. Such a token can't set up the bot check on signing in, so to have one, add a Turnstile widget in the dashboard (Turnstile, Add widget, Managed) for the portal's address and paste its keys below.</li>
+    <li>Turn on R2 (Cloudflare's file storage) once in its dashboard. Cloudflare asks for a payment method first, even though the free allowance (10 GB stored, 1 million writes and 10 million reads a month) is far more than the portal uses.</li>
     <li>For your own address (portal.example.com), its domain's DNS must be on Cloudflare; otherwise the portal gets a free workers.dev address.</li>
     <li>Email must be encrypted: SSL/TLS on port 465 or STARTTLS on 587 (Settings, Email). The portal sends sign-in codes itself.</li>
     <li>Paste the token below, save, then deploy.</li>

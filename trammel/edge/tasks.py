@@ -6,8 +6,10 @@ from trammel.core.tasks import periodic, task
 @periodic("edge.sync", every=timedelta(seconds=30))
 def sync(payload):
     """Push what changed to the edge portal and apply what customers did there."""
+    from . import deploy as edge_deploy
     from . import sync as edge_sync
 
+    edge_deploy.finish_waiting()
     edge_sync.run()
 
 

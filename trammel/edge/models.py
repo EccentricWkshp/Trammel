@@ -12,10 +12,11 @@ class EdgeSettings(SingletonModel):
     token and the sync key are kept encrypted (core.secrets), not here."""
 
     account_id = models.CharField(
-        "Cloudflare account",
+        "Cloudflare account ID",
         max_length=32,
         blank=True,
-        help_text="Filled in when the token can reach only one account.",
+        help_text="Shown in Cloudflare's dashboard on the account's home page and on Workers "
+        "& Pages. Filled in for you when the token can list its accounts and reaches only one.",
     )
     account_name = models.CharField(max_length=200, blank=True, editable=False)
     hostname = models.CharField(
@@ -42,6 +43,9 @@ class EdgeSettings(SingletonModel):
     deploy_log = models.JSONField(default=list, editable=False)
     #: Serving customers: Trammel's own portal pages are off while this is on.
     active = models.BooleanField(default=False, editable=False)
+    #: Deployed, but its address didn't answer from here yet (a new address can
+    #: take a while to reach every DNS server): it goes live when it does.
+    awaiting_address = models.BooleanField(default=False, editable=False)
     #: The last inbox event applied.
     inbox_after = models.BigIntegerField(default=0, editable=False)
     #: Which Worker database this is (it says): a new one gets everything again.
@@ -51,6 +55,16 @@ class EdgeSettings(SingletonModel):
     #: The bot check on signing in (Cloudflare Turnstile): its site key; the
     #: secret is kept encrypted.
     turnstile_sitekey = models.CharField(max_length=100, blank=True, editable=False)
+    #: A bot check made by hand in Cloudflare's dashboard (an account API token
+    #: can't make one): its site key; its secret key is kept encrypted.
+    turnstile_own_sitekey = models.CharField(
+        "Turnstile site key",
+        max_length=100,
+        blank=True,
+        help_text="Only with an account API token, which can't set up the bot check itself: "
+        "make a Turnstile widget in Cloudflare's dashboard for the portal's address and paste "
+        "its keys here. Leave blank with a user token that has the Turnstile permission.",
+    )
     last_sync_at = models.DateTimeField(null=True, blank=True, editable=False)
     last_error = models.TextField(blank=True, editable=False)
     last_error_at = models.DateTimeField(null=True, blank=True, editable=False)

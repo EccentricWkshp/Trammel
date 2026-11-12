@@ -16,6 +16,7 @@ from tests.test_portal import _sent_quote, grace, portal_on, smtp  # noqa: F401
 from trammel.core import modules, secrets
 from trammel.core.models import AuditEvent
 from trammel.edge import client, cloudflare, deploy, sync
+from trammel.edge import tasks as tasks_module
 from trammel.edge.models import EdgeAccessCode, EdgeSettings, Published
 from trammel.notifications.models import EmailLog
 from trammel.portal import services as portal
@@ -32,11 +33,15 @@ class FakeWorker:
         self.acked = 0
         self.calls = []
         self.instance = "db-1"
+        #: Its address not reachable from here yet.
+        self.unreachable = False
 
     def call(
         self, method, path, *, data=None, body=None, content_type=None, base_url=None, raw=False
     ):
         self.calls.append((method, path))
+        if self.unreachable:
+            raise client.EdgeError("Couldn't reach the edge portal: Name or service not known")
         if data is not None:
             body = json.dumps(data, separators=(",", ":")).encode()
         stamp = str(int(time.time()))
@@ -250,12 +255,25 @@ class FakeCloudflare:
         self.subdomain = subdomain
         self.calls = []
         self.turnstile_refused = False
+        #: An account API token: it can't list accounts (as may be) or use Turnstile.
+        self.account_token = False
 
     def call(self, token, method, path, *, data=None, query=None, body=None, content_type=None):
         self.calls.append((method, path, data, query, body))
         assert token == "cf-token"
         if path == "/accounts":
+            if self.account_token:
+                raise cloudflare.CloudflareError("Authentication error (10000)")
             return self.accounts
+        if method == "GET" and path.count("/") == 2 and path.startswith("/accounts/"):
+            found = next((a for a in self.accounts if path.endswith(a["id"])), None)
+            if found is None:
+                error = cloudflare.CloudflareError("Could not route to /accounts (7003)")
+                error.status = 404
+                raise error
+            return found
+        if path.endswith("/challenges/widgets") and self.account_token:
+            raise cloudflare.CloudflareError("Authentication error (10000)")
         if path.endswith("/challenges/widgets"):
             if self.turnstile_refused:
                 raise cloudflare.CloudflareError("Authentication error (10000)")
@@ -315,9 +333,12 @@ def test_deploying_over_cloudflares_api(monkeypatch, portal_on, worker, admin_cl
     assert worker.of("customer") == {}  # nobody has access yet, but the shop is published
     assert ("config", "site") in worker.records
 
-    # A custom address on a Cloudflare domain.
+    # A custom address on a Cloudflare domain, once it's in DNS.
+    lookups = iter([False, False, True])
+    monkeypatch.setattr(cloudflare, "in_public_dns", lambda host: next(lookups))
     EdgeSettings.objects.filter(pk=1).update(hostname="portal.example.com")
     deploy.run_deploy()
+    assert any("to be in DNS" in step["text"] for step in EdgeSettings.load().deploy_log)
     domain = next(c for c in fake.calls if c[1] == "/accounts/acct0/workers/domains")
     assert domain[2]["hostname"] == "portal.example.com" and domain[2]["zone_id"] == "zone1"
     assert EdgeSettings.load().public_url == "https://portal.example.com"
@@ -345,6 +366,38 @@ def test_stopping_takes_everything_down(live, grace):  # noqa: F811
     assert not live.records and not Published.objects.exists()
     assert not EdgeSettings.load().active
     assert Client().get("/portal/sign-in/").status_code == 200
+
+
+@pytest.mark.django_db
+def test_a_new_address_that_doesnt_answer_yet_goes_live_when_it_does(
+    monkeypatch,
+    portal_on,  # noqa: F811
+    worker,
+    smtp,  # noqa: F811
+):
+    modules.set_enabled("edge", True)
+    secrets.put(deploy.TOKEN_KEY, "cf-token")
+    monkeypatch.setattr(cloudflare, "call", FakeCloudflare().call)
+    monkeypatch.setattr(cloudflare, "in_public_dns", lambda host: True)
+    monkeypatch.setattr(deploy.time, "sleep", lambda s: None)
+    EdgeSettings.load()
+    EdgeSettings.objects.filter(pk=1).update(hostname="portal.example.com")
+    worker.unreachable = True
+    deploy.run_deploy()
+    row = EdgeSettings.load()
+    assert row.awaiting_address and not row.active and not row.deploying
+    assert row.public_url == "https://portal.example.com" and row.database_id == "db-uuid"
+    assert "puts the portal live by itself" in row.deploy_log[-1]["text"]
+    assert Client().get("/portal/sign-in/").status_code == 200  # Trammel's own, meanwhile
+
+    tasks_module.sync({})  # still no answer
+    assert not EdgeSettings.load().active
+    worker.unreachable = False
+    tasks_module.sync({})
+    row = EdgeSettings.load()
+    assert row.active and not row.awaiting_address
+    assert row.deploy_log[-1]["text"].startswith("Done")
+    assert ("config", "site") in worker.records
 
 
 def test_cloudflare_explains_r2_being_off():

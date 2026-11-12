@@ -40,18 +40,61 @@ class EdgeForm(forms.ModelForm):
                 "data-lpignore": "true",
             }
         ),
-        help_text="Made in Cloudflare's dashboard (My Profile, API Tokens, Create Token, "
-        "Custom token) with the permissions listed on this page.",
+        help_text="Made in Cloudflare's dashboard with the permissions listed on this page: "
+        "an account API token (Manage Account, Account API Tokens), which Cloudflare "
+        "recommends, or a user token (My Profile, API Tokens).",
+    )
+    turnstile_secret = forms.CharField(
+        label="Turnstile secret key",
+        required=False,
+        widget=SecretBox(
+            attrs={
+                "autocomplete": "off",
+                "spellcheck": "false",
+                "class": "secret-box",
+                "data-1p-ignore": "",
+                "data-lpignore": "true",
+            }
+        ),
+        help_text="The secret key of the Turnstile widget above.",
     )
 
     class Meta:
         model = EdgeSettings
-        fields = ["hostname", "account_id", "keep_closed_days"]
+        fields = [
+            "account_id",
+            "hostname",
+            "keep_closed_days",
+            "turnstile_own_sitekey",
+        ]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if secrets.is_set(deploy.TOKEN_KEY):
             self.fields["api_token"].help_text += " Saved; leave blank to keep it."
+        if secrets.is_set(deploy.TURNSTILE_OWN_KEY):
+            self.fields["turnstile_secret"].help_text += " Saved; leave blank to keep it."
+
+    def clean_account_id(self):
+        value = self.cleaned_data["account_id"].strip().lower()
+        if value and not re.fullmatch(r"[0-9a-f]{32}", value):
+            raise forms.ValidationError(
+                "A Cloudflare account ID is 32 letters and digits, such as "
+                "0123456789abcdef0123456789abcdef."
+            )
+        return value
+
+    def clean(self):
+        data = super().clean()
+        sitekey = (data.get("turnstile_own_sitekey") or "").strip()
+        data["turnstile_own_sitekey"] = sitekey
+        if (
+            sitekey
+            and not (data.get("turnstile_secret") or "").strip()
+            and not secrets.is_set(deploy.TURNSTILE_OWN_KEY)
+        ):
+            self.add_error("turnstile_secret", "Paste the widget's secret key too.")
+        return data
 
     def clean_hostname(self):
         value = self.cleaned_data["hostname"].strip().lower().rstrip(".")
@@ -66,6 +109,10 @@ class EdgeForm(forms.ModelForm):
         token = self.cleaned_data.get("api_token", "").strip()
         if token:
             secrets.put(deploy.TOKEN_KEY, token)
+        if not row.turnstile_own_sitekey:
+            secrets.clear(deploy.TURNSTILE_OWN_KEY)
+        elif turnstile := self.cleaned_data.get("turnstile_secret", "").strip():
+            secrets.put(deploy.TURNSTILE_OWN_KEY, turnstile)
         return row
 
 

@@ -203,20 +203,37 @@ things are done once, by hand, in Cloudflare's dashboard:
 
 1. **An account.** The free plan is enough for a small shop.
 2. **R2.** Open R2 (Cloudflare's file storage) once and turn it on. Cloudflare
-   may ask for a payment method, even for the free allowance.
+   asks for a payment method first, even for the free allowance: 10 GB stored,
+   1 million Class A operations (writes) and 10 million Class B operations
+   (reads) a month. The portal stores quote and invoice PDFs, shared files and
+   the files customers send, and clears what's no longer shown, so a small
+   shop stays well inside it.
 3. **Your own address (optional).** To serve the portal at, say,
    `portal.example.com`, the domain's DNS must be on Cloudflare. Without one,
    the portal gets a free `workers.dev` address (open Workers & Pages once to
    choose its name).
-4. **An API token.** My Profile, API Tokens, Create Token, Custom token, with:
+4. **An API token.** Cloudflare recommends an **account API token** (Manage
+   Account, Account API Tokens, Create Token): it belongs to the account, not
+   to you, so it keeps working if your login changes. A user token (My
+   Profile, API Tokens, Create Token, Custom token) works too. Give it:
    - Account · Workers Scripts · Edit
    - Account · D1 · Edit
    - Account · Workers R2 Storage · Edit
    - Account · Account Settings · Read
-   - Account · Turnstile · Edit (a bot check on the sign-in pages; without
-     it the portal still works, without the check)
+   - Account · Turnstile · Edit (user tokens only; see below)
    - Zone · Workers Routes · Edit, and Zone · Zone · Read (only for your own
      address; limit them to that domain)
+
+   With an account API token, note the **account ID** too (on the account's
+   home page in the dashboard, and on Workers & Pages).
+5. **A bot check on signing in (optional, for an account API token).** An
+   account API token can't manage Turnstile, Cloudflare's bot check, so
+   Trammel can't set it up with one. To have it, open Turnstile, Add widget:
+   any name, the portal's address as its hostname (your own address, or
+   `trammel-portal.<your subdomain>.workers.dev`), mode Managed. Keep its site
+   key and secret key for Trammel. A user token with the Turnstile permission
+   sets this up by itself. Without either, the portal works without the
+   check; signing in is rate-limited anyway.
 
 Then in Trammel:
 
@@ -225,9 +242,17 @@ Then in Trammel:
    with these settings, and Cloudflare doesn't allow port 25.
 2. Turn on the **Customer portal** and **Edge portal (Cloudflare)** modules
    (Settings, Modules).
-3. **Settings, Portal on Cloudflare**: paste the token, give your own address
-   if you have one, save, then **Deploy to Cloudflare**. The page follows the
+3. **Settings, Portal on Cloudflare**: paste the token, enter the account ID
+   (needed for an account API token), give your own address if you have one,
+   paste the Turnstile keys if you made a widget, save, then **Deploy to
+   Cloudflare**. The page follows the
    deploy step by step and shows the portal's address when it's done.
+
+   A new custom address waits until it's in DNS before Trammel looks it up.
+   If it still doesn't answer from Trammel's server (a DNS server, such as a
+   Pi-hole or your router, may remember "no such name" for up to 30 minutes),
+   the deploy is kept and the page says it's waiting: Trammel checks every 30
+   seconds and puts the portal live by itself when it answers.
 
 While the portal is on Cloudflare, Trammel's own portal pages are off (staff
 can still view the portal as a customer sees it), and links in emails point at
@@ -235,7 +260,8 @@ Cloudflare. Customers' access, the portal switch and `PORTAL_OFF` work as
 before: turning the portal off closes it on Cloudflare and signs everyone out
 within 30 seconds. **Stop using it** on the same page removes everything
 published and brings Trammel's own pages back; **Remove it from Cloudflare**
-then deletes the Worker, its database, its storage and its bot check. Updating
+then deletes the Worker, its database, its storage and the bot check it set
+up (one you made by hand stays). Updating
 Trammel updates the Worker to match, within the hour.
 
 A closed, declined or canceled job comes off Cloudflare 90 days after it last
