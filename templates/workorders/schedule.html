@@ -12,6 +12,16 @@
 </div>
 <p class="muted">Every open work order's operations, laid onto shop hours, the crew and the machines in queue order: rush and high priority first, then the earliest promised or due date, unless a work order has been moved in the queue below. Operations pinned to a day come first that day, and an operation can run on another machine in its group when that finishes it sooner. It's worked out afresh each time, from planned time less time logged. Work orders waiting on something aren't planned until they resume.</p>
 
+<form method="get" action="{% url 'workorders:schedule_sheet' %}" target="_blank" class="filters schedule-print" aria-label="Print the schedule">
+  <input type="hidden" name="from" value="{% if this_week %}{% now 'Y-m-d' %}{% else %}{{ first|date:'Y-m-d' }}{% endif %}">
+  <label>Schedule sheet <select name="days"><option value="1">One day</option><option value="3">Three days</option><option value="7" selected>A week</option><option value="14">Two weeks</option></select></label>
+  <label>For <select name="for">{% for key, label in resources %}<option value="{{ key }}">{{ label }}</option>{% endfor %}</select></label>
+  <label class="check"><input type="checkbox" name="per_page" value="1"><span>A page a day</span></label>
+  <button type="submit" name="print" value="1">Print</button>
+  <button type="submit" name="format" value="pdf">Download PDF</button>
+</form>
+<p class="muted small">The schedule sheet lists each day's work in the order to do it{% if this_week %}, from today{% endif %}, to take into the shop beside the travelers.</p>
+
 <h2>Week of {{ first|d }}</h2>
 <div class="table-wrap schedule-wrap">
 <svg class="schedule" viewBox="0 0 {{ width }} {{ height }}" role="img" aria-labelledby="schedule-title" preserveAspectRatio="xMinYMin meet">
@@ -28,7 +38,7 @@
   <text class="row-name" x="8" y="{{ row.label_y }}">{{ row.name|truncatechars:22 }}</text>
   {% for item in row.items %}
   <a href="{{ item.wo.get_absolute_url }}">
-    <rect class="bar p{{ item.priority }}{% if item.late %} late{% endif %}{% if item.kind == 'machine' %} machine{% endif %}" x="{{ item.x }}" y="{{ item.y }}" width="{{ item.w }}" height="{{ item.h }}" rx="3"><title>{{ item.wo.number }} {{ item.wo.title }} · {{ item.op.name }} · {% if item.kind == "machine" %}machine time{% else %}hands-on{% endif %}{% if item.machine %} on {{ item.machine }}{% endif %}{% if item.instead_of %} instead of {{ item.instead_of }}{% endif %} · {{ item.start|date:"D" }} {{ item.start|t }}–{{ item.end|t }}{% if item.pinned %} · pinned to {{ item.pinned|date:"D" }} {{ item.pinned|d }}{% endif %}{% if item.after_hours %} · outside shop hours{% endif %}{% if item.late %} · running late{% endif %} · {{ item.wo.job.get_priority_display }} priority</title></rect>
+    <rect class="bar p{{ item.priority }}{% if item.late %} late{% endif %}{% if item.kind == 'machine' %} machine{% endif %}{% if item.unattended %} unattended{% endif %}" x="{{ item.x }}" y="{{ item.y }}" width="{{ item.w }}" height="{{ item.h }}" rx="3"><title>{{ item.wo.number }} {{ item.wo.title }} · {{ item.op.name }} · {% if item.kind == "machine" %}machine time{% else %}hands-on{% endif %}{% if item.machine %} on {{ item.machine }}{% endif %}{% if item.instead_of %} instead of {{ item.instead_of }}{% endif %} · {{ item.start|date:"D" }} {{ item.start|t }}–{{ item.end|t }}{% if item.pinned %} · pinned to {{ item.pinned|date:"D" }} {{ item.pinned|d }}{% endif %}{% if item.after_hours %} · outside shop hours{% endif %}{% if item.unattended %} · runs unattended, {{ item.from|date:"D" }} {{ item.from|t }} to {{ item.to|date:"D" }} {{ item.to|t }}{% endif %}{% if item.late %} · running late{% endif %} · {{ item.wo.job.get_priority_display }} priority</title></rect>
   </a>
   {% endfor %}
   {% for label in row.labels %}<text class="bar-label{% if label.light %} on-light{% endif %}" x="{{ label.x }}" y="{{ label.y }}" text-anchor="middle">{{ label.text }}</text>{% endfor %}
@@ -64,7 +74,7 @@
   {% if d.items %}
   <ul class="plain schedule-day">
     {% for i in d.items %}
-    <li><span class="nowrap">{{ i.start|t }}–{{ i.end|t }}</span> · {% if i.kind == "machine" %}{{ i.machine|default:"Machine time" }}{% else %}Hands-on{% if i.machine %} at {{ i.machine }}{% endif %}{% endif %} · <a href="{{ i.wo.get_absolute_url }}">{{ i.wo.number }}</a> {{ i.op.name }}{% if i.instead_of %} <span class="muted small">instead of {{ i.instead_of }}</span>{% endif %}{% if i.pinned %} <span class="badge badge-pin">pinned</span>{% endif %}{% if i.after_hours %} <span class="muted small">outside shop hours</span>{% endif %}{% if i.too_early %} <span class="flag flag-late">before the steps ahead of it</span>{% endif %}{% if i.late %} <span class="flag flag-late">late</span>{% endif %}</li>
+    <li><span class="nowrap">{{ i.start|t }}–{{ i.end|t }}</span> · {% if i.kind == "machine" %}{{ i.machine|default:"Machine time" }}{% else %}Hands-on{% if i.machine %} at {{ i.machine }}{% endif %}{% endif %} · <a href="{{ i.wo.get_absolute_url }}">{{ i.wo.number }}</a> {{ i.op.name }}{% if i.instead_of %} <span class="muted small">instead of {{ i.instead_of }}</span>{% endif %}{% if i.pinned %} <span class="badge badge-pin">pinned</span>{% endif %}{% if i.after_hours %} <span class="muted small">outside shop hours</span>{% endif %}{% if i.unattended %} <span class="muted small">runs unattended{% if i.end|date:"Ymd" != i.start|date:"Ymd" %}, till {{ i.end|date:"D" }} {{ i.end|t }}{% endif %}</span>{% endif %}{% if i.too_early %} <span class="flag flag-late">before the steps ahead of it</span>{% endif %}{% if i.late %} <span class="flag flag-late">late</span>{% endif %}</li>
     {% endfor %}
   </ul>
   {% elif d.span %}<p class="muted small">Nothing planned.</p>{% endif %}
@@ -82,7 +92,7 @@
         <td><a href="{{ wp.wo.get_absolute_url }}"><strong>{{ wp.wo.number }}</strong></a> {{ wp.wo.title }}</td>
         <td>{{ job.number }} <span class="muted">{{ job.customer.name }}</span></td>
         <td>{{ job.get_priority_display }}</td>
-        <td>{{ job.promised_date|d|default:job.due_date|default:"—" }}</td>
+        <td>{% if job.promised_date %}{{ job.promised_date|d }}{% elif job.due_date %}{{ job.due_date|d }}{% else %}—{% endif %}</td>
         <td>{% if wp.start %}{{ wp.start|mdt }}{% else %}—{% endif %}</td>
         <td>{% if wp.beyond %}<span class="flag flag-risk">More than six months out</span>
           {% elif wp.finish %}{{ wp.finish|mdt }}{% with miss=wp.late %}{% if miss %} <span class="flag flag-late">After {{ miss.0 }} ({{ miss.1|d }})</span>{% endif %}{% endwith %}

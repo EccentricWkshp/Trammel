@@ -14,5 +14,8 @@ class FloorConfig(ModuleConfig):
         depends_on=("workorders", "time"),
         urls="trammel.floor.urls",
         url_prefix="floor",
-        menu=(MenuEntry("Shop floor", "floor:home", "workorders.view", "main", 100),),
+        menu=(
+            MenuEntry("Shop floor", "floor:home", "workorders.view", "main", 100),
+            MenuEntry("Schedule", "floor:schedule", "workorders.view", "floor", 10),
+        ),
     )

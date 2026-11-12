@@ -88,3 +88,28 @@
     });
   });
 })();
+
+// A header checkbox ticks or clears every box of its name in the same form
+// (the work order list's travelers, 0.8.3).
+(function () {
+  "use strict";
+  document.querySelectorAll("input[data-check-all]").forEach(function (all) {
+    var form = all.form;
+    if (!form) return;
+    function boxes() {
+      return Array.prototype.filter.call(form.elements, function (el) {
+        return el.type === "checkbox" && el.name === all.dataset.checkAll;
+      });
+    }
+    all.addEventListener("change", function () {
+      boxes().forEach(function (box) { box.checked = all.checked; });
+    });
+    form.addEventListener("change", function (event) {
+      if (event.target === all) return;
+      var list = boxes();
+      var ticked = list.filter(function (box) { return box.checked; }).length;
+      all.checked = ticked > 0 && ticked === list.length;
+      all.indeterminate = ticked > 0 && ticked < list.length;
+    });
+  });
+})();

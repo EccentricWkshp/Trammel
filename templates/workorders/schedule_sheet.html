@@ -1,0 +1,105 @@
+{% load trammel %}<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Shop schedule {{ first|d }}{% if last != first %} to {{ last|d }}{% endif %}</title>
+<style>
+  @page {
+    size: letter; margin: 0.5in 0.5in 0.65in;
+    @bottom-left { content: "Shop schedule · {{ for_name }} · Printed {{ printed_at|dt }}"; font: 8pt Arial, Helvetica, sans-serif; color: #444; }
+    @bottom-right { content: "Page " counter(page) " of " counter(pages); font: 8pt Arial, Helvetica, sans-serif; color: #444; }
+  }
+  * { box-sizing: border-box; }
+  html { background: #e8e8e8; }
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 10pt; line-height: 1.3; color: #000;
+         background: #fff; max-width: 8.5in; margin: 1rem auto; padding: 0.5in; }
+  @media print { html { background: none; } body { margin: 0; padding: 0; max-width: none; } }
+
+  header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16pt; padding-bottom: 8pt; border-bottom: 3pt solid #000; }
+  .shop { font-size: 9pt; text-transform: uppercase; letter-spacing: .08em; color: #333; }
+  .doc-label { font-size: 9pt; font-weight: bold; text-transform: uppercase; letter-spacing: .12em; margin-top: 6pt; }
+  h1 { font-size: 22pt; line-height: 1.1; margin: 0; }
+  .sub { font-size: 11pt; font-weight: bold; margin-top: 3pt; }
+  .qr { flex: none; width: 1in; text-align: center; }
+  .qr svg { width: 1in; height: 1in; display: block; }
+  .qr small { display: block; font-size: 7pt; color: #333; margin-top: 2pt; }
+
+  table { width: 100%; border-collapse: collapse; }
+  thead { display: table-header-group; }
+  tr { break-inside: avoid; page-break-inside: avoid; }
+  h2 { font-size: 12pt; margin: 14pt 0 4pt; padding-bottom: 2pt; border-bottom: 1.5pt solid #000; break-after: avoid; page-break-after: avoid; display: flex; justify-content: space-between; align-items: baseline; }
+  h2 .hours { font-size: 9pt; font-weight: normal; }
+  .day { break-inside: auto; }
+  .day + .day.new-page { break-before: page; page-break-before: always; }
+
+  table.seq th { font-size: 7.5pt; text-transform: uppercase; letter-spacing: .05em; text-align: left; padding: 3pt 4pt; border-bottom: 1pt solid #000; background: #eee; }
+  table.seq td { padding: 5pt 4pt; border-bottom: .5pt solid #888; vertical-align: top; }
+  table.seq .check { width: 0.3in; text-align: center; }
+  table.seq .when { width: 1.15in; white-space: nowrap; }
+  table.seq .wo { width: 1.05in; font-weight: bold; white-space: nowrap; }
+  table.seq .where { width: 1.35in; }
+  table.seq .done { width: 0.85in; border-left: .5pt solid #bbb; }
+  .box { display: inline-block; width: 11pt; height: 11pt; border: 1.5pt solid #000; vertical-align: middle; }
+  .op { font-weight: bold; }
+  .what { font-size: 8.5pt; color: #222; }
+  .flag { display: inline-block; font-size: 7.5pt; font-weight: bold; text-transform: uppercase; letter-spacing: .04em; border: 1pt solid #000; padding: 0 3pt; margin: 2pt 3pt 0 0; }
+  .flag.late { background: #000; color: #fff; }
+  .machine-time td { color: #222; }
+  .muted { color: #555; }
+  .empty { padding: 6pt 0; color: #555; font-style: italic; }
+
+  table.queue { margin-top: 4pt; font-size: 9pt; }
+  table.queue th { font-size: 7.5pt; text-transform: uppercase; letter-spacing: .05em; text-align: left; padding: 3pt 4pt; border-bottom: 1pt solid #000; background: #eee; }
+  table.queue td { padding: 3pt 4pt; border-bottom: .5pt solid #bbb; vertical-align: top; }
+  table.queue .num { width: 0.3in; text-align: right; }
+  .notes div { height: 20pt; border-bottom: .5pt solid #888; }
+</style></head>
+<body>
+
+<header>
+  <div>
+    <div class="shop">{{ business.name }}</div>
+    <div class="doc-label">Shop schedule{% if resource %} · {{ for_name }}{% endif %}</div>
+    <h1>{% if last == first %}{{ first|date:"l" }} {{ first|d }}{% else %}{{ first|date:"D" }} {{ first|d }} to {{ last|date:"D" }} {{ last|d }}{% endif %}</h1>
+    <div class="sub">The order to do the work in. Each work order's traveler says what to do.</div>
+  </div>
+  <div class="qr" aria-label="QR code linking to the shop-floor schedule">{{ qr|safe }}<small>Scan for the latest</small></div>
+</header>
+
+{% for d in days %}
+<section class="day{% if per_page %} new-page{% endif %}">
+  <h2><span>{{ d.day|date:"l" }} {{ d.day|d }}</span><span class="hours">{% if d.shift %}Shop hours {{ d.shift.0|time:"g:i A" }} to {{ d.shift.1|time:"g:i A" }}{% if d.crew > 1 %} · {{ d.crew }} people{% endif %}{% else %}Day off{% endif %}</span></h2>
+  {% if d.items %}
+  <table class="seq">
+    <thead><tr><th class="check">Done</th><th class="when">When</th><th class="wo">Work order</th><th>Operation</th><th class="where">Where</th><th class="done">By / notes</th></tr></thead>
+    <tbody>
+    {% for i in d.items %}
+      <tr class="{% if i.kind == 'machine' %}machine-time{% endif %}">
+        <td class="check"><span class="box"></span></td>
+        <td class="when">{% if i.continued %}<span class="muted">(from before)</span>{% else %}{{ i.start|t }}{% endif %} to {% if i.overnight %}{{ i.end|date:"D" }} {% endif %}{{ i.end|t }}<br><span class="muted">{{ i.minutes|minutes }}</span></td>
+        <td class="wo">{{ i.wo.number }}<br><span class="what">#{{ i.position }} in the queue</span></td>
+        <td><span class="op">{{ i.op.number }} {{ i.op.name }}</span><br><span class="what">{{ i.wo.title }} · {{ i.wo.job.customer.name }}</span>
+          <div>{% if i.late %}<span class="flag late">Late: {{ i.late.0 }} {{ i.late.1|d }}</span>{% endif %}{% if i.pinned %}<span class="flag">Pinned to {{ i.pinned|date:"D" }}</span>{% endif %}{% if i.too_early %}<span class="flag">Before the steps ahead of it</span>{% endif %}{% if i.after_hours %}<span class="flag">Outside shop hours</span>{% endif %}{% if i.unattended %}<span class="flag">Runs unattended</span>{% endif %}</div></td>
+        <td class="where">{% if i.kind == "labor" %}Hands-on{% if i.machine %} at {{ i.machine }}{% endif %}{% else %}{{ i.machine|default:"Machine time" }}{% if i.machine %} running{% endif %}{% endif %}{% if i.instead_of %}<br><span class="what">instead of {{ i.instead_of }}</span>{% endif %}</td>
+        <td class="done"></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="empty">Nothing planned{% if resource %} for {{ for_name }}{% endif %}.</p>{% endif %}
+</section>
+{% endfor %}
+
+<h2>The queue</h2>
+<table class="queue">
+  <thead><tr><th class="num">#</th><th>Work order</th><th>Customer</th><th>Promised or due</th><th>Scheduled finish</th></tr></thead>
+  <tbody>
+  {% for wp in queue %}
+    <tr><td class="num">{{ wp.position }}</td><td><strong>{{ wp.wo.number }}</strong> {{ wp.wo.title }}</td><td>{{ wp.wo.job.customer.name }}</td>
+      <td>{% with job=wp.wo.job %}{% if job.promised_date %}{{ job.promised_date|d }}{% elif job.due_date %}{{ job.due_date|d }}{% else %}—{% endif %}{% endwith %}</td>
+      <td>{% if wp.beyond %}More than six months out{% elif wp.finish %}{{ wp.finish|mdt }}{% if wp.late %} <span class="flag late">Late</span>{% endif %}{% else %}—{% endif %}</td></tr>
+  {% empty %}<tr><td colspan="5" class="muted">No open work orders.</td></tr>{% endfor %}
+  </tbody>
+</table>
+{% if waiting %}<p class="muted">Waiting, not scheduled: {% for wo in waiting %}{{ wo.number }}{% if not forloop.last %}, {% endif %}{% endfor %}.</p>{% endif %}
+
+<h2>Notes</h2>
+<div class="notes">{% for n in blank_rows %}<div></div>{% endfor %}</div>
+</body></html>

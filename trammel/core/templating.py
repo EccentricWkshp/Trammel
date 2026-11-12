@@ -138,20 +138,37 @@ def pdf_available() -> bool:
     return True
 
 
-def render_pdf(html: str) -> bytes:
-    """Render a full HTML document to PDF. External URLs are never fetched."""
+def _weasyprint():
     try:
-        weasyprint = _import_weasyprint()
+        return _import_weasyprint()
     except (ImportError, OSError) as exc:
         raise PdfUnavailable(
             "This server cannot make PDF files: WeasyPrint's system libraries are missing "
             "(the Docker image includes them). Use Print and choose Save as PDF instead."
         ) from exc
 
+
+def _fetcher(weasyprint):
     # Only data: URLs (the embedded logo) are read; anything else — files on the
     # server, addresses on the network — is refused.
-    fetcher = weasyprint.URLFetcher(allowed_protocols={"data"}, allow_redirects=False)
-    return weasyprint.HTML(string=html, url_fetcher=fetcher).write_pdf()
+    return weasyprint.URLFetcher(allowed_protocols={"data"}, allow_redirects=False)
+
+
+def render_pdf(html: str) -> bytes:
+    """Render a full HTML document to PDF. External URLs are never fetched."""
+    weasyprint = _weasyprint()
+    return weasyprint.HTML(string=html, url_fetcher=_fetcher(weasyprint)).write_pdf()
+
+
+def render_pdfs(htmls: list[str]) -> bytes:
+    """Several full HTML documents as one PDF, one after another. Each is laid
+    out on its own, so its page numbers ("Page 2 of 3") and running footers are
+    its own, not the whole file's."""
+    weasyprint = _weasyprint()
+    fetcher = _fetcher(weasyprint)
+    documents = [weasyprint.HTML(string=h, url_fetcher=fetcher).render() for h in htmls]
+    pages = [page for document in documents for page in document.pages]
+    return documents[0].copy(pages).write_pdf()
 
 
 def business_context(business) -> dict:

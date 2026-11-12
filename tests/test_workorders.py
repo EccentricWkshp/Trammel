@@ -275,3 +275,46 @@ def test_operations_are_locked_on_a_closed_work_order(wo, admin):
         services.update_operation(op, name="New")
     with pytest.raises(ValidationError, match="Reopen"):
         services.delete_operation(op)
+
+
+@pytest.mark.django_db
+def test_travelers_print_together_from_the_list(admin_client, wo, approved, admin):
+    from trammel.core import templating
+
+    other = services.create(wo.job, title="Second piece")
+    page = admin_client.get("/work-orders/").content.decode()
+    assert 'data-check-all="wo"' in page and f'name="wo" value="{wo.pk}"' in page
+    assert "Print travelers" in page and "/work-orders/travelers/" in page
+    url = f"/work-orders/travelers/?wo={other.pk}&wo={wo.pk}&wo={wo.pk}"
+    bundle = admin_client.get(url).content.decode()
+    assert bundle.count('<section class="traveler">') == 2  # once each, as ticked
+    assert bundle.index(other.number) < bundle.index(f"<h1>{wo.number}</h1>")
+    assert "string(footer)" in bundle and "break-before: page" in bundle
+    # One traveler alone keeps its own footer.
+    single = admin_client.get(f"/work-orders/{wo.pk}/traveler/").content.decode()
+    assert f'content: "{wo.number} · Job' in single
+    # Nothing ticked, or nothing that's a work order.
+    response = admin_client.get("/work-orders/travelers/?wo=nope")
+    assert response.status_code == 302 and response["Location"] == "/work-orders/"
+    if not templating.pdf_available():
+        # Printing falls back to the page above, with the print dialog.
+        assert "print()" in admin_client.get(url + "&print=1").content.decode()
+        return
+    import pypdfium2
+
+    pdf = admin_client.get(url + "&format=pdf")
+    assert pdf.content.startswith(b"%PDF") and "attachment" in pdf["Content-Disposition"]
+    # Each traveler is numbered on its own: page 1 of its own count, twice over.
+    import re
+
+    pages = [p.get_textpage().get_text_range() for p in pypdfium2.PdfDocument(pdf.content)]
+    numbers = [tuple(map(int, re.search(r"Page (\d+) of (\d+)", t).groups())) for t in pages]
+    starts = [n for n, (page, _of) in enumerate(numbers) if page == 1]
+    assert len(starts) == 2
+    for start, end in zip(starts, [*starts[1:], len(numbers)], strict=True):
+        assert [n for n, _ in numbers[start:end]] == list(range(1, end - start + 1))
+        assert {of for _, of in numbers[start:end]} == {end - start}
+    assert other.number in pages[0] and wo.number in pages[starts[1]]
+    printed = admin_client.get(url + "&print=1")
+    assert printed["Content-Type"] == "application/pdf"
+    assert "inline" in printed["Content-Disposition"]

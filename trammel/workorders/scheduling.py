@@ -24,6 +24,10 @@ shop's hours, its machines and the day's crew.
   a day off, without changing the shop's hours. An operation on a machine in a
   group runs on whichever machine of the group would finish it first, unless
   it's pinned to its own.
+* **Unattended machines (0.8.3).** A machine that runs unattended (a 3D
+  printer overnight) starts its machine time in shop hours, when someone can
+  start it (closing time included), and runs straight through, around the
+  clock, until it's done; the machine is busy all that time.
 
 The plan is worked out when it's asked for; nothing is stored.
 """
@@ -63,6 +67,8 @@ class Booking:
     machine_id: object = None
     #: Outside shop hours: an operation pinned to be finished that day.
     after_hours: bool = False
+    #: Machine time on a machine that runs unattended, straight through.
+    unattended: bool = False
 
 
 @dataclass
@@ -302,7 +308,7 @@ class _Board:
     """Who and what is free in each slot, as the plan fills it. Slots outside
     shop hours belong to the operations pinned to them."""
 
-    def __init__(self, slots, extra=()):
+    def __init__(self, slots, extra=(), unattended=frozenset()):
         merged = sorted(
             [(s, e, c, None) for s, e, c in slots] + list(extra), key=lambda x: (x[0], x[1])
         )
@@ -311,6 +317,44 @@ class _Board:
         self.starts = [s for s, _, _ in self.slots]
         self.crew = [c for _, _, c in self.slots]
         self.machines: dict = defaultdict(lambda: bytearray(len(self.slots)))
+        #: Machines that run unattended: their busy time as sorted, non-overlapping
+        #: (start, end) stretches of the wall clock, since they run past closing.
+        self.unattended = unattended
+        self.spans: dict = defaultdict(list)
+
+    def _clash(self, machine, start, end) -> tuple | None:
+        """The busy stretch of an unattended machine overlapping [start, end)."""
+        spans = self.spans[machine]
+        k = bisect.bisect_left(spans, (end,)) - 1  # the last one starting before `end`
+        return spans[k] if k >= 0 and spans[k][1] > start else None
+
+    def _starts(self, t: dt.datetime) -> dt.datetime | None:
+        """The first moment from `t` someone could start a machine: in shop
+        hours, or right at closing."""
+        i = self.first_from(t)
+        if i > 0 and self.slots[i - 1][1] == t:
+            return t
+        if i >= len(self.slots):
+            return None
+        return max(self.slots[i][0], t)
+
+    def run(self, ready: dt.datetime, minutes: int, machine) -> tuple | None:
+        """The first stretch of `minutes` from `ready` an unattended machine is
+        free for, started in shop hours; None past the horizon."""
+        length = dt.timedelta(minutes=minutes)
+        horizon = self.slots[-1][1] if self.slots else ready
+        t = ready
+        while True:
+            t = self._starts(t)
+            if t is None or t + length > horizon:
+                return None
+            clash = self._clash(machine, t, t + length)
+            if clash is None:
+                return t, t + length
+            t = clash[1]
+
+    def book(self, machine, start, end) -> None:
+        bisect.insort(self.spans[machine], (start, end))
 
     def first_from(self, t: dt.datetime) -> int:
         """The first slot ending after `t` (a slot it falls in counts)."""
@@ -329,7 +373,10 @@ class _Board:
                 continue
             if crew and self.crew[j] <= 0:
                 continue
-            if busy is not None and busy[j]:
+            if machine in self.unattended:
+                if self._clash(machine, *self.slots[j][:2]):
+                    continue
+            elif busy is not None and busy[j]:
                 continue
             got.append(j)
             if len(got) == need:
@@ -341,7 +388,9 @@ class _Board:
         for j in got:
             if crew:
                 self.crew[j] -= 1
-            if busy is not None:
+            if machine in self.unattended:
+                self.book(machine, *self.slots[j][:2])
+            elif busy is not None:
                 busy[j] = 1
 
 
@@ -372,7 +421,10 @@ class _Machines:
 
         self.group: dict = {}
         self.members: dict = defaultdict(list)
+        self.unattended: set = set()
         for m in Machine.objects.order_by("name"):
+            if m.runs_unattended:
+                self.unattended.add(m.pk)
             key = m.group.strip().casefold()
             self.group[m.pk] = key
             if key and m.is_active:
@@ -399,20 +451,39 @@ def _place(board: _Board, op: Operation, i: int, labor: int, machine: int, candi
         if labor and not picked:
             continue
         after = (picked[-1] + 1) if picked else i
-        ran = (
-            board.find(after, machine, crew=False, machine=run_key, owner=owner) if machine else []
-        )
-        if machine and not ran:
-            continue
-        end = (ran or picked)[-1]
+        ran, window = [], None
+        if machine and m in board.unattended:
+            # Started once the hands-on part is done, then straight through.
+            ready = (
+                board.slots[picked[-1]][1]
+                if picked
+                else (board.slots[i][0] if i < len(board.slots) else None)
+            )
+            window = board.run(ready, machine * SLOT, m) if ready else None
+            if window is None:
+                continue
+            end = window[1]
+        elif machine:
+            ran = board.find(after, machine, crew=False, machine=run_key, owner=owner)
+            if not ran:
+                continue
+            end = board.slots[ran[-1]][1]
+        else:
+            end = board.slots[picked[-1]][1]
         if best is None or end < best[0]:
-            best = (end, m, run_key, picked, ran)
+            best = (end, m, run_key, picked, ran, window)
     if best is None:
         return None
-    _end, m, run_key, picked, ran = best
+    _end, m, run_key, picked, ran, window = best
     board.commit(picked, crew=True, machine=m)
-    board.commit(ran, crew=False, machine=run_key)
-    return m, _runs(board, picked, "labor", m) + _runs(board, ran, "machine", m)
+    bookings = _runs(board, picked, "labor", m)
+    if window:
+        board.book(m, *window)
+        bookings.append(Booking("machine", *window, m, unattended=True))
+    else:
+        board.commit(ran, crew=False, machine=run_key)
+        bookings += _runs(board, ran, "machine", m)
+    return m, bookings
 
 
 def _work(op: Operation, logged: dict) -> tuple[int, int]:
@@ -492,6 +563,7 @@ def build(now: dt.datetime | None = None, trial=None) -> Plan:
     board = _Board(
         slots,
         _extra_slots(hours, [(start, until, op.pk) for op, _, _, start, until in to_pin if until]),
+        unattended=frozenset(machines.unattended),
     )
     pinned: dict = {}
     for op, labor, machine, start, until in to_pin:

@@ -50,6 +50,13 @@ class Machine(BaseModel):
         validators=[MinValueValidator(0)],
         help_text="Charged per hour of machine time, on top of labor.",
     )
+    runs_unattended = models.BooleanField(
+        "runs unattended",
+        default=False,
+        help_text="Once started, it runs on its own, overnight or over a weekend (a 3D "
+        "printer, say). The schedule starts its machine time in shop hours and lets it run "
+        "past closing.",
+    )
     is_active = models.BooleanField(
         default=True, help_text="Inactive machines are kept for history but not offered."
     )

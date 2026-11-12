@@ -93,19 +93,35 @@ class Builder:
         from trammel.core.services import save_audited
         from trammel.customers.models import Customer
         from trammel.jobs import services as jobs
-        from trammel.jobs.models import Priority
+        from trammel.jobs.models import Job, Priority
         from trammel.quotes import services as quotes
         from trammel.shop.models import Machine
         from trammel.workorders import services as wos
         from trammel.workorders.models import WorkOrder
 
-        if WorkOrder.objects.filter(title=self.SCHEDULE_MARK).exists():
-            self.say("schedule demo already loaded; skipped")
+        # The printers run unattended overnight (0.8.3); set even when the rest
+        # of this part was loaded before.
+        for name in ("Prusa MK4", "Bambu Lab X1-C"):
+            for printer in Machine.objects.filter(name=name, runs_unattended=False):
+                before = audit.snapshot(printer)
+                printer.runs_unattended = True
+                save_audited(printer, before=before)
+        # Loaded before: its jobs are tagged (titles can be renamed).
+        if (
+            Job.objects.filter(tags__contains=["schedule"]).exists()
+            or WorkOrder.objects.filter(title=self.SCHEDULE_MARK).exists()
+        ):
+            self.say("printers set to run unattended; the rest of the schedule demo was loaded")
             return
 
         def machine(name, kind, rate):
             return Machine.objects.get_or_create(
-                name=name, defaults={"kind": kind, "hourly_rate": D(rate)}
+                name=name,
+                defaults={
+                    "kind": kind,
+                    "hourly_rate": D(rate),
+                    "runs_unattended": kind == "printer_3d",
+                },
             )[0]
 
         prusa = machine("Prusa MK4", "printer_3d", "6")
@@ -197,9 +213,8 @@ class Builder:
                 ("Print the organizers", prusa, 15, 480, 0),
                 ("Pack and label", None, 20, 0, 0),
             )
-            if workdays:
-                # Pinned before the printing can be done: flagged.
-                wos.pin_operation(pack, pinned_date=workdays[0])
+            # Pinned to today, before the printing can be done: flagged.
+            wos.pin_operation(pack, pinned_date=today)
             j = approved(
                 who("lantern"),
                 "Menu holder clips",

@@ -24,13 +24,16 @@ printing, laser work. Self-hosted: the data stays on the shop's own hardware.
   of materials, and a cost calculated from them unless set by hand.
 - **Work orders** — operations with planned and logged time, products' routings
   as steps, planned and used materials, approved change orders added as
-  operations, printable travelers with a QR code, and a phone/tablet
-  shop-floor app.
+  operations, printable travelers with a QR code (one at a time or many at
+  once), and a phone/tablet shop-floor app.
 - **Schedule** — open work laid onto shop hours, the day's crew and each
   machine in priority order, as a week-by-week machine timeline with each
   machine's load, and a scheduled start and finish on every work order,
   flagged when it would miss its date. Work orders can be moved in the queue,
-  operations pinned to a day, and machines grouped to stand in for each other.
+  operations pinned to a day, machines grouped to stand in for each other, and
+  machines that run unattended (a printer overnight) planned around the clock.
+  A printable schedule sheet (and PDF) sequences each day's work for the shop,
+  beside the travelers, and the shop-floor app shows the day's schedule.
 - **Files** — drawings, photos, DXF, LightBurn, STL/3MF and G-code on
   customers, jobs, quotes, work orders and products, with revisions and
   previews: DXF drawings, STL and 3MF models, and the thumbnails LightBurn and

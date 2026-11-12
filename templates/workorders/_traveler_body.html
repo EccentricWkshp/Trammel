@@ -1,0 +1,110 @@
+{% load trammel %}<div class="running-footer">{{ wo.number }} · Job {{ job.number }} · Printed {{ printed_at|dt }}</div>
+<header>
+  <div>
+    <div class="shop">{{ business.name }}</div>
+    <div class="doc-label">Work order traveler</div>
+    <h1>{{ wo.number }}</h1>
+    <div class="title">{{ wo.title }}</div>
+  </div>
+  <div class="qr" aria-label="QR code linking to this work order">{{ qr|safe }}<small>Scan for the shop-floor page</small></div>
+</header>
+
+<table class="facts">
+  <tr>
+    <td><span class="k">Customer</span><span class="v">{{ job.customer.name|default:"Walk-in" }}</span></td>
+    <td><span class="k">Job</span><span class="v">{{ job.number }}</span>{{ job.title }}</td>
+    <td class="due"><span class="k">Due</span><span class="v">{% if job.due_date %}{{ job.due_date|date:"D" }} {{ job.due_date|d }}{% else %}—{% endif %}</span></td>
+    <td><span class="k">Target completion</span><span class="v">{% if wo.target_completion %}{{ wo.target_completion|d }}{% else %}—{% endif %}</span></td>
+    <td><span class="k">Status</span><span class="v">{{ wo.get_status_display }}</span>{% if wo.waiting_on %}waiting on {{ wo.get_waiting_on_display|lower }}{% endif %}</td>
+  </tr>
+</table>
+
+{% if wo.instructions %}
+<h2>Instructions</h2>
+<div class="instructions">{{ wo.instructions }}</div>
+{% endif %}
+
+<h2>Operations</h2>
+<table class="grid">
+  <thead><tr><th class="num">#</th><th>Operation</th><th class="check">Done</th><th class="write">Initials</th><th class="write">Date</th></tr></thead>
+  <tbody>
+  {% for op in operations %}
+    <tr class="{{ op.status }}">
+      <td class="num">{{ op.number }}</td>
+      <td>
+        <div class="op-name d{{ op.depth }}">{{ op.name }}</div>
+        {% if op.machine %}<div class="machine">Machine: {{ op.machine }}</div>{% endif %}
+        {% if op.time.planned or op.time.logged %}<div class="machine">{% include "workorders/_op_time.html" %}</div>{% endif %}
+        {% if op.description %}<div class="op-desc">{{ op.description }}</div>{% endif %}
+      </td>
+      <td class="check"><span class="box">{% if op.status == "done" %}✓{% elif op.status == "skipped" %}–{% endif %}</span></td>
+      <td class="write">{% if op.completed_by %}<span class="done-by">{{ op.completed_by.get_short_name }}</span>{% endif %}</td>
+      <td class="write">{% if op.completed_at %}<span class="done-by">{{ op.completed_at|md }}</span>{% endif %}</td>
+    </tr>
+  {% empty %}
+    {% for i in blank_rows %}<tr><td class="num">{{ forloop.counter }}</td><td>&nbsp;</td><td class="check"><span class="box"></span></td><td class="write"></td><td class="write"></td></tr>{% endfor %}
+  {% endfor %}
+  </tbody>
+</table>
+
+{% if items %}
+<h2>Items to include</h2>
+<table class="grid">
+  <thead><tr><th class="check">Included</th><th>Item</th><th class="qty">Quantity</th><th class="write">Initials</th></tr></thead>
+  <tbody>
+  {% for item in items %}
+    <tr class="{{ item.status }}">
+      <td class="check"><span class="box">{% if item.status == "done" %}✓{% elif item.status == "skipped" %}–{% endif %}</span></td>
+      <td>{{ item.description }}</td>
+      <td class="qty">{{ item.quantity|floatformat:"-4" }}{% if item.unit and item.unit != "each" %} {{ item.get_unit_display }}{% endif %}</td>
+      <td class="write">{% if item.completed_by %}<span class="done-by">{{ item.completed_by.get_short_name }}</span>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{% if planned %}
+<h2>Materials</h2>
+<table class="grid">
+  <thead><tr><th class="check">Pulled</th><th>Material</th><th class="qty">Planned</th><th class="write">Used</th></tr></thead>
+  <tbody>
+  {% for p in planned %}
+    <tr>
+      <td class="check"><span class="box"></span></td>
+      <td>{{ p.description }}{% if p.stock_note %}<br><small>{{ p.stock_note }}</small>{% endif %}</td>
+      <td class="qty">{% if p.quantity %}{{ p.quantity|floatformat:"-4" }} {{ p.get_unit_display }}{% endif %}</td>
+      <td class="write"></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<h2>Shop notes</h2>
+{% if notes %}
+<ul class="prior">{% for n in notes %}<li><span class="meta">{{ n.created_at|md }}{% if n.author %} · {{ n.author.get_short_name }}{% endif %}:</span> {{ n.text }}</li>{% endfor %}</ul>
+{% endif %}
+<div class="lines"><div></div><div></div><div></div><div></div><div></div></div>
+
+<table class="signoff">
+  <tr>
+    <td><div class="line"></div><div class="k">Completed by</div></td>
+    <td><div class="line"></div><div class="k">Date</div></td>
+    <td><div class="line"></div><div class="k">Checked by</div></td>
+    <td><div class="line"></div><div class="k">Date</div></td>
+  </tr>
+</table>
+
+{% if files %}
+<h2>Files</h2>
+<table>
+  <thead><tr><th>File</th><th>Type</th><th>Name and revision</th></tr></thead>
+  <tbody>{% for f in files %}<tr><td>{{ f.title }}</td><td>{{ f.type|default:"—" }}</td><td>{{ f.name }} · r{{ f.revision }}</td></tr>{% endfor %}</tbody>
+</table>
+{% endif %}
+
+{% if images %}
+<h2>Drawings and photos</h2>
+<div class="images">{% for img in images %}<figure><img src="{{ img.src }}" alt=""><figcaption>{{ img.title }}</figcaption></figure>{% endfor %}</div>
+{% endif %}

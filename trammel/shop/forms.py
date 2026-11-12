@@ -25,6 +25,7 @@ class MachineForm(forms.ModelForm):
             "name",
             "kind",
             "group",
+            "runs_unattended",
             "hourly_rate",
             "notes",
             "purchase_cost",
@@ -45,7 +46,7 @@ class MachineForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields["hourly_rate"].label = "Hourly rate charged"
         for name in self.Meta.fields:
-            if name not in ("name", "kind", "group", "notes"):
+            if name not in ("name", "kind", "group", "runs_unattended", "notes"):
                 self.fields[name].widget.attrs.update({"inputmode": "decimal", "data-rate": name})
         self.fields["kind"].widget.attrs["data-rate"] = "kind"
         self.fields["group"].widget.attrs.update({"list": "machine-groups", "autocomplete": "off"})

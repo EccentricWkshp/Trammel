@@ -1,0 +1,67 @@
+{% load trammel %}  @page {
+    size: letter; margin: 0.5in 0.5in 0.65in;
+    @bottom-left { content: {% if bundle %}string(footer){% else %}"{{ wo.number }} · Job {{ job.number }} · Printed {{ printed_at|dt }}"{% endif %}; font: 8pt Arial, Helvetica, sans-serif; color: #444; }
+    @bottom-right { content: "Page " counter(page) " of " counter(pages); font: 8pt Arial, Helvetica, sans-serif; color: #444; }
+  }
+  * { box-sizing: border-box; }
+  html { background: #e8e8e8; }
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 10.5pt; line-height: 1.35; color: #000;
+         background: #fff; max-width: 8.5in; margin: 1rem auto; padding: 0.5in; }
+  @media print { html { background: none; } body { margin: 0; padding: 0; max-width: none; } }
+
+  header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16pt; padding-bottom: 8pt; border-bottom: 3pt solid #000; }
+  .shop { font-size: 9pt; text-transform: uppercase; letter-spacing: .08em; color: #333; }
+  .doc-label { font-size: 9pt; font-weight: bold; text-transform: uppercase; letter-spacing: .12em; margin-top: 6pt; }
+  h1 { font-size: 26pt; line-height: 1.1; margin: 0; letter-spacing: .02em; }
+  .title { font-size: 14pt; font-weight: bold; margin-top: 3pt; }
+  .qr { flex: none; width: 1.25in; text-align: center; }
+  .qr svg { width: 1.25in; height: 1.25in; display: block; }
+  .qr small { display: block; font-size: 7pt; color: #333; margin-top: 2pt; }
+
+  table { width: 100%; border-collapse: collapse; }
+  thead { display: table-header-group; }
+  tr { break-inside: avoid; page-break-inside: avoid; }
+
+  table.facts { margin: 10pt 0 4pt; table-layout: fixed; }
+  table.facts td { border: 1pt solid #000; padding: 4pt 6pt; vertical-align: top; }
+  table.facts .k { display: block; font-size: 7pt; text-transform: uppercase; letter-spacing: .06em; color: #333; }
+  table.facts .v { display: block; font-size: 11pt; font-weight: bold; }
+  .due .v { font-size: 13pt; }
+
+  h2 { font-size: 11pt; text-transform: uppercase; letter-spacing: .06em; margin: 14pt 0 5pt; padding-bottom: 2pt; border-bottom: 1.5pt solid #000; break-after: avoid; page-break-after: avoid; }
+  .instructions { border: 1pt solid #000; border-left-width: 4pt; padding: 6pt 8pt; white-space: pre-wrap; }
+
+  table.grid th { font-size: 7.5pt; text-transform: uppercase; letter-spacing: .05em; text-align: left; padding: 3pt 5pt; border-bottom: 1pt solid #000; background: #eee; }
+  table.grid td { padding: 6pt 5pt; border-bottom: .5pt solid #888; vertical-align: top; }
+  table.grid .num { width: 0.35in; font-weight: bold; text-align: center; }
+  table.grid .check { width: 0.45in; text-align: center; }
+  table.grid .write { width: 0.9in; border-left: .5pt solid #bbb; }
+  table.grid .qty { width: 0.9in; text-align: right; white-space: nowrap; }
+  .box { display: inline-block; width: 12pt; height: 12pt; border: 1.5pt solid #000; vertical-align: middle; text-align: center; line-height: 10pt; font-size: 10pt; font-weight: bold; }
+  .op-name { font-weight: bold; }
+  .op-name.d1, .op-name.d2, .op-name.d3 { font-weight: normal; }
+  .op-name.d1 { padding-left: 10pt; } .op-name.d2 { padding-left: 20pt; } .op-name.d3 { padding-left: 30pt; }
+  .op-desc { font-size: 9pt; color: #222; margin-top: 2pt; white-space: pre-wrap; }
+  .machine { font-size: 9pt; }
+  .done-by { font-size: 8pt; color: #333; }
+  .skipped .op-name { text-decoration: line-through; }
+
+  ul.prior { margin: 0 0 6pt; padding-left: 14pt; font-size: 9.5pt; }
+  ul.prior .meta { color: #444; font-size: 8.5pt; }
+  .lines div { height: 22pt; border-bottom: .5pt solid #888; }
+
+  table.signoff { margin-top: 16pt; break-inside: avoid; page-break-inside: avoid; }
+  table.signoff td { padding: 18pt 8pt 2pt 0; width: 25%; }
+  table.signoff .line { border-bottom: 1pt solid #000; height: 14pt; }
+  table.signoff .k { font-size: 7.5pt; text-transform: uppercase; letter-spacing: .05em; color: #333; padding-top: 2pt; }
+
+  .images { display: flex; flex-wrap: wrap; gap: 10pt; }
+  .images figure { margin: 0; width: 3.6in; break-inside: avoid; page-break-inside: avoid; }
+  .images img { width: 100%; border: .5pt solid #888; }
+  .images figcaption { font-size: 8pt; margin-top: 2pt; }
+  .muted { color: #555; }
+
+  /* Travelers printed together (0.8.3): each starts a page, with its own footer. */
+  .running-footer { string-set: footer content(); height: 0; margin: 0; overflow: hidden; font-size: 0; }
+  section.traveler + section.traveler { break-before: page; page-break-before: always; }
+  @media screen { section.traveler + section.traveler { margin-top: .4in; padding-top: .4in; border-top: 2pt dashed #999; } }

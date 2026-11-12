@@ -332,10 +332,14 @@ svg.schedule a.picked .bar { stroke: var(--text); stroke-width: 2; }
 svg.schedule .p3 { fill: #a8192c; } svg.schedule .p2 { fill: #d2691e; }
 svg.schedule .p1 { fill: #3b78c2; } svg.schedule .p0 { fill: #a9cdee; }
 svg.schedule .bar.machine.p0 { fill-opacity: .75; }
+svg.schedule .bar.unattended { stroke-dasharray: 1 2; stroke-width: 1; }
 svg.schedule .bar-label.on-light { fill: #17324d; stroke: rgb(255 255 255 / .55); }
 .schedule-day li { padding: .2rem 0; }
 .badge.badge-pin { background: var(--surface); border: 1px solid var(--border); color: var(--text); text-transform: none; letter-spacing: 0; }
 .queue-move { white-space: nowrap; }
+.schedule-print { margin-top: 1rem; }
+.bulk-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin: .75rem 0 .5rem; }
+th.pick, td.pick { width: 2rem; text-align: center; }
 .badge.badge-rush { background: #a8192c; color: #fff; }
 .rush-toggle { display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem; margin: .5rem 0; }
 .schedule-detail { min-height: 1.5em; margin: .5rem 0; color: var(--muted); font-size: .9rem; }

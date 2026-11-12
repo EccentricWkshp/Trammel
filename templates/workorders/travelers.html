@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Travelers: {{ numbers|join:", " }}</title>
+<style>
+{% include "workorders/_traveler_style.html" with bundle=True %}</style></head>
+<body>
+{% for t in travelers %}<section class="traveler">
+{% include "workorders/_traveler_body.html" with wo=t.wo job=t.job operations=t.operations blank_rows=t.blank_rows items=t.items planned=t.planned notes=t.notes printed_at=t.printed_at images=t.images files=t.files qr=t.qr url=t.url business=t.business %}
+</section>
+{% endfor %}</body></html>

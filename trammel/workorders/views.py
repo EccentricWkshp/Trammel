@@ -686,6 +686,62 @@ def traveler(request, pk):
     return document_response(request, html)
 
 
+#: The most travelers printed at once.
+BULK_TRAVELERS = 100
+
+
+@permission_required("workorders.view")
+@document_view
+def travelers(request):
+    """Travelers for several work orders at once (0.8.3), each starting a page:
+    ?wo= for each, in that order; ?print=1 or ?format=pdf."""
+    wanted = []
+    for value in request.GET.getlist("wo")[:BULK_TRAVELERS]:
+        if value not in wanted:
+            wanted.append(value)
+    try:
+        found = access.scoped(
+            request.actor,
+            "workorders.view",
+            WorkOrder.objects.select_related("job__customer").filter(pk__in=wanted),
+        )
+        by_pk = {str(wo.pk): wo for wo in found}
+    except ValidationError:  # not an id
+        by_pk = {}
+    chosen = [by_pk[v] for v in wanted if v in by_pk]
+    if not chosen:
+        messages.error(request, "Tick the work orders to print travelers for.")
+        return redirect("workorders:list")
+    contexts = [_traveler_context(request, wo) for wo in chosen]
+    wants_pdf = request.GET.get("format") == "pdf"
+    # Printing opens the PDF itself where the server can make one: each
+    # traveler laid out on its own, so its pages number 1 of 2, 2 of 2, rather
+    # than counting through the whole bundle.
+    if wants_pdf or (request.GET.get("print") and templating.pdf_available()):
+        try:
+            data = templating.render_pdfs(
+                [render_to_string("workorders/traveler.html", c, request=request) for c in contexts]
+            )
+        except templating.PdfUnavailable as exc:
+            messages.error(request, str(exc))
+            return redirect("workorders:list")
+        response = HttpResponse(data, content_type="application/pdf")
+        name = (
+            f"traveler-{chosen[0].number}.pdf"
+            if len(chosen) == 1
+            else f"travelers-{now():%Y-%m-%d}.pdf"
+        )
+        response["Content-Disposition"] = content_disposition_header(wants_pdf, name)
+        return response
+    # Without PDFs, one page for the browser to print.
+    html = render_to_string(
+        "workorders/travelers.html",
+        {"travelers": contexts, "numbers": [wo.number for wo in chosen]},
+        request=request,
+    )
+    return document_response(request, html)
+
+
 @permission_required("workorders.edit")
 @require_POST
 def add_change_order(request, pk):

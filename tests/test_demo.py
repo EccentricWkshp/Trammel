@@ -46,9 +46,14 @@ def test_seed_demo_builds_every_stage_once(admin):
     assert any(o.pinned and any(b.after_hours for b in o.bookings) for o in ops)
     assert any(o.too_early for o in ops)
     assert any(o.other_machine for o in ops)
+    # Added once, even after its work orders are renamed; its printers run unattended.
+    from trammel.shop.models import Machine
+
+    WorkOrder.objects.filter(title="Rush: 40 engraved tap handles").update(title="Tap handles")
     count = WorkOrder.objects.count()
     call_command("seed_demo", yes=True, only="schedule")
     assert WorkOrder.objects.count() == count
+    assert Machine.objects.get(name="Prusa MK4").runs_unattended
 
 
 @pytest.mark.django_db

@@ -117,6 +117,37 @@ def work_order(request, pk):
     )
 
 
+@permission_required("workorders.view")
+def schedule(request):
+    """The day's work in the order to do it (0.8.3), each linked to its work
+    order here; the schedule sheet prints it."""
+    import datetime as dt
+
+    from django.utils import timezone
+
+    from trammel.workorders import scheduling, sheet
+
+    today = timezone.localdate()
+    day = sheet.first_day(request.GET.get("day"), today)
+    resource = request.GET.get("for", "")
+    if resource not in dict(sheet.resources()):
+        resource = ""
+    days = sheet.days(scheduling.build(), day, 1, resource)
+    return render(
+        request,
+        "floor/schedule.html",
+        {
+            "day": day,
+            "today": today,
+            "plan_day": days[0] if days else None,
+            "previous": (day - dt.timedelta(days=1)).isoformat(),
+            "next": (day + dt.timedelta(days=1)).isoformat(),
+            "resource": resource,
+            "resources": sheet.resources(),
+        },
+    )
+
+
 @cache_control(max_age=3600)
 def manifest(request):
     import json

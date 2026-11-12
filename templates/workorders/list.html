@@ -17,19 +17,27 @@
   {% sort_select %}
   <button type="submit">Filter</button>
 </form>
+<form method="get" action="{% url 'workorders:travelers' %}" target="_blank" id="travelers" class="bulk-travelers">
+  <div class="bulk-actions">
+    <span class="muted small">Travelers for the ticked work orders:</span>
+    <button type="submit" name="print" value="1">Print travelers</button>
+    <button type="submit" name="format" value="pdf">Download PDF</button>
+  </div>
 <div class="table-wrap"><table>
-  <thead><tr>{% sort_th "number" "Work order" %}{% sort_th "job" "Job" %}{% sort_th "status" "Status" %}{% sort_th "target" "Target" %}<th scope="col">Scheduled finish</th></tr></thead>
+  <thead><tr><th scope="col" class="pick"><input type="checkbox" data-check-all="wo" aria-label="Tick every work order on this page"></th>{% sort_th "number" "Work order" %}{% sort_th "job" "Job" %}{% sort_th "status" "Status" %}{% sort_th "target" "Target" %}<th scope="col">Scheduled finish</th></tr></thead>
   <tbody>
   {% for wo in page %}
     <tr>
+      <td class="pick"><input type="checkbox" name="wo" value="{{ wo.pk }}" aria-label="{{ wo.number }}"></td>
       <td><a href="{{ wo.get_absolute_url }}"><strong>{{ wo.number }}</strong></a> {{ wo.title }}</td>
       <td><a href="{{ wo.job.get_absolute_url }}">{{ wo.job.number }}</a> {{ wo.job.customer.name }}</td>
       <td><span class="status status-{{ wo.status }}">{{ wo.get_status_display }}</span>{% if wo.waiting_on %} <span class="muted">on {{ wo.get_waiting_on_display|lower }}</span>{% endif %}</td>
       <td>{{ wo.target_completion|d|default:"—" }}</td>
       <td>{% with s=wo.scheduled %}{% if s.beyond %}<span class="flag flag-risk">Over six months out</span>{% elif s.finish %}{{ s.finish|mdt }}{% if s.late %} <span class="flag flag-late">late</span>{% endif %}{% elif wo.status == "waiting" %}<span class="muted">Waiting</span>{% elif s %}<span class="muted">No planned time</span>{% else %}—{% endif %}{% endwith %}</td>
     </tr>
-  {% empty %}<tr><td colspan="5" class="muted">No work orders.</td></tr>{% endfor %}
+  {% empty %}<tr><td colspan="6" class="muted">No work orders.</td></tr>{% endfor %}
   </tbody>
 </table></div>
+</form>
 {% include "partials/pagination.html" %}
 {% endblock %}

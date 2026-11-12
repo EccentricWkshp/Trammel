@@ -11,7 +11,7 @@
   {% for m in machines %}
     <tr{% if not m.is_active %} class="inactive"{% endif %}>
       <td>{% if can_edit %}<a href="{{ m.get_absolute_url }}">{{ m.name }}</a>{% else %}{{ m.name }}{% endif %}</td>
-      <td>{{ m.get_kind_display }}{% if m.group %}<br><span class="muted small">{{ m.group }}</span>{% endif %}</td>
+      <td>{{ m.get_kind_display }}{% if m.group %}<br><span class="muted small">{{ m.group }}</span>{% endif %}{% if m.runs_unattended %}<br><span class="muted small">Runs unattended</span>{% endif %}</td>
       <td class="num">{% with cost=m.calculated_cost %}{% if cost is None %}<span class="muted">—</span>{% else %}{{ cost|money }}{% endif %}{% endwith %}</td>
       <td class="num">{{ m.hourly_rate|money }}</td>
       <td>{{ m.is_active|yesno:"In use,Archived" }}</td>

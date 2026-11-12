@@ -17,7 +17,16 @@ router = Router(tags=["machines and materials"])
 class MachineOut(ModelSchema):
     class Meta:
         model = Machine
-        fields = ["id", "name", "kind", "group", "hourly_rate", "is_active", "notes"]
+        fields = [
+            "id",
+            "name",
+            "kind",
+            "group",
+            "runs_unattended",
+            "hourly_rate",
+            "is_active",
+            "notes",
+        ]
 
 
 class MachineIn(Schema):
@@ -25,6 +34,8 @@ class MachineIn(Schema):
     kind: choices(Machine.Kind) = Machine.Kind.OTHER
     #: Machines in the same group can stand in for each other on the schedule.
     group: str = ""
+    #: Once started, runs on its own past closing (a 3D printer overnight).
+    runs_unattended: bool = False
     hourly_rate: Decimal = Decimal("0")
     is_active: bool = True
     notes: str = ""

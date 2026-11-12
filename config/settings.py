@@ -120,6 +120,10 @@ INSTALLED_APPS = [
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.messages",
+    # Under runserver too, WhiteNoise serves static files (not Django's own
+    # view), with a Cache-Control header: browsers check for a newer script or
+    # stylesheet instead of guessing from the file's age.
+    "whitenoise.runserver_nostatic",
     "django.contrib.staticfiles",
     "django.contrib.postgres",
     "django.forms",  # widget templates for the form renderer

@@ -44,3 +44,10 @@ details.floor-action[open] > summary { margin-bottom: .6rem; }
 .floor-stock { margin-bottom: .75rem; }
 .floor-stock h2 { font-size: 1.1rem; margin: 0 0 .3rem; }
 .floor-count { margin-top: .5rem; }
+
+/* The day's schedule on the floor (0.8.3) */
+.floor-days { display: flex; flex-wrap: wrap; gap: .5rem; margin: .5rem 0 1rem; }
+.floor-sequence { list-style: none; padding: 0; }
+.floor-sequence .when { display: block; font-weight: 600; font-variant-numeric: tabular-nums; }
+.floor-sequence .floor-card.late { border-left: 4px solid var(--danger, #a8192c); }
+.floor-print { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }

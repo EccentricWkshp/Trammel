@@ -6,15 +6,21 @@ from __future__ import annotations
 
 import datetime as dt
 
-from django.shortcuts import render
+from django.conf import settings
+from django.contrib import messages
+from django.http import HttpResponse
+from django.shortcuts import redirect, render
+from django.template.loader import render_to_string
+from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
+from django.utils.http import content_disposition_header
 
-from trammel.core import access
-from trammel.core.web import permission_required
+from trammel.core import access, templating
+from trammel.core.web import document_response, document_view, permission_required
 from trammel.jobs.models import Priority
 from trammel.shop.models import Machine
 
-from . import scheduling
+from . import scheduling, sheet
 
 WIDTH = 1000  # the timeline's drawing width
 LABELS = 170  # the row names on the left
@@ -150,6 +156,11 @@ def _labels(items):
     return labels
 
 
+def _overlap(a0, a1, b0, b1) -> int:
+    """Minutes [a0, a1) and [b0, b1) share."""
+    return max(0, int((min(a1, b1) - max(a0, b0)).total_seconds() // 60))
+
+
 def _lanes(items):
     """Side-by-side bookings in lanes: each gets the first lane free at its start."""
     ends: list = []
@@ -181,20 +192,16 @@ def schedule(request):
         rows[m] = []
     listed = []
     shown: dict = {}  # the work orders drawn this week, by queue position
+    week = hours.aware(dt.datetime.combine(first, dt.time(0)))
+    booked: dict = {"labor": 0}  # minutes this week, by row
     for wp, op, booking in plan.bookings(begin, end):
-        start, stop = max(booking.start, begin), min(booking.end, end)
-        placed = _x(columns, hours, start)
-        if placed is None:
-            continue
-        col, x0 = placed
-        span_end = hours.aware(col["span"][1])
-        x1 = _x(columns, hours, min(stop, span_end))
-        width = max(2.0, (x1[1] if x1 else col["x"] + col["w"]) - x0)
+        row = None
+        if booking.machine_id is not None and not isinstance(booking.machine_id, tuple):
+            row = booking.machine_id
+            if row not in machines:
+                machines[row] = op.op.machine
+                rows[row] = []
         item = {
-            "start": start,
-            "end": stop,
-            "x": round(x0, 1),
-            "w": round(width, 1),
             "wo": wp.wo,
             "op": op.op,
             "priority": wp.wo.job.priority,
@@ -204,15 +211,36 @@ def schedule(request):
             "instead_of": op.op.machine if op.other_machine else None,
             "pinned": op.op.pinned_date if op.pinned else None,
             "after_hours": booking.after_hours,
+            "unattended": booking.unattended,
+            "from": booking.start,
+            "to": booking.end,
         }
-        shown.setdefault(wp.position, wp)
+        minutes = _overlap(booking.start, booking.end, week, end)
         if booking.kind == "labor":
-            rows["labor"].append(dict(item))
-        if booking.machine_id is not None and not isinstance(booking.machine_id, tuple):
-            if booking.machine_id not in machines:
-                machines[booking.machine_id] = op.op.machine
-                rows[booking.machine_id] = []
-            rows[booking.machine_id].append(dict(item))
+            booked["labor"] += minutes
+        if row is not None:
+            booked[row] = booked.get(row, 0) + minutes
+        # A piece on each day it covers (an unattended run goes on overnight).
+        for col in columns:
+            if not col["span"]:
+                continue
+            s0, s1 = hours.aware(col["span"][0]), hours.aware(col["span"][1])
+            start, stop = max(booking.start, s0), min(booking.end, s1)
+            if stop <= start:
+                continue
+            share = col["w"] / (s1 - s0).total_seconds()
+            piece = item | {
+                "start": start,
+                "end": stop,
+                "x": round(col["x"] + (start - s0).total_seconds() * share, 1),
+                "w": round(max(2.0, (stop - start).total_seconds() * share), 1),
+            }
+            shown.setdefault(wp.position, wp)
+            if booking.kind == "labor":
+                rows["labor"].append(dict(piece))
+            if row is not None:
+                rows[row].append(dict(piece))
+        start = max(booking.start, begin)
         if hours.local(start).date() in days:
             listed.append(
                 {
@@ -230,6 +258,7 @@ def schedule(request):
                     "pinned": item["pinned"],
                     "too_early": op.too_early,
                     "after_hours": booking.after_hours,
+                    "unattended": booking.unattended,
                 }
             )
 
@@ -262,18 +291,24 @@ def schedule(request):
         y += height + GAP
     height = y
 
-    # Load: booked against what's available this week.
-    available = plan.available_minutes(begin, end)
+    # Load: booked against what's available this week; an unattended
+    # machine has the whole clock from now.
+    available = plan.available_minutes(week, end)
     loads = []
-    for key, items in rows.items():
-        booked = sum(int((i["end"] - i["start"]).total_seconds() // 60) for i in items)
-        room = plan.crew_minutes(begin, end) if key == "labor" else available
+    for key in rows:
+        if key == "labor":
+            room = plan.crew_minutes(week, end)
+        elif getattr(machines[key], "runs_unattended", False):
+            room = _overlap(plan.now, end, week, end)
+        else:
+            room = available
+        used = booked.get(key, 0)
         loads.append(
             {
                 "name": "Hands-on work (the crew)" if key == "labor" else str(machines[key]),
-                "booked": booked,
+                "booked": used,
                 "available": room,
-                "percent": round(100 * booked / room) if room else 0,
+                "percent": round(100 * used / room) if room else 0,
             }
         )
 
@@ -301,6 +336,7 @@ def schedule(request):
             "this_week": first <= today <= days[-1],
             "queue": plan.work_orders,
             "can_move": access.has_perm(request.actor, "workorders.edit"),
+            "resources": sheet.resources(),
             "priorities": sorted(Priority, reverse=True),
             "key": [
                 {"wp": wp, "priority": wp.wo.job.priority, "short": short_number(wp.wo.number)}
@@ -308,3 +344,56 @@ def schedule(request):
             ],
         },
     )
+
+
+@permission_required("workorders.view")
+@document_view
+def schedule_sheet(request):
+    """The printed shop schedule (0.8.3): each day's work in the order it's
+    done, to take into the shop; the traveler's when to its what. ?from= the
+    first day, ?days= how many (to 14), ?for= hands-on work ("labor") or a
+    machine's id, ?per_page=1 a page a day; ?print=1 or ?format=pdf."""
+    plan = scheduling.build()
+    today = timezone.localdate()
+    first = sheet.first_day(request.GET.get("from"), today)
+    count = sheet.day_count(request.GET.get("days"), 7)
+    resource = request.GET.get("for", "")
+    if resource not in dict(sheet.resources()):
+        resource = ""
+    days = sheet.days(plan, first, count, resource)
+    try:
+        floor = settings.BASE_URL + reverse("floor:schedule")
+    except NoReverseMatch:  # the shop-floor app is off
+        floor = settings.BASE_URL + reverse("workorders:schedule")
+    from trammel.core.qr import svg
+
+    html = render_to_string(
+        "workorders/schedule_sheet.html",
+        {
+            "days": days,
+            "first": first,
+            "last": first + dt.timedelta(days=count - 1),
+            "resource": resource,
+            "for_name": sheet.resource_name(resource),
+            "per_page": request.GET.get("per_page") == "1",
+            "queue": plan.work_orders,
+            "waiting": plan.waiting,
+            "printed_at": timezone.now(),
+            "qr": svg(floor),
+            "blank_rows": range(4),
+            "business": request.business,
+        },
+        request=request,
+    )
+    if request.GET.get("format") == "pdf":
+        try:
+            data = templating.render_pdf(html)
+        except templating.PdfUnavailable as exc:
+            messages.error(request, str(exc))
+            return redirect("workorders:schedule")
+        response = HttpResponse(data, content_type="application/pdf")
+        response["Content-Disposition"] = content_disposition_header(
+            True, f"schedule-{first.isoformat()}.pdf"
+        )
+        return response
+    return document_response(request, html)
