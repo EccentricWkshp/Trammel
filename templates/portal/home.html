@@ -11,7 +11,7 @@
     <li><a href="{% url 'portal:quote' r.pk %}"><strong>{{ r.quote.get_kind_display }} {{ r.quote.number }}</strong> · {{ r.quote.title }}</a> — {{ r.total|money }}{% if r.valid_until %}, valid until {{ r.valid_until|d }}{% endif %}. <span class="muted">Ready for you to approve or decline.</span></li>
     {% endfor %}
     {% for i in open_invoices %}
-    <li><a href="{% url 'portal:invoice' i.pk %}"><strong>{{ i.get_kind_display }} {{ i.number }}</strong></a> — {{ i.balance|money }} to pay{% if i.due_date %}, due {{ i.due_date|d }}{% endif %}.</li>
+    <li><a href="{% url 'portal:invoice' i.pk %}"><strong>{{ i.get_kind_display }} {{ i.number }}</strong></a> — {{ i.balance|money }} to pay{% if i.due_date %}, due {{ i.due_date|d }}{% endif %}.{% if i.pay_url %} <a href="{{ i.pay_url }}" rel="noopener">Pay online</a>{% endif %}</li>
     {% endfor %}
   </ul>
 </section>

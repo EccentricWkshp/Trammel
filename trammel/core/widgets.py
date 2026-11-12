@@ -29,3 +29,23 @@ class MultiSelectDropdown(forms.CheckboxSelectMultiple):
         return context
 
     use_fieldset = False  # a plain label, like a select
+
+
+class SecretBox(forms.TextInput):
+    """A write-only box for a key or password: never shown again once saved,
+    and not mistaken by password managers for a sign-in form."""
+
+    def __init__(self, attrs=None):
+        super().__init__(
+            {
+                "autocomplete": "off",
+                "spellcheck": "false",
+                "class": "secret-box",
+                "data-1p-ignore": "",
+                "data-lpignore": "true",
+                **(attrs or {}),
+            }
+        )
+
+    def format_value(self, value):
+        return None

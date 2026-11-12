@@ -240,6 +240,39 @@ test("a file not yet collected can be removed; one Trammel has can't", async () 
   assert.match(await (await call(environment, browser("GET", `/portal/jobs/${JOB}/`, { cookie }))).text(), /Taken.pdf/);
 });
 
+test("an invoice with a payment link can be paid online", async () => {
+  const { environment, cookie } = await shop();
+  const INVOICE = "01900000-0000-7000-8000-000000000030";
+  const OTHER = "01900000-0000-7000-8000-000000000031";
+  const invoice = (id, data) => ({
+    type: "invoice", id, customer: CUSTOMER, job: JOB, sort: "1",
+    data: { kind: "Invoice", number: id.slice(-2), total: "$95.00", balance: "$95.00", balance_due: true, status: "Issued", ...data },
+  });
+  await call(environment, await syncRequest(environment, "POST", "/_sync/records", {
+    upsert: [
+      invoice(INVOICE, { pay_url: "https://buy.stripe.com/test_1" }),
+      // Never anything but an https address, whatever is published.
+      invoice(OTHER, { pay_url: "javascript:alert(1)" }),
+    ],
+    delete: [],
+  }));
+  let page = await (await call(environment, browser("GET", `/portal/invoices/${INVOICE}/`, { cookie }))).text();
+  assert.match(page, /<a class="button primary" href="https:\/\/buy.stripe.com\/test_1" rel="noopener">Pay \$95.00 online<\/a>/);
+  page = await (await call(environment, browser("GET", `/portal/invoices/${OTHER}/`, { cookie }))).text();
+  assert.doesNotMatch(page, /Pay \$95.00 online|javascript:/);
+  const home = await (await call(environment, browser("GET", "/portal/", { cookie }))).text();
+  assert.match(home, /href="https:\/\/buy.stripe.com\/test_1" rel="noopener">Pay online/);
+  page = await (await call(environment, browser("GET", `/portal/invoices/${INVOICE}/?notice=payment-received`, { cookie }))).text();
+  assert.match(page, /Your payment is being confirmed/);
+  // Paid: no button.
+  await call(environment, await syncRequest(environment, "POST", "/_sync/records", {
+    upsert: [invoice(INVOICE, { balance: "$0.00", balance_due: false, status: "Paid", pay_url: "" })],
+    delete: [],
+  }));
+  page = await (await call(environment, browser("GET", `/portal/invoices/${INVOICE}/`, { cookie }))).text();
+  assert.doesNotMatch(page, /online<\/a>/);
+});
+
 test("store webhooks wait in the inbox; sign-in callbacks go on to Trammel", async () => {
   const { environment } = await shop({ hooks: { shopify: true, etsy: true, ebay: true, ebay_deletion: true } });
   let response = await call(environment, new Request("https://portal.example.com/imports/shopify/webhook/", {

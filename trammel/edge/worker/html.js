@@ -97,6 +97,7 @@ const NOTICES = {
   "answer-received": "Thank you. We've received your answer and will confirm it here shortly.",
   "files-sent": "Thank you. We've received your files and will look at them shortly.",
   "file-removed": "The file is removed. It won't be sent to us.",
+  "payment-received": "Thank you. Your payment is being confirmed and will show here shortly.",
 };
 /** Problems, shown as errors. Only these texts are ever shown from a link. */
 const PROBLEMS = {

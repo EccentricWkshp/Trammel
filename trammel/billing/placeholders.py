@@ -36,6 +36,7 @@ INVOICE = ph.Group(
         P("invoice.paid", "Paid and credited so far"),
         P("invoice.written_off", "Written off"),
         P("invoice.balance", "Balance due"),
+        P("invoice.pay_url", "Where the customer can pay it online, when online payments are on"),
         P("invoice.notes", "Notes for the customer"),
     ),
 )
@@ -106,6 +107,7 @@ def sample_invoice() -> dict:
         "paid": Decimal("1529.33"),
         "written_off": Decimal("0"),
         "balance": total - Decimal("1529.33"),
+        "pay_url": "https://buy.stripe.com/…",
         "notes": "Thank you for your business.",
     }
 

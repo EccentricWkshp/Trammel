@@ -346,6 +346,8 @@ class Payment(AppendOnlyModel):
         CARD = "card", "Card"
         BANK = "bank", "Bank transfer"
         ONLINE = "online", "Online store"
+        #: Paid by the customer through a Stripe payment link (online payments).
+        STRIPE = "stripe", "Stripe"
         OTHER = "other", "Other"
 
     customer = models.ForeignKey(

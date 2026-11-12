@@ -1,0 +1,23 @@
+{% load trammel %}
+<h2 id="panel-{{ heading_id }}">Online payment{% if ctx.link.test_mode %} <span class="badge warn">test mode</span>{% endif %}</h2>
+{% if ctx.link %}
+<p><label for="pay-link-{{ heading_id }}">Payment link for {{ ctx.link.amount|money }}</label>
+  <input type="text" id="pay-link-{{ heading_id }}" value="{{ ctx.link.url }}" readonly class="copy-box"></p>
+<p class="muted small">Shown to the customer in the portal and in invoice emails. It's made again whenever the balance changes, and stops working once paid.</p>
+{% elif ctx.waiting %}
+<p>A payment is being processed (a bank payment can take a few days); there's no payment link meanwhile.</p>
+{% elif ctx.on and ctx.payable %}
+<p class="muted">The payment link is being made; it appears within a minute.</p>
+{% elif not ctx.on %}
+<p class="muted">Online payments are off.</p>
+{% endif %}
+{% if ctx.received %}
+<ul class="plain">
+  {% for r in ctx.received %}
+  <li>{{ r.amount|money }} on {{ r.paid_at|dt }}{% if r.email %} · {{ r.email }}{% endif %} · {{ r.get_status_display }}{% if r.test_mode %} <span class="badge">test</span>{% endif %}{% if r.reference %} <span class="muted small">{{ r.reference }}</span>{% endif %}</li>
+  {% endfor %}
+</ul>
+{% endif %}
+{% if ctx.can_manage and ctx.on and ctx.payable and not ctx.waiting %}
+<form method="post" action="{% url 'payments:new_link' ctx.invoice.pk %}" class="inline">{% csrf_token %}<button type="submit">Make a new link</button></form>
+{% endif %}

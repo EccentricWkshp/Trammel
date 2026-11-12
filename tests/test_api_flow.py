@@ -194,6 +194,7 @@ def test_api_flow_and_every_get_endpoint(api):
 
     modules.set_enabled("portal", True)
     modules.set_enabled("edge", True)
+    modules.set_enabled("payments", True)
     ids["event_id"] = api("GET", "/audit/?limit=1", expect=200)["items"][0]["id"]
     # A file the customer sent through the portal, waiting for review.
     from types import SimpleNamespace

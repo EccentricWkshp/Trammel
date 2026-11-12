@@ -36,6 +36,24 @@ from .models import (
 on_issued: list[Callable] = []
 #: Called with (payment,) after a payment is recorded.
 on_payment: list[Callable] = []
+#: Called with (invoice,) after an issued invoice's balance is worked out again
+#: (a payment, credit or write-off) or it is voided. Online payments keep the
+#: invoice's payment link to its balance.
+on_balance_changed: list[Callable] = []
+#: `fn(invoice) -> url`: where the customer can pay the invoice online, or "".
+#: Online payments register here; billing knows nothing of the provider.
+pay_links: list[Callable] = []
+
+
+def pay_url(invoice: Invoice) -> str:
+    """Where the customer can pay this invoice online now, or ""."""
+    if invoice.status not in OPEN or invoice.is_credit_note or invoice.balance <= 0:
+        return ""
+    for fn in pay_links:
+        url = fn(invoice)
+        if url and url.startswith("https://"):
+            return url
+    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -505,6 +523,8 @@ def void(invoice: Invoice, *, actor, reason: str) -> None:
         raise ValidationError("This credit note has been applied; it cannot be voided.")
     Invoice.lifecycle.apply(invoice, Status.VOID, actor=actor, reason=reason)
     Invoice.objects.filter(pk=invoice.pk).update(voided_at=timezone.now(), balance=ZERO)
+    for fn in on_balance_changed:
+        fn(invoice)
 
 
 @transaction.atomic
@@ -586,6 +606,8 @@ def refresh_balance(invoice: Invoice) -> None:
     )
     if target != invoice.status:
         Invoice.lifecycle.apply(invoice, target, actor=SYSTEM)
+    for fn in on_balance_changed:
+        fn(invoice)
 
 
 def customer_credit(customer) -> Decimal:
@@ -813,6 +835,7 @@ def document_context(invoice: Invoice) -> dict:
             "paid": invoice.paid_total + invoice.credited_total,
             "written_off": invoice.written_off,
             "balance": invoice.balance,
+            "pay_url": pay_url(invoice),
             "notes": invoice.notes,
         },
     }

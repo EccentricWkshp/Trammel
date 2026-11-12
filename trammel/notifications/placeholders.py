@@ -204,6 +204,31 @@ def _kinds():
                 link=f"{settings.BASE_URL}/purchasing/…",
             ),
         ),
+        "paid_online": (
+            (
+                ph.Group(
+                    "Online payment",
+                    (
+                        P("amount", "How much was paid"),
+                        P("provider", "Who took it: Stripe"),
+                        P("reference", "The provider's reference"),
+                        P("email", "The address the customer gave when paying"),
+                        P("credit", "What couldn't go against the invoice, held as credit"),
+                        P("link", "The invoice in Trammel"),
+                    ),
+                ),
+                *invoice_groups,
+            ),
+            _with(
+                _invoice_preview,
+                amount=Decimal("380.00"),
+                provider="Stripe",
+                reference="pi_3Q…",
+                email="grace@example.com",
+                credit=Decimal("0"),
+                link=f"{settings.BASE_URL}/invoices/…",
+            ),
+        ),
         "update_available": (
             (
                 ph.Group(

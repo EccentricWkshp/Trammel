@@ -118,7 +118,7 @@ ${
     ? html`<section class="card" aria-labelledby="waiting-heading"><h2 id="waiting-heading">Waiting for you</h2>
   <ul class="plain portal-list">
   ${open.map((q) => html`<li><a href="/portal/quotes/${q.id}/"><strong>${q.data.kind} ${q.data.number}</strong> · ${q.data.title}</a> — ${q.data.total}${q.data.valid_until ? html`, valid until ${q.data.valid_until}` : ""}. <span class="muted">Ready for you to approve or decline.</span></li>`)}
-  ${unpaid.map((i) => html`<li><a href="/portal/invoices/${i.id}/"><strong>${i.data.kind} ${i.data.number}</strong></a> — ${i.data.balance} to pay${i.data.due ? html`, due ${i.data.due}` : ""}.</li>`)}
+  ${unpaid.map((i) => html`<li><a href="/portal/invoices/${i.id}/"><strong>${i.data.kind} ${i.data.number}</strong></a> — ${i.data.balance} to pay${i.data.due ? html`, due ${i.data.due}` : ""}.${payable(i.data) ? html` <a href="${i.data.pay_url}" rel="noopener">Pay online</a>` : ""}</li>`)}
   </ul></section>`
     : ""
 }
@@ -182,18 +182,24 @@ ${respondSection(site, visitor, found, picks)}`,
   });
 }
 
-async function invoice(env, site, visitor, id) {
+/** An invoice that can be paid online: Trammel published a link (https only). */
+function payable(i) {
+  return Boolean(i.balance_due && typeof i.pay_url === "string" && i.pay_url.startsWith("https://"));
+}
+
+async function invoice(env, site, visitor, id, notice) {
   const found = await own(env, visitor, "invoice", id);
   if (!found) return null;
   const i = found.data;
   return page({
     site,
     visitor,
+    notice,
     title: `${i.kind} ${i.number}`,
     body: html`<p class="breadcrumb"><a href="/portal/">Your account</a>${found.job ? html` · <a href="/portal/jobs/${found.job}/">${i.job_number}</a>` : ""}</p>
 <h1>${i.kind} ${i.number}</h1>
 <dl class="facts-inline"><div><dt>Total</dt><dd><strong>${i.total}</strong></dd></div><div><dt>Status</dt><dd>${i.status}</dd></div>${i.balance_due ? html`<div><dt>To pay</dt><dd>${i.balance}</dd></div>` : ""}${i.due ? html`<div><dt>Due</dt><dd>${i.due}</dd></div>` : ""}</dl>
-<p class="actions">${i.pdf ? html`<a class="button" href="/portal/invoices/${found.id}/pdf/">Download PDF</a>` : ""}</p>
+<p class="actions">${payable(i) ? html`<a class="button primary" href="${i.pay_url}" rel="noopener">Pay ${i.balance} online</a> ` : ""}${i.pdf ? html`<a class="button" href="/portal/invoices/${found.id}/pdf/">Download PDF</a>` : ""}</p>
 ${i.doc ? documentFrame(`/portal/invoices/${found.id}/document/`, `${i.kind} ${i.number}`) : ""}`,
   });
 }
@@ -410,7 +416,7 @@ export async function handlePortal(request, env, site) {
     const body =
       type === "quote"
         ? await quote(env, site, visitor, match[2], notice, picksFrom(url.searchParams))
-        : await invoice(env, site, visitor, match[2]);
+        : await invoice(env, site, visitor, match[2], notice);
     return respond(body);
   }
   if ((match = path.match(new RegExp(`^/portal/agreements/(${ID})/pdf/$`)))) {

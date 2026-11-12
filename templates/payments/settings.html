@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% load trammel %}
+{% block title %}Online payments{% endblock %}
+{% block content %}
+<h1>Online payments</h1>
+<p class="lede">Customers pay invoices online, by card or bank through Stripe. Trammel makes a payment link for each open invoice's balance, shown in the customer portal and in invoice emails, and asks Stripe every minute what was paid, recording each payment against its invoice. Nothing has to reach this server from the internet.</p>
+
+<section class="card" aria-labelledby="status-heading">
+  <h2 id="status-heading">Status</h2>
+  <dl class="facts">
+    <dt>Taking payments</dt><dd>{% if active %}Yes{% if test_mode %} <span class="badge warn">test mode</span>{% endif %}{% elif row.enabled %}No: switched on, but {% if not key_set %}there's no key{% else %}outbound traffic is off (System){% endif %}{% else %}No{% endif %}</dd>
+    <dt>Payment links</dt><dd>{{ links }} open invoice{{ links|pluralize }}</dd>
+    <dt>Last check</dt><dd>{% if row.last_check_at %}{{ row.last_check_at|dt }}{% else %}Not yet{% endif %}</dd>
+  </dl>
+  {% if row.last_error %}<p class="flag flag-late" role="alert">The last check failed{% if row.last_error_at %} at {{ row.last_error_at|dt }}{% endif %}: {{ row.last_error }}</p>{% endif %}
+  <div class="actions">
+    {% if key_set %}<form method="post" action="{% url 'payments:test' %}" class="inline">{% csrf_token %}<button type="submit">Test the key</button></form>{% endif %}
+    {% if active %}<form method="post" action="{% url 'payments:check' %}" class="inline">{% csrf_token %}<button type="submit">Check for payments now</button></form>{% endif %}
+  </div>
+</section>
+
+<section class="card" aria-labelledby="setup-heading">
+  <h2 id="setup-heading">Setting it up</h2>
+  <ol>
+    <li>In Stripe's dashboard (Developers, API keys), make a <strong>restricted key</strong> with:
+      <ul>{% for name, level in permissions %}<li>{{ name }}: {{ level }}</li>{% endfor %}</ul>
+      Products and Prices let each link carry its invoice's amount. Start with a test key (in test mode) and pay an invoice with card 4242 4242 4242 4242 to see it work.</li>
+    <li>Paste the key below, switch payments on, and save. Links are made within a minute.</li>
+  </ol>
+  <p class="muted small">Stripe's fees come out of what you receive; customers pay the invoice amount. A refund is made in Stripe's dashboard, then recorded here as a payment of a negative amount. Customers get Trammel's usual payment receipt by email.</p>
+  <form method="post" class="stack" novalidate>{% csrf_token %}
+    {% include "partials/form_body.html" %}
+    <div class="actions"><button type="submit" class="primary">Save</button></div>
+  </form>
+</section>
+{% endblock %}

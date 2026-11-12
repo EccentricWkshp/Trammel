@@ -289,6 +289,40 @@ online stores, at the same paths, so nothing else has to be public:
   notice's signature with eBay's published key before wiping anything. No
   separate relay is needed.
 
+## Online payments (Stripe)
+
+Customers can pay invoices online, by card or bank through Stripe. Trammel
+makes a Stripe payment link for each open invoice's balance (shown in the
+customer portal, on Cloudflare or not, and in invoice emails) and asks Stripe
+every minute what was paid, recording each payment against its invoice. Stripe
+never has to reach Trammel: there's no webhook to set up.
+
+1. **A Stripe account**, and in its dashboard (Developers, API keys) a
+   **restricted key** with:
+   - Payment Links · Write
+   - Checkout Sessions · Read
+   - Products · Write, and Prices · Write (each link carries its invoice's
+     amount)
+
+   Make it in **test mode** first: a test key (`rk_test_…`) takes no real
+   money, and card 4242 4242 4242 4242 (any future date, any CVC) pays.
+2. Turn on the **Online payments** module (Settings, Modules).
+3. **Settings, Online payments**: paste the key, switch payments on, save, and
+   **Test the key**. Within a minute each open invoice has a link; an
+   invoice's page shows it, to copy into a message if you like.
+4. Pay a test invoice from the portal. You come back to the invoice, and
+   within a minute the payment is recorded (method Stripe, with Stripe's
+   reference), the customer gets the usual receipt, and staff get a "Paid
+   online" email. Then swap in a live key.
+
+A link is for the whole balance and works once. When the balance changes (a
+payment by check, a credit note), the invoice is voided, or it's paid, the old
+link stops working and a new one is made if anything is still owed. A bank
+payment that takes days shows as being processed, with no link meanwhile, so
+it can't be paid twice. Stripe's fees come out of what you receive; customers
+pay the invoice amount. A refund is made in Stripe's dashboard, then recorded
+in Trammel as a payment of a negative amount.
+
 ## Shopify order webhooks
 
 Fetching orders by date needs nothing from the internet. Webhooks, which bring

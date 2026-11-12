@@ -154,6 +154,7 @@ INSTALLED_APPS = [
     "trammel.portal.apps.PortalConfig",
     "trammel.edge.apps.EdgeConfig",
     "trammel.imports.apps.ImportsConfig",
+    "trammel.payments.apps.PaymentsConfig",
     "trammel.api",
 ]
 

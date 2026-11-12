@@ -71,6 +71,7 @@ EVENTS: dict[str, Event] = {
             "Hello {{ customer.name }},\n\nPlease find {{ invoice.kind|lower }} {{ invoice.number }}"
             " attached for {{ invoice.total|money }}"
             "{% if invoice.due_date %}, due {{ invoice.due_date|date }}{% endif %}.\n\n"
+            "{% if invoice.pay_url %}You can pay it online: {{ invoice.pay_url }}\n\n{% endif %}"
             "{% if portal_link %}You can also see it online: {{ portal_link }}\n\n{% endif %}"
             "Thank you,\n{{ business.name }}\n",
         ),
@@ -90,6 +91,7 @@ EVENTS: dict[str, Event] = {
             "Reminder: invoice {{ invoice.number }} is overdue",
             "Hello {{ customer.name }},\n\nInvoice {{ invoice.number }} was due on "
             "{{ invoice.due_date|date }}. The balance is {{ invoice.balance|money }}.\n\n"
+            "{% if invoice.pay_url %}You can pay it online: {{ invoice.pay_url }}\n\n{% endif %}"
             "If you have already paid, thank you, and please disregard this reminder.\n\n"
             "{{ business.name }}\n",
         ),
@@ -157,6 +159,18 @@ EVENTS: dict[str, Event] = {
             "{% if note %}\nTheir note: {{ note }}\n{% endif %}"
             "\nThey wait for you to accept or decline them: {{ link }}\n",
             module="portal",
+        ),
+        Event(
+            "paid_online",
+            "Invoice paid online",
+            "staff",
+            "Paid online: {{ invoice.number }} ({{ customer.name }})",
+            "{{ customer.name }} paid {{ amount|money }} online for {{ invoice.kind|lower }} "
+            "{{ invoice.number }}{% if email %} ({{ email }}){% endif %}.\n\n"
+            "{% if credit %}{{ credit|money }} of it couldn't go against the invoice (already "
+            "paid or voided) and is held as credit on their account.\n\n{% endif %}"
+            "Recorded as a {{ provider }} payment, reference {{ reference }}.\n{{ link }}\n",
+            module="payments",
         ),
     ]
 }

@@ -289,6 +289,11 @@ def home(request):
         r for r in _quotes(actor, status="sent") if not (r.valid_until and r.valid_until < today)
     ]
     invoices = _invoices(actor)
+    if invoices and modules.is_enabled("billing"):
+        from trammel.billing import services as billing
+
+        for found in invoices:
+            found.pay_url = billing.pay_url(found)
     return render(
         request,
         "portal/home.html",
@@ -656,8 +661,20 @@ def _invoice(request, pk):
 
 @portal_view
 def invoice(request, pk):
+    from trammel.billing import services as billing
+
     found = _invoice(request, pk)
-    return render(request, "portal/invoice.html", _context(request, invoice=found))
+    # Back from paying online: only this fixed text is ever shown from a link.
+    if request.GET.get("notice") == "payment-received":
+        messages.success(
+            request,
+            "Thank you. Your payment is being confirmed and will show here shortly.",
+        )
+    return render(
+        request,
+        "portal/invoice.html",
+        _context(request, invoice=found, pay_url=billing.pay_url(found)),
+    )
 
 
 @portal_view

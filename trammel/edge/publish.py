@@ -454,11 +454,13 @@ def invoice_items(customer, site_fp: str) -> Iterator[Item]:
     from trammel.billing.models import Invoice
 
     for invoice in Invoice.objects.filter(customer=customer, status__in=SHOWN_INVOICES):
+        # Where it can be paid online: a new link (a new balance) publishes again.
+        pay = billing.pay_url(invoice)
         source = fingerprint(
-            str(invoice.pk), invoice.status, invoice.updated_at, invoice.balance, site_fp
+            str(invoice.pk), invoice.status, invoice.updated_at, invoice.balance, site_fp, pay
         )
 
-        def build(invoice=invoice, source=source):
+        def build(invoice=invoice, source=source, pay=pay):
             key = f"doc/invoice/{invoice.pk}/{source[:12]}"
             html = billing.render_html(invoice)
             objects = {f"{key}.html": (html.encode(), "text/html; charset=utf-8")}
@@ -478,6 +480,7 @@ def invoice_items(customer, site_fp: str) -> Iterator[Item]:
                 "doc": f"{key}.html",
                 "pdf": f"{key}.pdf" if pdf else "",
                 "pdf_name": f"{invoice.number}.pdf",
+                "pay_url": pay,
             }
             return data, objects
 
