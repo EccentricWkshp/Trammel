@@ -1,4 +1,4 @@
-from trammel.core.modules import MenuEntry, ModuleConfig, ModuleManifest
+from trammel.core.modules import MenuEntry, ModuleConfig, ModuleManifest, Permission
 
 
 class EdgeConfig(ModuleConfig):
@@ -17,6 +17,15 @@ class EdgeConfig(ModuleConfig):
         depends_on=("portal",),
         urls="trammel.edge.urls",
         url_prefix="settings/edge-portal",
+        api_router="trammel.edge.api.router",
+        # The settings page (the API token, the bot check's keys) stays admins'.
+        permissions=(
+            Permission(
+                "edge.manage",
+                "See how the portal on Cloudflare is doing, and sync, deploy, stop or remove it "
+                "(over the API)",
+            ),
+        ),
         menu=(
             MenuEntry(
                 "Portal on Cloudflare", "edge:settings", section="admin", order=66, admin_only=True

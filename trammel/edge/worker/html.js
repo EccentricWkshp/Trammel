@@ -93,11 +93,10 @@ export function redirect(location, headers = {}) {
 }
 
 const NOTICES = {
-  "code-sent":
-    "If that address is on file with us, we've sent it a sign-in code. It's good for 10 minutes.",
   "signed-out": "You're signed out.",
   "answer-received": "Thank you. We've received your answer and will confirm it here shortly.",
   "files-sent": "Thank you. We've received your files and will look at them shortly.",
+  "file-removed": "The file is removed. It won't be sent to us.",
 };
 /** Problems, shown as errors. Only these texts are ever shown from a link. */
 const PROBLEMS = {
@@ -115,6 +114,7 @@ const PROBLEMS = {
   "send-none": "Choose at least one file to send.",
   "send-too-many": "That's more files than can be sent at once.",
   "send-too-big": "A file is larger than we can take.",
+  "file-not-removed": "That file has reached us already, so it can't be removed here.",
 };
 
 /** The page frame. `site` is the shop's published settings; `visitor` the

@@ -33,7 +33,10 @@ def api(admin):
         )
         if expect is not None:
             assert response.status_code == expect, (path, response.content[:400])
-        return response.json() if response.content else None
+        if response.get("Content-Type", "").startswith("application/json"):
+            return response.json()
+        # A file's bytes.
+        return b"".join(response.streaming_content) if response.streaming else response.content
 
     return call
 
@@ -186,6 +189,30 @@ def test_api_flow_and_every_get_endpoint(api):
         "label": "jobs.job",
         "object_id": job["id"],
     }
+    # The portal on Cloudflare's status, with its module on (not deployed).
+    from trammel.core import modules
+
+    modules.set_enabled("portal", True)
+    modules.set_enabled("edge", True)
+    ids["event_id"] = api("GET", "/audit/?limit=1", expect=200)["items"][0]["id"]
+    # A file the customer sent through the portal, waiting for review.
+    from types import SimpleNamespace
+
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    from tests.test_api_portal import PNG
+    from trammel.customers.models import Customer
+    from trammel.portal import uploads
+    from trammel.portal.models import PortalSettings
+
+    modules.set_enabled("files", True)
+    PortalSettings.objects.update_or_create(pk=1, defaults={"uploads_enabled": True})
+    sent, _ = uploads.send(
+        SimpleNamespace(customer=Customer.objects.get(pk=customer["id"]), name="Grace"),
+        [SimpleUploadedFile("sketch.png", PNG, content_type="image/png")],
+    )
+    ids["upload_id"] = str(sent[0].pk)
+    ids["file_revision_id"] = str(sent[0].document.current_id)
     required_query = {"/api/v1/tax/lookup": "?postal_code=98501"}
     # The schema URL needs a signed-in session (docs_decorator), not a key.
     from trammel.api.api import api as ninja_api

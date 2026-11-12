@@ -72,7 +72,7 @@ test("with a bot check, signing in needs it passed", async () => {
     response = await worker.fetch(browser("POST", "/portal/sign-in/", { form: { email: "dana@example.com", "cf-turnstile-response": "bad" } }), environment);
     assert.match(response.headers.get("Location"), /notice=bot-check/);
     response = await worker.fetch(browser("POST", "/portal/sign-in/", { form: { email: "dana@example.com", "cf-turnstile-response": "good" } }), environment);
-    assert.match(response.headers.get("Location"), /notice=code-sent/);
+    assert.match(response.headers.get("Location"), /^\/portal\/sign-in\/code\/\?email=/);
     assert.equal(mail.messages.length, 1);
     response = await worker.fetch(browser("POST", "/portal/sign-in/access-code/", { form: { code: "ABCD1234EFGH", "cf-turnstile-response": "good" } }), environment);
     assert.equal(response.headers.get("Location"), "/portal/");
@@ -115,7 +115,16 @@ test("files never collected are cleared after a month", async () => {
   await environment.FILES.put("upload/new/b.png", "b");
   await environment.FILES.put("assets/portal-abc.css", "c");
   environment.FILES.store.get("upload/old/a.png").uploaded = new Date(Date.now() - 31 * 24 * 3600 * 1000);
+  // Their "on its way" entries go too; what Trammel published stays.
+  const old = new Date(Date.now() - 31 * 24 * 3600 * 1000).toISOString();
+  const db = environment.DB.raw;
+  const add = db.prepare("INSERT INTO records (type, id, customer, job, sort, data) VALUES ('upload', ?, NULL, NULL, ?, ?)");
+  add.run("old", old, JSON.stringify({ name: "a.png", status: "Sending to us…" }));
+  add.run("new", new Date().toISOString(), JSON.stringify({ name: "b.png", status: "Sending to us…" }));
+  add.run("taken", old, JSON.stringify({ name: "c.png", status: "Accepted" }));
   _resetSchemaFlag();
   await worker.scheduled({}, environment);
   assert.deepEqual([...environment.FILES.store.keys()].sort(), ["assets/portal-abc.css", "upload/new/b.png"]);
+  const left = db.prepare("SELECT id FROM records WHERE type = 'upload' ORDER BY id").all().map((r) => r.id);
+  assert.deepEqual(left, ["new", "taken"]);
 });

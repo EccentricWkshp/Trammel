@@ -18,7 +18,7 @@ import {
 import { inbox, record, records } from "./db.js";
 import { DOCUMENT_HEADERS, botCheck, html, page, redirect, respond } from "./html.js";
 import { picksFrom, respondSection, takeAnswer } from "./respond.js";
-import { sendSection, takeFiles } from "./send.js";
+import { removeSent, sendSection, takeFiles } from "./send.js";
 
 const ID = "[0-9a-fA-F-]{36}";
 const SENDS_PER_HOUR = 20;
@@ -231,14 +231,14 @@ function codePage(site, email, notice) {
     notice,
     title: "Enter your code",
     body: html`<section class="card portal-narrow"><h1>Enter your code</h1>
-<p>We sent a six-digit code to <strong>${email}</strong>, if it's on file with us.</p>
+<p>If <strong>${email}</strong> can sign in here, a six-digit code is on its way to it. It expires in 10 minutes.</p>
 <form method="post" class="stack">
   <input type="hidden" name="email" value="${email}">
   <div class="field"><label for="portal-code">Code</label>
-    <input id="portal-code" name="code" inputmode="numeric" autocomplete="one-time-code" required autofocus></div>
-  <div class="actions"><button type="submit" class="primary">Sign in</button></div>
+    <input type="text" id="portal-code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" required autofocus></div>
+  <div class="actions"><button type="submit" class="primary">Sign in</button> <a href="/portal/sign-in/">Send a new code</a></div>
 </form>
-<p class="muted small"><a href="/portal/sign-in/">Send another code</a></p></section>`,
+<p class="muted small">No email? Check your spam folder, or that the address is the one ${site?.business?.name || "we have"} has for you.</p></section>`,
   });
 }
 
@@ -250,7 +250,7 @@ function accessPage(site, notice) {
     body: html`<section class="card portal-narrow"><h1>Sign in with your code</h1>
 <form method="post" class="stack">
   <div class="field"><label for="access-code">The code we gave you</label>
-    <input id="access-code" name="code" autocomplete="off" autocapitalize="characters" required autofocus></div>
+    <input type="text" id="access-code" name="code" autocomplete="off" autocapitalize="characters" required autofocus></div>
   ${botCheck(site)}
   <div class="actions"><button type="submit" class="primary">Sign in</button></div>
 </form></section>`,
@@ -307,7 +307,8 @@ export async function handlePortal(request, env, site) {
       const email = normalizeEmail(data.get("email"));
       const sent = await requestCode(env, site, email, ip);
       if (!sent) return redirect("/portal/sign-in/?notice=mail-failed");
-      return redirect(`/portal/sign-in/code/?email=${encodeURIComponent(email)}&notice=code-sent`);
+      // The code page says it's been sent; no notice besides.
+      return redirect(`/portal/sign-in/code/?email=${encodeURIComponent(email)}`);
     }
     return respond(signInPage(site, notice), checked);
   }
@@ -379,6 +380,12 @@ export async function handlePortal(request, env, site) {
       Boolean(await own(env, visitor, "job", jobId)),
     );
     return redirect(`${back}?notice=${problem || "files-sent"}`);
+  }
+  if (path === "/portal/send/remove/" && request.method === "POST") {
+    const id = String((await form(request)).get("id") || "").replace(/[^0-9a-fA-F-]/g, "");
+    const removed = await removeSent(env, visitor, id);
+    const back = removed?.job ? `/portal/jobs/${removed.job}/` : "/portal/";
+    return redirect(`${back}?notice=${removed ? "file-removed" : "file-not-removed"}`);
   }
   if ((match = path.match(new RegExp(`^/portal/quotes/(${ID})/respond/$`))) && request.method === "POST") {
     const found = await own(env, visitor, "quote", match[1]);

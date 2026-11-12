@@ -11,7 +11,7 @@ from django.db.models import Count
 from django.shortcuts import redirect, render
 from django.views.decorators.http import require_POST
 
-from trammel.core import secrets, tasks
+from trammel.core import audit, secrets
 from trammel.core.web import admin_required
 
 from . import client, cloudflare, deploy
@@ -105,14 +105,27 @@ class EdgeForm(forms.ModelForm):
         return value
 
     def save(self, commit=True):
+        before = audit.snapshot(self.instance, fields=self.Meta.fields)
         row = super().save(commit=commit)
         token = self.cleaned_data.get("api_token", "").strip()
+        changed = [f.replace("_", " ") for f in self.changed_data if f in self.Meta.fields]
         if token:
             secrets.put(deploy.TOKEN_KEY, token)
+            changed.append("API token")
         if not row.turnstile_own_sitekey:
             secrets.clear(deploy.TURNSTILE_OWN_KEY)
         elif turnstile := self.cleaned_data.get("turnstile_secret", "").strip():
             secrets.put(deploy.TURNSTILE_OWN_KEY, turnstile)
+            changed.append("Turnstile secret key")
+        if changed:
+            old, new = audit.diff(before, audit.snapshot(row, fields=self.Meta.fields))
+            audit.record(
+                "update",
+                row,
+                summary=f"Changed the portal on Cloudflare's settings: {', '.join(changed)}",
+                before=old,
+                after=new,
+            )
         return row
 
 
@@ -158,12 +171,9 @@ def _ebay(row) -> dict:
 @admin_required
 @require_POST
 def start_deploy(request):
-    row = EdgeSettings.load()
-    if row.deploying:
+    if not deploy.start():
         messages.info(request, "Already deploying.")
     else:
-        EdgeSettings.objects.filter(pk=1).update(deploying=True, deploy_log=[])
-        tasks.enqueue("edge.deploy", dedupe=True)
         messages.success(
             request, "Deploying to Cloudflare. This page follows along; it takes a minute or two."
         )

@@ -77,7 +77,9 @@ def call(method, path, *, data=None, body=None, content_type=None, base_url=None
             payload = response.read()
     except urllib.error.HTTPError as exc:
         detail = exc.read()[:300].decode(errors="replace")
-        raise EdgeError(f"The edge portal answered {exc.code}: {detail}") from None
+        error = EdgeError(f"The edge portal answered {exc.code}: {detail}")
+        error.status = exc.code
+        raise error from None
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         raise EdgeError(f"Couldn't reach the edge portal: {getattr(exc, 'reason', exc)}") from None
     if raw:

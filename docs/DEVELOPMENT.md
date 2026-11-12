@@ -123,3 +123,16 @@ drift apart (FR-API-1).
 `/api/v1/` with OpenAPI docs at `/api/v1/docs` (signed-in users). Authenticate
 with a personal API key (`Authorization: Bearer trm_…`, created on the profile
 page) or the browser session (CSRF-checked for writes).
+
+A key holds the permissions chosen when it was made, never more, and never
+counts as the system admin. So what only admins do on the web has its own
+permission for the API: the audit log (`/audit/`) needs "View the audit log",
+and the portal on Cloudflare (`/edge/status`, `/edge/settings`, `/edge/sync`,
+`/edge/deploy`, `/edge/stop`, `/edge/remove`) needs "edge.manage", and the
+portal's file settings (`PATCH /portal/settings`) need "portal.manage". A key
+made before a permission existed doesn't have it; make a new one.
+
+Files come back as their bytes, not JSON: `GET /files/revisions/{id}/download`
+for any file revision, and `GET /portal/uploads/{id}/file` for one a customer
+sent. Viewing the portal as a customer would is the one staff feature left to
+the browser.

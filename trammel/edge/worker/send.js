@@ -2,8 +2,16 @@
 // passed to Trammel, which takes them in for review (checking each file's
 // kind itself) and publishes how they got on.
 
-import { inbox } from "./db.js";
+import { inbox, record } from "./db.js";
 import { html } from "./html.js";
+
+const SENDING = "Sending to us…";
+
+/** A file sent that Trammel hasn't collected yet (older ones say so only in
+ * their status). */
+function stillSending(sent) {
+  return sent.data.sending === true || sent.data.status === SENDING;
+}
 
 function safeName(name) {
   const base = String(name || "file").split(/[\\/]/).pop().slice(0, 200);
@@ -15,7 +23,11 @@ export function sendSection(site, sent, jobId = null) {
   const up = site.uploads;
   const list = sent.length
     ? html`<ul class="plain portal-sent">${sent.map(
-        (s) => html`<li><strong>${s.data.name}</strong> <span class="muted small">${s.data.at || ""}${s.data.at ? " · " : ""}${s.data.status}</span>${s.data.reason ? html`<br><span class="muted small">${s.data.reason}</span>` : ""}</li>`,
+        (s) => html`<li><strong>${s.data.name}</strong> <span class="muted small">${s.data.at || ""}${s.data.at ? " · " : ""}${s.data.status}</span>${
+          stillSending(s)
+            ? html` <form method="post" action="/portal/send/remove/" class="inline"><input type="hidden" name="id" value="${s.id}"><button type="submit" class="linklike small">Remove</button></form>`
+            : ""
+        }${s.data.reason ? html`<br><span class="muted small">${s.data.reason}</span>` : ""}</li>`,
       )}</ul>`
     : "";
   if (!up || !up.enabled) {
@@ -36,6 +48,23 @@ export function sendSection(site, sent, jobId = null) {
 </section>`;
 }
 
+/** Take back a file Trammel hasn't collected yet: its entry, the file, and
+ * the inbox event that would have passed it on. Returns the entry, or null
+ * (not theirs, or it reached Trammel already). */
+export async function removeSent(env, visitor, id) {
+  const sent = id ? await record(env.DB, "upload", id) : null;
+  if (!sent || sent.customer !== visitor.customerId || !stillSending(sent)) return null;
+  // By its id: upload/<id>, or upload/<id>/<name> as files were kept before 0.9.4.
+  const listed = await env.FILES.list({ prefix: `upload/${id}` });
+  const keys = listed.objects.map((o) => o.key).filter((k) => k === `upload/${id}` || k.startsWith(`upload/${id}/`));
+  if (keys.length) await env.FILES.delete(keys);
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM records WHERE type = 'upload' AND id = ?").bind(id),
+    env.DB.prepare("DELETE FROM inbox WHERE kind = 'upload' AND json_extract(data, '$.id') = ?").bind(id),
+  ]);
+  return sent;
+}
+
 /** Store what was sent and pass it on. Returns a problem (a notice's key,
  * html.js), or "". */
 export async function takeFiles(env, site, visitor, form, ip, jobOk) {
@@ -52,14 +81,16 @@ export async function takeFiles(env, site, visitor, form, ip, jobOk) {
   for (const file of files) {
     const id = crypto.randomUUID();
     const name = safeName(file.name);
-    const key = `upload/${id}/${name}`;
+    // Stored by its id alone: a name (spaces and all) never has to pass as a
+    // storage key. The name goes with it in the inbox.
+    const key = `upload/${id}`;
     await env.FILES.put(key, await file.arrayBuffer(), {
       httpMetadata: { contentType: file.type || "application/octet-stream" },
     });
     await env.DB.prepare(
       "INSERT OR REPLACE INTO records (type, id, customer, job, sort, data) VALUES ('upload', ?, ?, ?, ?, ?)",
     )
-      .bind(id, visitor.customerId, job, new Date().toISOString(), JSON.stringify({ name, status: "Sending to us…" }))
+      .bind(id, visitor.customerId, job, new Date().toISOString(), JSON.stringify({ name, status: SENDING, sending: true }))
       .run();
     await inbox(
       env.DB,

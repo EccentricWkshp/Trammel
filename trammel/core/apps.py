@@ -16,6 +16,8 @@ class CoreConfig(ModuleConfig):
         core=True,
         urls="trammel.core.urls",
         url_prefix="",
+        api_router="trammel.core.api.router",
+        api_prefix="audit",
         permissions=(
             Permission(
                 "core.manage_business", "Edit business profile, shop rates and document numbering"

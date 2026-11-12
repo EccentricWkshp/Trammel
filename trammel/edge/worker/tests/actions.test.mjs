@@ -182,19 +182,62 @@ test("files sent are stored, listed as on their way, and passed on", async () =>
   assert.match(response.headers.get("Location"), /notice=send-too-big/);
   response = await send([new File(["a"], "a.png"), new File(["b"], "b.png"), new File(["c"], "c.png")]);
   assert.match(response.headers.get("Location"), /notice=send-too-many/);
-  response = await send([new File(["0 SECTION"], "../../etc/drawing.dxf", { type: "application/dxf" })]);
+  response = await send([new File(["0 SECTION"], "../../etc/Screen Door (v2).dxf", { type: "application/dxf" })]);
   assert.equal(response.headers.get("Location"), `/portal/jobs/${JOB}/?notice=files-sent`);
   const [sent] = await inboxOf(environment, "upload");
-  assert.equal(sent.data.name, "drawing.dxf");
+  assert.equal(sent.data.name, "Screen Door _v2_.dxf");
+  // Stored by its id: a name with spaces never has to pass as a key.
+  assert.equal(sent.data.key, `upload/${sent.data.id}`);
   assert.equal(sent.data.job, JOB);
   assert.equal(sent.data.sent_by, "Foundry Brewing");
   assert.ok(environment.FILES.store.has(sent.data.key));
   const page = await (await call(environment, browser("GET", `/portal/jobs/${JOB}/`, { cookie }))).text();
-  assert.match(page, /drawing.dxf/);
+  assert.match(page, /Screen Door _v2_.dxf/);
   assert.match(page, /Sending to us/);
   // Trammel fetches it, then removes it.
   const fetched = await call(environment, await syncRequest(environment, "GET", `/_sync/objects/${sent.data.key}`));
   assert.equal(await fetched.text(), "0 SECTION");
+});
+
+test("a file not yet collected can be removed; one Trammel has can't", async () => {
+  const { environment, cookie } = await shop();
+  const body = new FormData();
+  body.append("job", JOB);
+  body.append("files", new File(["0 SECTION"], "Screen Door.dxf", { type: "application/dxf" }));
+  await call(environment, new Request("https://portal.example.com/portal/send/", {
+    method: "POST",
+    headers: { Cookie: cookie, Origin: "https://portal.example.com", "CF-Connecting-IP": "203.0.113.9" },
+    body,
+  }));
+  const [sent] = await inboxOf(environment, "upload");
+  // One kept the old way, before 0.9.4, stuck with its name in the key.
+  const OLD = "01900000-0000-7000-8000-0000000000c1";
+  await environment.FILES.put(`upload/${OLD}/Old Drawing.pdf`, "%PDF");
+  await call(environment, await syncRequest(environment, "POST", "/_sync/records", {
+    upsert: [
+      { type: "upload", id: OLD, customer: CUSTOMER, job: JOB, sort: "1", data: { name: "Old Drawing.pdf", status: "Sending to us…" } },
+      { type: "upload", id: "01900000-0000-7000-8000-0000000000c2", customer: CUSTOMER, job: JOB, sort: "2", data: { name: "Taken.pdf", status: "Waiting for us to look at it" } },
+    ],
+    delete: [],
+  }));
+  let page = await (await call(environment, browser("GET", `/portal/jobs/${JOB}/`, { cookie }))).text();
+  assert.equal((page.match(/action="\/portal\/send\/remove\/"/g) || []).length, 2);
+  const remove = (id) => call(environment, browser("POST", "/portal/send/remove/", { cookie, form: { id } }));
+
+  let response = await remove(sent.data.id);
+  assert.equal(response.headers.get("Location"), `/portal/jobs/${JOB}/?notice=file-removed`);
+  assert.equal((await inboxOf(environment, "upload")).length, 0);
+  assert.ok(!environment.FILES.store.has(sent.data.key));
+  response = await remove(OLD);
+  assert.match(response.headers.get("Location"), /notice=file-removed/);
+  assert.ok(!environment.FILES.store.has(`upload/${OLD}/Old Drawing.pdf`));
+  page = await (await call(environment, browser("GET", `/portal/jobs/${JOB}/?notice=file-removed`, { cookie }))).text();
+  assert.doesNotMatch(page, /Screen Door|Old Drawing/);
+  assert.match(page, /The file is removed/);
+  // What reached Trammel stays.
+  response = await remove("01900000-0000-7000-8000-0000000000c2");
+  assert.match(response.headers.get("Location"), /notice=file-not-removed/);
+  assert.match(await (await call(environment, browser("GET", `/portal/jobs/${JOB}/`, { cookie }))).text(), /Taken.pdf/);
 });
 
 test("store webhooks wait in the inbox; sign-in callbacks go on to Trammel", async () => {

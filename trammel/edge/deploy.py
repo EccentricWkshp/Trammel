@@ -13,7 +13,7 @@ from pathlib import Path
 from django.conf import settings as django_settings
 from django.utils import timezone
 
-from trammel.core import secrets
+from trammel.core import audit, secrets
 
 from . import client, cloudflare
 from .models import EdgeSettings
@@ -283,6 +283,19 @@ def _bot_check(token, account, row, url) -> None:
     EdgeSettings.objects.filter(pk=1).update(turnstile_sitekey=widget["sitekey"])
 
 
+def start() -> bool:
+    """Start deploying in the background (the edge.deploy task). False when a
+    deploy is already under way."""
+    from trammel.core import tasks
+
+    if EdgeSettings.load().deploying:
+        return False
+    EdgeSettings.objects.filter(pk=1).update(deploying=True, deploy_log=[])
+    tasks.enqueue("edge.deploy", dedupe=True)
+    audit.record("edge.deploy", summary="Started deploying the customer portal to Cloudflare")
+    return True
+
+
 def run_deploy() -> None:
     """The background task: deploy, logging how it went."""
     EdgeSettings.load()  # the row exists before it's updated
@@ -307,6 +320,11 @@ def stop() -> None:
 
     Published.objects.all().delete()
     EdgeSettings.objects.filter(pk=1).update(active=False, awaiting_address=False)
+    audit.record(
+        "edge.stop",
+        summary="Stopped serving the customer portal from Cloudflare; what was published "
+        "there is removed",
+    )
 
 
 def remove() -> None:
@@ -327,6 +345,11 @@ def remove() -> None:
         sitekey="" if row.turnstile_sitekey == row.turnstile_own_sitekey else row.turnstile_sitekey,
     )
     secrets.clear(TURNSTILE_KEY)
+    audit.record(
+        "edge.remove",
+        summary="Removed the customer portal's Worker, database, storage and bot check "
+        "from Cloudflare",
+    )
     EdgeSettings.objects.filter(pk=1).update(
         database_id="",
         bucket="",

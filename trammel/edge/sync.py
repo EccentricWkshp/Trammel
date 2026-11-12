@@ -260,7 +260,12 @@ def _upload(event) -> None:
     customer = _customer(event)
     if customer is not None and not EdgeUpload.objects.filter(pk=data["id"]).exists():
         job = Job.objects.filter(pk=data.get("job") or None, customer=customer).first()
-        content = client.call("GET", f"/_sync/objects/{urllib.parse.quote(key)}", raw=True)
+        try:
+            content = client.call("GET", f"/_sync/objects/{urllib.parse.quote(key)}", raw=True)
+        except client.EdgeError as exc:
+            if getattr(exc, "status", None) == 404:
+                return  # removed by the customer before it was collected
+            raise
         visitor = SimpleNamespace(customer=customer, name=data.get("sent_by") or customer.name)
         sent = SimpleUploadedFile(
             data.get("name") or "file", content, content_type=data.get("type") or None
@@ -339,6 +344,29 @@ def _ebay_deletion(event) -> None:
     )
 
 
+def _upload_skipped(event, exc) -> None:
+    """A sent file Trammel couldn't collect: the customer is told to send it
+    again, rather than seeing it on its way for good."""
+    from .models import EdgeUpload
+
+    data = event["data"]
+    customer = _customer(event)
+    if customer is None or not data.get("id"):
+        return
+    from trammel.jobs.models import Job
+
+    EdgeUpload.objects.get_or_create(
+        id=data["id"],
+        defaults={
+            "customer": customer,
+            "job": Job.objects.filter(pk=data.get("job") or None, customer=customer).first(),
+            "name": (data.get("name") or "file")[:255],
+            "reason": "We couldn't collect this file. Please send it again.",
+            "at": _at(event),
+        },
+    )
+
+
 HANDLERS = {
     "quote_response": _quote_response,
     "upload": _upload,
@@ -354,6 +382,15 @@ HANDLERS = {
 #: An event that fails this many times is skipped, so one bad event can't
 #: hold up everything after it.
 MAX_TRIES = 5
+#: What's done when an event is skipped, by kind.
+SKIPPED = {"upload": _upload_skipped}
+#: The events, as the activity log names them.
+KINDS = {
+    "quote_response": "an answer to a quote",
+    "upload": "a file a customer sent",
+    "shopify_webhook": "a Shopify notice",
+    "ebay_deletion": "an eBay deletion notice",
+}
 
 
 def _apply(event) -> None:
@@ -385,12 +422,16 @@ def pull() -> int:
                 EdgeSettings.objects.filter(pk=1).update(failures=settings.failures)
                 if tries < MAX_TRIES:
                     raise  # tried again next time
+                what = KINDS.get(event["kind"], f"an event ({event['kind']})")
                 audit.record(
                     "edge.event_skipped",
-                    summary=f"Skipped a {event['kind']} from the portal on Cloudflare after "
+                    summary=f"Skipped {what} from the portal on Cloudflare after "
                     f"{tries} tries: {exc}"[:500],
                     actor=access.SYSTEM,
                 )
+                if event["kind"] in SKIPPED:
+                    with transaction.atomic():
+                        SKIPPED[event["kind"]](event, exc)
                 EdgeSettings.objects.filter(pk=1).update(inbox_after=event["seq"])
             if seq in settings.failures:
                 settings.failures = {k: v for k, v in settings.failures.items() if k != seq}

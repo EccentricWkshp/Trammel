@@ -176,7 +176,7 @@ test("addresses can't be probed, and asking is rate-limited", async () => {
   const mail = fakeMailServer();
   globalThis.__connect = mail.connect;
   const unknown = await worker.fetch(browser("POST", "/portal/sign-in/", { form: { email: "nobody@example.com" } }), environment);
-  assert.match(unknown.headers.get("Location"), /notice=code-sent/);
+  assert.equal(unknown.headers.get("Location"), "/portal/sign-in/code/?email=nobody%40example.com");
   assert.equal(mail.messages.length, 0);
   for (let i = 0; i < 5; i++) {
     await worker.fetch(browser("POST", "/portal/sign-in/", { form: { email: "dana@example.com" } }), environment);

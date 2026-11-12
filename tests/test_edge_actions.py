@@ -15,8 +15,9 @@ from tests.test_portal import _sent_quote, grace, portal_on, smtp  # noqa: F401
 from tests.test_quote_choices import _item
 from trammel.agreements.models import AgreementSettings
 from trammel.core import modules
-from trammel.edge import publish, sync
-from trammel.edge.models import EdgeAnswer, EdgeUpload
+from trammel.core.models import AuditEvent
+from trammel.edge import client, publish, sync
+from trammel.edge.models import EdgeAnswer, EdgeSettings, EdgeUpload
 from trammel.jobs import services as jobs
 from trammel.jobs.models import Job
 from trammel.portal.models import PortalSettings, Upload
@@ -336,3 +337,42 @@ def test_store_addresses_point_at_cloudflare_while_it_stands_in(live, admin_clie
     edge_page = admin_client.get("/settings/edge-portal/").content.decode()
     assert f"{URL}/imports/ebay/deletion/" in edge_page
     assert len(publish.items.__name__) and Client  # (imports kept for readers)
+
+
+@pytest.mark.django_db
+def test_a_file_removed_there_or_never_collected(live, grace, monkeypatch):  # noqa: F811
+    """Removed by the customer before Trammel collected it: passed over. One
+    Trammel can't collect, five times: the customer is asked to send it again."""
+    modules.set_enabled("files", True)
+    settings = PortalSettings.load()
+    settings.uploads_enabled = True
+    settings.save()
+    sync.run()
+    status = {"upload/gone": 404, "upload/bad": 400}
+
+    def fetch(method, path, **kwargs):
+        if path.startswith("/_sync/objects/"):
+            key = path.split("/_sync/objects/", 1)[1].replace("%2F", "/")
+            if method == "GET":
+                error = client.EdgeError(f"The edge portal answered {status[key]}")
+                error.status = status[key]
+                raise error
+            return {}
+        return FakeWorker.call(live, method, path, **kwargs)
+
+    monkeypatch.setattr("trammel.edge.client.call", fetch)
+    ids = ["01900000-0000-7000-8000-0000000000e1", "01900000-0000-7000-8000-0000000000e2"]
+    live.inbox = [
+        _event(1, "upload", grace, {"id": ids[0], "key": "upload/gone", "name": "a.pdf"}),
+        _event(2, "upload", grace, {"id": ids[1], "key": "upload/bad", "name": "Door Drawing.pdf"}),
+    ]
+    assert "400" in sync.run()["error"]
+    assert EdgeSettings.load().inbox_after == 1  # the removed one passed over
+    assert not EdgeUpload.objects.filter(pk=ids[0]).exists()
+    for _ in range(4):
+        sync.run()
+    assert EdgeSettings.load().inbox_after == 2
+    shown = live.of("upload")[ids[1]]["data"]
+    assert shown["status"] == "Not taken" and "send it again" in shown["reason"]
+    skipped = AuditEvent.objects.get(action="edge.event_skipped")
+    assert skipped.summary.startswith("Skipped a file a customer sent")

@@ -20,5 +20,11 @@ class PortalConfig(ModuleConfig):
         url_prefix="portal",
         # While it is off, its addresses don't exist at all (FR-PRT-5).
         routes_when_disabled=False,
-        permissions=(Permission("portal.manage", "Give customers access to the portal"),),
+        api_router="trammel.portal.api.router",
+        permissions=(
+            Permission(
+                "portal.manage",
+                "Give customers access to the portal, and set what they can send (over the API)",
+            ),
+        ),
     )

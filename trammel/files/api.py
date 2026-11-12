@@ -3,14 +3,15 @@ from __future__ import annotations
 from uuid import UUID
 
 from django.apps import apps
-from django.http import Http404
+from django.http import FileResponse, Http404
+from django.shortcuts import get_object_or_404
 from ninja import File, Form, Router, Schema, Status
 from ninja.files import UploadedFile
 
 from trammel.core import access
 
 from . import services
-from .models import DocumentType
+from .models import DocumentRevision, DocumentType
 
 router = Router(tags=["files"])
 
@@ -64,6 +65,34 @@ def _out(link) -> dict:
         "doc_type": link.document.doc_type_id,
         "doc_type_name": link.document.doc_type.name if link.document.doc_type else "",
     }
+
+
+def serve_revision(revision) -> FileResponse:
+    """A file revision's bytes, as the files' download page serves them."""
+    path = services.blob_path(revision.blob)
+    if not path.exists():
+        raise Http404
+    response = FileResponse(
+        path.open("rb"),
+        content_type=revision.blob.mime,
+        as_attachment=True,
+        filename=revision.original_name,
+    )
+    response["X-Content-Type-Options"] = "nosniff"
+    response["Content-Security-Policy"] = "sandbox; default-src 'none'"
+    return response
+
+
+@router.get("/revisions/{file_revision_id}/download")
+def download(request, file_revision_id: UUID):
+    """A file's bytes (a revision_id from the file listings)."""
+    access.require(request.actor, "files.view")
+    revision = get_object_or_404(
+        DocumentRevision.objects.select_related("blob", "document"), pk=file_revision_id
+    )
+    if request.actor.is_customer:
+        raise Http404
+    return serve_revision(revision)
 
 
 @router.get("/types", response=list[DocumentTypeOut])

@@ -134,7 +134,8 @@ export async function handleSync(request, env) {
 }
 
 /** The scheduled cleanup: expired sessions and codes, old attempts, and
- * files customers sent that Trammel never collected (after 30 days). */
+ * files customers sent that Trammel never collected, with their "on its way"
+ * entries (after 30 days). */
 export async function cleanup(env) {
   await cleanupRows(env);
   const month = Date.now() - 30 * 24 * 3600 * 1000;
@@ -157,5 +158,10 @@ async function cleanupRows(env) {
     db.prepare("DELETE FROM codes WHERE expires_at < ?").bind(month),
     db.prepare("DELETE FROM attempts WHERE at < ?").bind(month),
     db.prepare("DELETE FROM used_access_codes WHERE at < ?").bind(month),
+    // Trammel replaces each with how the file got on; one it never collected
+    // would otherwise say "Sending to us…" for good.
+    db
+      .prepare("DELETE FROM records WHERE type = 'upload' AND sort < ? AND json_extract(data, '$.status') = ?")
+      .bind(month, "Sending to us…"),
   ]);
 }
