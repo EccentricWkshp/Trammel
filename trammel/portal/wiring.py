@@ -5,6 +5,7 @@ from __future__ import annotations
 from django.urls import reverse
 
 from trammel.core import access, dashboard, panels
+from trammel.jobs import hooks as job_hooks
 from trammel.notifications import hooks as email_hooks
 
 from . import services, uploads
@@ -46,11 +47,14 @@ def _sent_panel(request, obj, **lookup):
     )
     if not sent:
         return None
+    waiting = sum(1 for u in sent if u.status == Upload.Status.PENDING)
     return panels.Panel(
         "Files the customer sent",
         "portal/_sent_panel.html",
-        {"sent": sent, "waiting": sum(1 for u in sent if u.status == Upload.Status.PENDING)},
-        order=85,
+        {"sent": sent, "waiting": waiting},
+        # First on the page while any wait for review; otherwise near the end.
+        order=1 if waiting else 85,
+        lead=bool(waiting),
     )
 
 
@@ -67,6 +71,30 @@ def job_sent(request, job):
     if not access.has_perm(request.actor, "jobs.view", job):
         return None
     return _sent_panel(request, job, job=job)
+
+
+@job_hooks.register_notices
+def job_files_to_review(actor, jobs) -> dict:
+    """A job with files the customer sent waiting for review: flagged on its
+    page and in the job list, linked to the first one's review."""
+    if not access.has_perm(actor, "files.upload"):
+        return {}
+    waiting: dict = {}
+    for job_id, pk in (
+        uploads.waiting(Upload.objects.filter(job__in=jobs))
+        .order_by("sent_at")
+        .values_list("job_id", "pk")
+    ):
+        waiting.setdefault(job_id, []).append(pk)
+    return {
+        job_id: [
+            job_hooks.Notice(
+                f"{len(pks)} file{'s' if len(pks) != 1 else ''} from the customer to review",
+                reverse("portal:review", args=[pks[0]]),
+            )
+        ]
+        for job_id, pks in waiting.items()
+    }
 
 
 @dashboard.register(

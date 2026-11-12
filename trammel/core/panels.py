@@ -31,6 +31,8 @@ class Panel:
     tab: str | None = None
     #: Shown beside the tab label, e.g. how many invoices.
     count: int | None = None
+    #: Needs attention now: shown ahead of the page's own cards on the Overview.
+    lead: bool = False
 
 
 def register(model_label: str):

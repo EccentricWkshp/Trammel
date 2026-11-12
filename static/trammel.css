@@ -231,6 +231,8 @@ label.choice input { margin: 0; }
 .flag { display: inline-block; font-size: .8rem; padding: .05rem .5rem; border-radius: var(--radius); margin: 0 .25rem .2rem 0; }
 .flag-late { background: var(--err-bg); color: var(--err-text); }
 .flag-risk { background: var(--warn-bg); color: var(--warn-text); }
+a.flag { text-decoration: underline; text-underline-offset: .15em; }
+a.flag:hover { text-decoration-thickness: 2px; }
 .lifecycle { display: flex; flex-wrap: wrap; gap: .75rem; align-items: end; padding: .75rem 1rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin: .5rem 0 1rem; }
 .lifecycle .transition { display: flex; gap: .4rem; align-items: end; flex-wrap: wrap; }
 .lifecycle .transition label { font-size: .85rem; font-weight: 600; width: 100%; margin: 0; }

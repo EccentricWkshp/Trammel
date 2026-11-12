@@ -16,7 +16,7 @@ from trammel.core.lifecycle import TransitionError
 from trammel.core.models import AuditEvent
 from trammel.core.web import csv_response, paginate, permission_required
 
-from . import services
+from . import hooks, services
 from .forms import JobForm, TransitionForm
 from .models import OPEN_STATES, TERMINAL, Job, Priority, Status
 
@@ -68,7 +68,8 @@ def job_list(request):
     qs, status = _filtered(request)
     page = paginate(request, qs)
     today = timezone.localdate()
-    rows = [(job, job.schedule_flags(today)) for job in page]
+    notices = hooks.notices(request.actor, page)
+    rows = [(job, job.schedule_flags(today), notices.get(job.pk, [])) for job in page]
     params = request.GET.copy()
     params.pop("page", None)
     return render(
@@ -334,6 +335,7 @@ def job_detail(request, pk):
         {
             "job": job,
             "flags": job.schedule_flags(timezone.localdate()),
+            "notices": hooks.notices(actor, [job]).get(job.pk, []),
             "actions": actions,
             "can_edit": access.has_perm(actor, "jobs.edit", job) and job.status not in TERMINAL,
             "can_create": access.has_perm(actor, "jobs.create"),

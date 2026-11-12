@@ -267,3 +267,38 @@ def test_pictures_and_pdfs_can_be_viewed_in_the_browser(
     inline = signed_in.get(f"/portal/sent/{sent.pk}/?inline=1")
     assert inline["Content-Disposition"].startswith("inline")
     assert signed_in.get(f"/portal/sent/{sent.pk}/")["Content-Disposition"].startswith("attachment")
+
+
+@pytest.mark.django_db
+def test_files_waiting_for_review_are_flagged_on_the_job(
+    signed_in,
+    grace,
+    job,
+    admin_client,
+    django_capture_on_commit_callbacks,
+):
+    other = jobs.create_job(Job(title="Other", customer=grace))
+    _send(
+        signed_in,
+        django_capture_on_commit_callbacks,
+        _files(("logo.dxf", samples.dxf()), ("photo.jpg", _jpeg())),
+        job=str(job.pk),
+    )
+    first = Upload.objects.order_by("sent_at").first()
+    review = f"/portal/review/{first.pk}/"
+    page = admin_client.get(f"/jobs/{job.pk}/").content.decode()
+    header = page[: page.index("tab-body")]
+    assert "2 files from the customer to review" in header and review in header
+    # The panel leads the overview while files wait.
+    overview = page[page.index("tab-body") :]
+    assert overview.index("Files the customer sent") < overview.index("Scope")
+    listing = admin_client.get("/jobs/").content.decode()
+    assert "2 files from the customer to review" in listing and review in listing
+    assert "to review" not in admin_client.get(f"/jobs/{other.pk}/").content.decode()
+
+    for upload in Upload.objects.all():
+        uploads.decline(upload, reason="Not needed")
+    page = admin_client.get(f"/jobs/{job.pk}/").content.decode()
+    assert "from the customer to review" not in page
+    overview = page[page.index("tab-body") :]
+    assert overview.index("Scope") < overview.index("Files the customer sent")

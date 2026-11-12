@@ -15,6 +15,9 @@ depends on it):
 * `on_updated` — a job's details were edited: `fn(job, before)`, with the
   snapshot from before. Quotes add or remove a rush fee when the priority
   moves to or from Rush.
+* `notices` — something on a job waiting for staff, flagged on its page and
+  in the job list with a link to deal with it: the portal flags files the
+  customer sent that are waiting for review.
 """
 
 from __future__ import annotations
@@ -27,6 +30,7 @@ _checks: dict[str, list[Callable]] = defaultdict(list)
 _outstanding: list[Callable] = []
 _on_duplicate: list[Callable] = []
 _on_updated: list[Callable] = []
+_notices: list[Callable] = []
 
 
 def check(target: str):
@@ -85,6 +89,35 @@ def register_duplicate(fn: Callable):
 def run_duplicate(source, new) -> None:
     for fn in _on_duplicate:
         fn(source, new)
+
+
+@dataclass
+class Notice:
+    """Something on a job waiting for staff, with where to deal with it."""
+
+    text: str
+    url: str
+    #: The flag's look: "risk" (amber) or "late" (red).
+    level: str = "risk"
+
+
+def register_notices(fn: Callable) -> Callable:
+    """Register `fn(actor, jobs) -> {job_id: [Notice]}`, called once for a page
+    of jobs; it checks the actor's permissions itself."""
+    _notices.append(fn)
+    return fn
+
+
+def notices(actor, jobs) -> dict:
+    """Each job's notices, by its id: {job_id: [Notice]}."""
+    jobs = list(jobs)
+    found: dict = defaultdict(list)
+    if not jobs:
+        return found
+    for fn in _notices:
+        for job_id, items in fn(actor, jobs).items():
+            found[job_id].extend(items)
+    return found
 
 
 def on_updated(fn: Callable) -> Callable:

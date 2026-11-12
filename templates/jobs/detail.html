@@ -12,6 +12,7 @@
       {% if job.status == "on_hold" and job.held_from %}<span class="muted">(from {{ job.held_from_label|lower }})</span>{% endif %}
       {% if job.force_closed_at %}<span class="badge warn">force-closed {{ job.force_closed_at|d }}</span>{% endif %}
       {% for level, message in flags %}<span class="flag flag-{{ level }}">{{ message }}</span>{% endfor %}
+      {% for n in notices %}<a class="flag flag-{{ n.level }}" href="{{ n.url }}">{{ n.text }}</a>{% endfor %}
     </p>
     <dl class="facts-inline">
       <div><dt>Due</dt><dd>{{ job.due_date|d|default:"—" }}</dd></div>
@@ -51,6 +52,11 @@
 <div class="tab-body">
 {% if tab == "overview" %}
   <div class="overview-grid">
+    {% for panel in overview_panels %}{% if panel.lead %}
+    <section class="card" aria-labelledby="panel-{{ forloop.counter }}">
+      {% with ctx=panel.context heading_id=forloop.counter %}{% include panel.template %}{% endwith %}
+    </section>
+    {% endif %}{% endfor %}
     <section class="card" aria-labelledby="scope-heading">
       <h2 id="scope-heading">Scope</h2>
       {% if job.description %}<p class="prewrap">{{ job.description }}</p>{% else %}<p class="muted">No scope written yet.{% if can_edit %} <a href="{% url 'jobs:edit' job.pk %}">Add it</a>.{% endif %}</p>{% endif %}
@@ -60,11 +66,11 @@
         <dt>Created</dt><dd>{{ job.created_at|d }}</dd>
       </dl>
     </section>
-    {% for panel in overview_panels %}
+    {% for panel in overview_panels %}{% if not panel.lead %}
     <section class="card" aria-labelledby="panel-{{ forloop.counter }}">
       {% with ctx=panel.context heading_id=forloop.counter %}{% include panel.template %}{% endwith %}
     </section>
-    {% endfor %}
+    {% endif %}{% endfor %}
   </div>
 {% elif tab == "files" %}
   {% attachments job %}
