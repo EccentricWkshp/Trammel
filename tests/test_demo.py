@@ -4,6 +4,7 @@ import pytest
 from django.core.management import CommandError, call_command
 
 from trammel.billing.models import Invoice
+from trammel.customers.models import Customer
 from trammel.jobs.models import Job
 from trammel.purchasing.models import PurchaseOrder
 from trammel.stock import services as stock
@@ -34,6 +35,37 @@ def test_seed_demo_builds_every_stage_once(admin):
     assert states == ["closed", "draft", "ordered"]
     with pytest.raises(CommandError, match="already"):
         call_command("seed_demo", yes=True)
+    # The schedule part: moves, pins and a printer group, added once.
+    from trammel.workorders import scheduling
+
+    plan = scheduling.build()
+    titles = [p.wo.title for p in plan.work_orders]
+    assert "Reorganize the lumber rack" in titles
+    assert any(p.moved for p in plan.work_orders)
+    ops = [o for p in plan.work_orders for o in p.ops]
+    assert any(o.pinned and any(b.after_hours for b in o.bookings) for o in ops)
+    assert any(o.too_early for o in ops)
+    assert any(o.other_machine for o in ops)
+    count = WorkOrder.objects.count()
+    call_command("seed_demo", yes=True, only="schedule")
+    assert WorkOrder.objects.count() == count
+
+
+@pytest.mark.django_db
+def test_the_schedule_part_adds_alone_without_notifying(admin, monkeypatch):
+    from trammel.notifications import wiring
+    from trammel.quotes import services as quotes
+
+    sent = []
+    monkeypatch.setattr(wiring, "notify", lambda kind, **kw: sent.append(kind))
+    hooks = list(quotes.on_approved)
+    Customer.objects.create(name="Tom Becker", email="tom@demo.trammel.test")
+    call_command("seed_demo", yes=True, only="schedule")
+    assert WorkOrder.objects.filter(title="Rush: 40 engraved tap handles").exists()
+    tom = Job.objects.get(title="Walnut keepsake box")
+    assert tom.customer.name == "Tom Becker" and tom.status == "approved"
+    # Quotes approved without notifying staff, and the hook back afterward.
+    assert sent == [] and quotes.on_approved == hooks
 
 
 @pytest.mark.django_db

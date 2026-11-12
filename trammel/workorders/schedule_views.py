@@ -9,6 +9,7 @@ import datetime as dt
 from django.shortcuts import render
 from django.utils import timezone
 
+from trammel.core import access
 from trammel.core.web import permission_required
 from trammel.jobs.models import Priority
 from trammel.shop.models import Machine
@@ -33,25 +34,62 @@ def _week_start(request, today: dt.date) -> dt.date:
     return day - dt.timedelta(days=(day.weekday() - first) % 7)
 
 
+def _after_hours(plan, days) -> dict:
+    """Each day's work outside shop hours (operations pinned to be finished
+    that day): the earliest start and latest end, wall clock."""
+    out: dict = {}
+    for _wp, _op, booking in plan.bookings(
+        plan.hours.aware(dt.datetime.combine(days[0], dt.time(0))),
+        plan.hours.aware(dt.datetime.combine(days[-1] + dt.timedelta(days=1), dt.time(0))),
+    ):
+        if not booking.after_hours:
+            continue
+        start, end = plan.hours.local(booking.start), plan.hours.local(booking.end)
+        first, last = out.get(start.date(), (start, end))
+        out[start.date()] = (min(first, start), max(last, end))
+    return out
+
+
 def _columns(plan, days):
-    """Each day's column: its x, width and shift (wall clock), or none if off."""
-    weights = [1.0 if plan.hours.shift_on(d) else OFF_WEIGHT for d in days]
+    """Each day's column: its x, width, the stretch of the day it draws (its
+    shift, widened for work outside shop hours), and the shift itself."""
+    extra = _after_hours(plan, days)
+    shifts = [plan.hours.shift_on(d) for d in days]
+    weights = [1.0 if (s or d in extra) else OFF_WEIGHT for d, s in zip(days, shifts, strict=True)]
     unit = (WIDTH - LABELS) / sum(weights)
     x = LABELS
     out = []
-    for day, weight in zip(days, weights, strict=True):
-        span = plan.hours.shift_on(day)
-        out.append(
-            {
-                "day": day,
-                "x": round(x, 1),
-                "w": round(unit * weight, 1),
-                "mid": round(x + unit * weight / 2, 1),
-                "span": span,
-                "off": span is None,
-            }
-        )
-        x += unit * weight
+    for day, weight, shift in zip(days, weights, shifts, strict=True):
+        span = shift
+        if day in extra:
+            first, last = extra[day]
+            span = (min(first, shift[0]), max(last, shift[1])) if shift else (first, last)
+        w = unit * weight
+        col = {
+            "day": day,
+            "x": round(x, 1),
+            "w": round(w, 1),
+            "mid": round(x + w / 2, 1),
+            "span": span,
+            "shift": shift,
+            "off": shift is None,
+            "shaded": [],  # the stretches outside shop hours: (x, width)
+        }
+        if span and span != shift:
+            total = (span[1] - span[0]).total_seconds()
+
+            def at(t, x=x, w=w, span=span, total=total):
+                return x + w * (t - span[0]).total_seconds() / total
+
+            if shift is None:
+                col["shaded"].append((round(x, 1), round(w, 1)))
+            else:
+                if span[0] < shift[0]:
+                    col["shaded"].append((round(x, 1), round(at(shift[0]) - x, 1)))
+                if span[1] > shift[1]:
+                    col["shaded"].append((round(at(shift[1]), 1), round(x + w - at(shift[1]), 1)))
+        out.append(col)
+        x += w
     return out
 
 
@@ -87,7 +125,15 @@ def _labels(items):
         ):
             last["w"] = max(last["x"] + last["w"], item["x"] + item["w"]) - last["x"]
         else:
-            runs.append({"wo": item["wo"], "x": item["x"], "y": item["y"], "w": item["w"]})
+            runs.append(
+                {
+                    "wo": item["wo"],
+                    "x": item["x"],
+                    "y": item["y"],
+                    "w": item["w"],
+                    "priority": item["priority"],
+                }
+            )
     labels = []
     for run in runs:
         text = short_number(run["wo"].number)
@@ -95,6 +141,8 @@ def _labels(items):
             labels.append(
                 {
                     "text": text,
+                    # Low priority's pale blue takes dark text.
+                    "light": run["priority"] == 0,
                     "x": round(run["x"] + run["w"] / 2, 1),
                     "y": run["y"] + (LANE - 6) / 2 + 4,
                 }
@@ -153,6 +201,9 @@ def schedule(request):
             "late": bool(wp.late),
             "kind": booking.kind,
             "machine": machines.get(booking.machine_id) or op.op.machine,
+            "instead_of": op.op.machine if op.other_machine else None,
+            "pinned": op.op.pinned_date if op.pinned else None,
+            "after_hours": booking.after_hours,
         }
         shown.setdefault(wp.position, wp)
         if booking.kind == "labor":
@@ -175,6 +226,10 @@ def schedule(request):
                     "wo": wp.wo,
                     "op": op.op,
                     "late": bool(wp.late),
+                    "instead_of": item["instead_of"],
+                    "pinned": item["pinned"],
+                    "too_early": op.too_early,
+                    "after_hours": booking.after_hours,
                 }
             )
 
@@ -245,6 +300,7 @@ def schedule(request):
             "next": (first + dt.timedelta(days=7)).isoformat(),
             "this_week": first <= today <= days[-1],
             "queue": plan.work_orders,
+            "can_move": access.has_perm(request.actor, "workorders.edit"),
             "priorities": sorted(Priority, reverse=True),
             "key": [
                 {"wp": wp, "priority": wp.wo.job.priority, "short": short_number(wp.wo.number)}

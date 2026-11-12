@@ -316,6 +316,7 @@ dialog.lightbox img { display: block; width: min(92vw, 64rem); max-height: 82vh;
 svg.schedule { display: block; width: 100%; min-width: 46rem; height: auto; font-size: 12px; }
 svg.schedule .day-line { stroke: var(--border); }
 svg.schedule .day-off { fill: var(--bg); }
+svg.schedule .after-hours { fill: var(--bg); fill-opacity: .7; }
 svg.schedule .row-band { fill: transparent; stroke: var(--border); stroke-width: .5; }
 svg.schedule .day-name { fill: var(--text); font-weight: 600; }
 svg.schedule .day-hours, svg.schedule .row-name { fill: var(--muted); }
@@ -327,16 +328,21 @@ svg.schedule a:hover .bar, svg.schedule a:focus .bar { stroke: var(--text); stro
 svg.schedule .bar-label { fill: #fff; font-size: 11px; font-weight: 700; pointer-events: none; paint-order: stroke; stroke: rgb(0 0 0 / .45); stroke-width: 2px; }
 svg.schedule a.picked .bar { stroke: var(--text); stroke-width: 2; }
 /* By the job's priority: rush red, through rose and violet, to low blue. */
-svg.schedule .p3 { fill: #c0392b; } svg.schedule .p2 { fill: #a8406e; }
-svg.schedule .p1 { fill: #6b4f9e; } svg.schedule .p0 { fill: #2f6f9f; }
+/* Checked for color-blind separation: each neighbor differs in lightness as well as hue. */
+svg.schedule .p3 { fill: #a8192c; } svg.schedule .p2 { fill: #d2691e; }
+svg.schedule .p1 { fill: #3b78c2; } svg.schedule .p0 { fill: #a9cdee; }
+svg.schedule .bar.machine.p0 { fill-opacity: .75; }
+svg.schedule .bar-label.on-light { fill: #17324d; stroke: rgb(255 255 255 / .55); }
 .schedule-day li { padding: .2rem 0; }
+.badge.badge-pin { background: var(--surface); border: 1px solid var(--border); color: var(--text); text-transform: none; letter-spacing: 0; }
+.queue-move { white-space: nowrap; }
 .schedule-detail { min-height: 1.5em; margin: .5rem 0; color: var(--muted); font-size: .9rem; }
 .schedule-detail.showing { color: var(--text); font-weight: 600; }
 .schedule-key { display: flex; flex-wrap: wrap; gap: .4rem 1.25rem; margin: .5rem 0; }
 .schedule-key .swatch { display: inline-block; min-width: 1.6em; padding: 0 .3em; border-radius: 3px; color: #fff; font-size: .8rem; font-weight: 700; text-align: center; }
 .schedule-legend .swatch { display: inline-block; padding: 0 .4em; border-radius: 3px; color: #fff; font-weight: 700; }
-.swatch.p3 { background: #c0392b; } .swatch.p2 { background: #a8406e; }
-.swatch.p1 { background: #6b4f9e; } .swatch.p0 { background: #2f6f9f; }
+.swatch.p3 { background: #a8192c; } .swatch.p2 { background: #d2691e; }
+.swatch.p1 { background: #3b78c2; } .swatch.p0 { background: #a9cdee; color: #17324d; }
 .shop-hours .crew-input { width: 4.5rem; }
 
 /* Sortable column headings (core/sorting.py) */

@@ -17,12 +17,14 @@ router = Router(tags=["machines and materials"])
 class MachineOut(ModelSchema):
     class Meta:
         model = Machine
-        fields = ["id", "name", "kind", "hourly_rate", "is_active", "notes"]
+        fields = ["id", "name", "kind", "group", "hourly_rate", "is_active", "notes"]
 
 
 class MachineIn(Schema):
     name: str
     kind: choices(Machine.Kind) = Machine.Kind.OTHER
+    #: Machines in the same group can stand in for each other on the schedule.
+    group: str = ""
     hourly_rate: Decimal = Decimal("0")
     is_active: bool = True
     notes: str = ""

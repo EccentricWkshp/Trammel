@@ -37,6 +37,14 @@ class Machine(BaseModel):
 
     name = models.CharField(max_length=100, unique=True)
     kind = models.CharField(max_length=16, choices=Kind.choices, default=Kind.OTHER)
+    group = models.CharField(
+        max_length=60,
+        blank=True,
+        help_text=(
+            "Machines in the same group can stand in for each other on the schedule, "
+            "such as “FDM printers”. Leave it blank for a machine nothing else can replace."
+        ),
+    )
     hourly_rate = RateField(
         default=Decimal("0"),
         validators=[MinValueValidator(0)],

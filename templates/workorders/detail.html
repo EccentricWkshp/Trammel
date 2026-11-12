@@ -39,7 +39,9 @@
   {% for op in operations %}
     <li class="op op-{{ op.status }} op-depth-{{ op.depth }}{% if op.has_children %} op-parent{% endif %}">
       <span class="op-main">
-        <span class="op-name"><span class="op-number">{{ op.number }}</span> {{ op.name }}{% if op.machine %} <span class="badge">{{ op.machine }}</span>{% endif %}</span>
+        <span class="op-name"><span class="op-number">{{ op.number }}</span> {{ op.name }}{% if op.machine %} <span class="badge">{{ op.machine }}{% if op.machine_pinned and op.machine.group %} (kept on it){% endif %}</span>{% endif %}{% if op.pinned_date and op.status == "pending" %} <span class="badge badge-pin">Pinned to {{ op.pinned_date|date:"D" }} {{ op.pinned_date|d }}{% if op.pinned_from %}, from {{ op.pinned_from|time:"g:i A" }}{% endif %}{% if op.pinned_overtime %}, outside shop hours if need be{% endif %}</span>{% endif %}</span>
+        {% if op.scheduled_on %}<span class="muted small">Scheduled on {{ op.scheduled_on }}, another machine in its group, which finishes it sooner.</span>{% endif %}
+        {% if op.plan.too_early %}<span class="flag flag-late">Pinned before the steps ahead of it can be done</span>{% endif %}
         {% if op.description %}<span class="op-desc muted prewrap">{{ op.description }}</span>{% endif %}
         {% include "workorders/_op_time.html" %}
       </span>
@@ -68,6 +70,12 @@
           <label>Planned machine (min) <input type="text" inputmode="decimal" name="planned_machine_minutes" size="6" value="{{ op.planned_machine_minutes|default_if_none:''|qty }}"></label>
           <label>Wait after (hours) <input type="text" inputmode="decimal" name="planned_wait_hours" size="6" value="{{ op.planned_wait_hours|default_if_none:''|qty }}" aria-describedby="wait-help-{{ op.pk }}"></label>
           <p class="muted small wide" id="wait-help-{{ op.pk }}">How long the work sits after this (glue clamping, finish curing) before the next operation can start. The estimated finish counts it around the clock.</p>
+          <input type="hidden" name="pins" value="1">
+          <label>Pin to day <input type="date" name="pinned_date" value="{{ op.pinned_date|date:'Y-m-d' }}" aria-describedby="pin-help-{{ op.pk }}"></label>
+          <label>Start at <input type="time" name="pinned_from" step="900" value="{{ op.pinned_from|time:'H:i' }}" aria-describedby="pin-help-{{ op.pk }}"></label>
+          <label class="check"><input type="checkbox" name="pinned_overtime"{% if op.pinned_overtime %} checked{% endif %} aria-describedby="pin-help-{{ op.pk }}"><span>Work outside shop hours to finish it that day</span></label>
+          <label class="check"><input type="checkbox" name="machine_pinned"{% if op.machine_pinned %} checked{% endif %} aria-describedby="pin-help-{{ op.pk }}"><span>Keep on this machine</span></label>
+          <p class="muted small wide" id="pin-help-{{ op.pk }}">The schedule plans a pinned operation from that day's opening (or the start time), ahead of the queue, and fits everything else around it. To finish it that day, it can work outside shop hours: from the start time (coming in early, or on a day off) and past closing (staying late), without changing the shop's hours. It may run an operation on another machine in the same group when that finishes sooner; keep it on this one if only this machine will do.</p>
           <label class="wide">Details <textarea name="description" rows="2">{{ op.description }}</textarea></label>
           <div class="actions"><button type="submit" class="primary">Save</button></div>
         </form>

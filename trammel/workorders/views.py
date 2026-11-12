@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import datetime as dt
 from decimal import Decimal
 
 from django import forms
@@ -216,6 +217,13 @@ def wo_detail(request, pk):
 
     scheduled = scheduling.build().for_work_order(wo)
     finish = scheduled.finish if scheduled else services.estimate_finish(wo, operations)
+    # Each operation's place in it: pinned, too early, or on another machine.
+    plans = {p.op.pk: p for p in scheduled.ops} if scheduled else {}
+    others = {p.machine_id for p in plans.values() if p.other_machine}
+    names = Machine.objects.in_bulk(others) if others else {}
+    for op in operations:
+        op.plan = plans.get(op.pk)
+        op.scheduled_on = names.get(op.plan.machine_id) if op.plan else None
     if can_edit:
         options = services.parent_options(operations)
         for op in operations:
@@ -388,6 +396,11 @@ def op_edit(request, pk, op_pk):
                 planned_wait_hours=_minutes(
                     request.POST.get("planned_wait_hours"), "Enter the wait in hours, such as 12."
                 ),
+                pin="pins" in request.POST,
+                pinned_date=_day(request.POST.get("pinned_date")),
+                machine_pinned="machine_pinned" in request.POST,
+                pinned_from=_clock(request.POST.get("pinned_from")),
+                pinned_overtime="pinned_overtime" in request.POST,
             )
             if "parent" in request.POST:
                 services.reparent_operation(
@@ -396,6 +409,38 @@ def op_edit(request, pk, op_pk):
     except ValidationError as exc:
         messages.error(request, " ".join(exc.messages))
     return redirect(_ops_tab(wo))
+
+
+def _day(value: str | None):
+    value = (value or "").strip()
+    if not value:
+        return None
+    try:
+        return dt.date.fromisoformat(value)
+    except ValueError:
+        raise ValidationError("Pick the day to pin it to.") from None
+
+
+def _clock(value: str | None):
+    value = (value or "").strip()
+    if not value:
+        return None
+    try:
+        return dt.time.fromisoformat(value)
+    except ValueError:
+        raise ValidationError("Enter the time to start it, such as 7:30 AM.") from None
+
+
+@permission_required("workorders.edit")
+@require_POST
+def queue_move(request, pk):
+    """Moves a work order up or down the schedule's queue, or back (0.8.1)."""
+    wo = _wo(request, "workorders.edit", pk)
+    try:
+        services.move_in_queue(wo, request.POST.get("direction", ""))
+    except ValidationError as exc:
+        messages.error(request, " ".join(exc.messages))
+    return redirect(safe_next(request, reverse("workorders:schedule")))
 
 
 def _minutes(value: str | None, problem: str = "Enter planned time in minutes, such as 45."):

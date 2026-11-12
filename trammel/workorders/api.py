@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime, time
 from decimal import Decimal
 from uuid import UUID
 
@@ -25,6 +25,11 @@ class OperationOut(ModelSchema):
     #: Minutes logged against it and everything under it, by kind.
     logged_labor_minutes: Decimal
     logged_machine_minutes: Decimal
+    #: The machine the shop schedule has it on: its own, or another in the
+    #: machine's group that finishes it sooner. Null when it isn't scheduled.
+    scheduled_machine: UUID | None
+    #: Pinned to a day before the steps ahead of it can be done.
+    pinned_too_early: bool
 
     class Meta:
         model = Operation
@@ -40,11 +45,25 @@ class OperationOut(ModelSchema):
             "planned_labor_minutes",
             "planned_machine_minutes",
             "planned_wait_hours",
+            "pinned_date",
+            "pinned_from",
+            "pinned_overtime",
+            "machine_pinned",
         ]
 
     @staticmethod
     def resolve_parent(obj):
         return obj.parent_id
+
+    @staticmethod
+    def resolve_scheduled_machine(obj):
+        plan = getattr(obj, "_plan", None)
+        return plan.machine_id if plan and plan.bookings else None
+
+    @staticmethod
+    def resolve_pinned_too_early(obj):
+        plan = getattr(obj, "_plan", None)
+        return bool(plan and plan.too_early)
 
     @staticmethod
     def resolve_logged_labor_minutes(obj):
@@ -94,6 +113,8 @@ class WorkOrderOut(ModelSchema):
     scheduled_start: datetime | None
     scheduled_finish: datetime | None
     queue_position: int | None
+    #: Moved up or down the queue, away from where its priority and dates put it.
+    queue_moved: bool
 
     class Meta:
         model = WorkOrder
@@ -113,6 +134,10 @@ class WorkOrderOut(ModelSchema):
     @staticmethod
     def resolve_operations(obj):
         obj._tree = services.operation_tree(obj)
+        planned = WorkOrderOut._planned(obj)
+        plans = {p.op.pk: p for p in planned.ops} if planned else {}
+        for op in obj._tree:
+            op._plan = plans.get(op.pk)
         return obj._tree
 
     @staticmethod
@@ -149,6 +174,11 @@ class WorkOrderOut(ModelSchema):
         planned = WorkOrderOut._planned(obj)
         return planned.position if planned else None
 
+    @staticmethod
+    def resolve_queue_moved(obj):
+        planned = WorkOrderOut._planned(obj)
+        return bool(planned and planned.moved)
+
 
 class WorkOrderCreateIn(Schema):
     job: UUID
@@ -164,6 +194,22 @@ class WorkOrderTransitionIn(Schema):
 
 class OperationIn(Schema):
     state: str
+
+
+class OperationPinsIn(Schema):
+    #: Plan it from this day's opening, ahead of the queue; null for no pin.
+    pinned_date: date | None = None
+    #: When that day to start it; null for the day's opening.
+    pinned_from: time | None = None
+    #: Work outside shop hours that day (early, late, a day off) to finish it.
+    pinned_overtime: bool = False
+    #: Keep it on its own machine rather than another in the machine's group.
+    machine_pinned: bool = False
+
+
+class QueueMoveIn(Schema):
+    #: "up" or "down" one place, or "back" to where its priority and dates put it.
+    direction: str
 
 
 class OperationCreateIn(Schema):
@@ -206,7 +252,14 @@ def list_work_orders(request, job: UUID | None = None, status: str | None = None
         qs = qs.filter(job_id=job)
     if status:
         qs = qs.filter(status=status)
-    return access.scoped(request.actor, "workorders.view", qs).order_by("-created_at")[:200]
+    found = list(access.scoped(request.actor, "workorders.view", qs).order_by("-created_at")[:200])
+    # One shop plan for the lot, rather than one each.
+    from . import scheduling
+
+    plan = scheduling.build()
+    for wo in found:
+        wo._planned = plan.for_work_order(wo)
+    return found
 
 
 @router.get("/{wo_id}", response=WorkOrderOut)
@@ -277,6 +330,33 @@ def set_operation(request, wo_id: UUID, op_id: UUID, payload: OperationIn):
     if op is None:
         raise Http404
     services.set_operation(op, payload.state, user=request.actor.user)
+    wo.refresh_from_db()
+    return wo
+
+
+@router.post("/{wo_id}/operations/{op_id}/pins", response=WorkOrderOut)
+def pin_operation(request, wo_id: UUID, op_id: UUID, payload: OperationPinsIn):
+    """Pins an operation on the shop schedule: to a day, to its machine, or both."""
+    wo = _wo(request, "workorders.edit", wo_id)
+    op = wo.operations.filter(pk=op_id).first()
+    if op is None:
+        raise Http404
+    services.pin_operation(
+        op,
+        pinned_date=payload.pinned_date,
+        machine_pinned=payload.machine_pinned,
+        pinned_from=payload.pinned_from,
+        pinned_overtime=payload.pinned_overtime,
+    )
+    wo.refresh_from_db()
+    return wo
+
+
+@router.post("/{wo_id}/queue", response=WorkOrderOut)
+def move_in_queue(request, wo_id: UUID, payload: QueueMoveIn):
+    """Moves an open or in-progress work order in the schedule's queue."""
+    wo = _wo(request, "workorders.edit", wo_id)
+    services.move_in_queue(wo, payload.direction)
     wo.refresh_from_db()
     return wo
 

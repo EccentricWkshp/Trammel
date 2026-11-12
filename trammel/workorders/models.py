@@ -168,6 +168,14 @@ class WorkOrder(LifecycleModel, BaseModel):
         max_length=10, choices=WaitingOn.choices, blank=True, editable=False
     )
     target_completion = models.DateField(null=True, blank=True)
+    #: Moved in the schedule's queue (0.8.1): just before or after another work
+    #: order. Moves apply in the order they were made, on top of the queue's own
+    #: order; one whose other work order has left the queue no longer applies.
+    queue_anchor = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    queue_side = models.CharField(max_length=6, blank=True)  # "before" or "after"
+    queue_moved_at = models.DateTimeField(null=True, blank=True)
     source_revision = models.ForeignKey(
         "quotes.QuoteRevision",
         null=True,
@@ -235,6 +243,15 @@ class Operation(models.Model):
     )
     #: Hours the work sits after it (glue, finish, paint) before the next can start.
     planned_wait_hours = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
+    #: Pinned on the schedule (0.8.1): planned from this day's opening, ahead of
+    #: the queue; and kept on its machine rather than another in its group.
+    pinned_date = models.DateField(null=True, blank=True)
+    machine_pinned = models.BooleanField(default=False)
+    #: When on its pinned day to start it (else the day's opening), and whether
+    #: to work outside shop hours that day (early, late, or on a day off) to
+    #: finish it, without changing the shop's hours.
+    pinned_from = models.TimeField(null=True, blank=True)
+    pinned_overtime = models.BooleanField(default=False)
     #: Set on the operation an approved change order added (its lines are the
     #: sub-operations), so a change order is never added twice.
     source_revision = models.ForeignKey(

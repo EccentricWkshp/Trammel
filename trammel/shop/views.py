@@ -245,6 +245,11 @@ def edit(request, kind, pk=None):
             "breakdown": obj.rate_breakdown(),
             "electricity_rate": ShopRates.load().electricity_rate,
             "presets": PRESETS,
+            # Groups already named, to pick from (the schedule matches them by name).
+            "machine_groups": sorted(
+                {g for g in Machine.objects.exclude(group="").values_list("group", flat=True)},
+                key=str.casefold,
+            ),
         }
         return render(request, "shop/machine_form.html", context)
     if model is Vendor and pk:

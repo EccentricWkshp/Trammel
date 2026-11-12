@@ -27,7 +27,8 @@ printing, laser work. Self-hosted: the data stays on the shop's own hardware.
 - **Schedule** — open work laid onto shop hours, the day's crew and each
   machine in priority order, as a week-by-week machine timeline with each
   machine's load, and a scheduled start and finish on every work order,
-  flagged when it would miss its date.
+  flagged when it would miss its date. Work orders can be moved in the queue,
+  operations pinned to a day, and machines grouped to stand in for each other.
 - **Files** — drawings, photos, DXF, LightBurn, STL/3MF and G-code on
   customers, jobs, quotes, work orders and products, with revisions and
   previews: DXF drawings, STL and 3MF models, and the thumbnails LightBurn and

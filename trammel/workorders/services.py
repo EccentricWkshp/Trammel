@@ -543,7 +543,14 @@ def update_operation(
     planned_labor_minutes=None,
     planned_machine_minutes=None,
     planned_wait_hours=None,
+    pinned_date=None,
+    machine_pinned: bool | None = None,
+    pinned_from=None,
+    pinned_overtime: bool = False,
+    pin: bool = False,
 ) -> Operation:
+    """Edits an operation. Its pins on the schedule change only with `pin`
+    (see `_set_pins`)."""
     _require_editable(op.work_order)
     name = name.strip()
     if not name:
@@ -556,6 +563,8 @@ def update_operation(
     op.planned_labor_minutes = planned_labor_minutes
     op.planned_machine_minutes = planned_machine_minutes
     op.planned_wait_hours = planned_wait_hours
+    if pin:
+        _set_pins(op, pinned_date, machine_pinned, pinned_from, pinned_overtime)
     op.save()
     audit.record(
         "operation.edit",
@@ -565,6 +574,71 @@ def update_operation(
         summary=f"{op.work_order.number}: edited operation “{op.name}”",
     )
     return op
+
+
+@transaction.atomic
+def _set_pins(op, pinned_date, machine_pinned, pinned_from, pinned_overtime) -> None:
+    """An operation's pins on the schedule: the day (None for none), when that
+    day to start it, whether to work outside shop hours to finish it that day,
+    and whether to keep it on its own machine rather than another in its group.
+    The start and hours go with the day."""
+    op.pinned_date = pinned_date
+    op.pinned_from = pinned_from if pinned_date else None
+    op.pinned_overtime = bool(pinned_overtime) and pinned_date is not None
+    op.machine_pinned = bool(machine_pinned)
+
+
+def pin_operation(
+    op: Operation,
+    *,
+    pinned_date=None,
+    machine_pinned: bool = False,
+    pinned_from=None,
+    pinned_overtime: bool = False,
+) -> Operation:
+    """Pins an operation on the schedule (0.8.1); see `_set_pins`."""
+    _require_editable(op.work_order)
+    before = audit.snapshot(op)
+    _set_pins(op, pinned_date, machine_pinned, pinned_from, pinned_overtime)
+    op.save(update_fields=["pinned_date", "machine_pinned", "pinned_from", "pinned_overtime"])
+    audit.record(
+        "operation.pin",
+        op.work_order,
+        before=before,
+        after=audit.snapshot(op),
+        summary=f"{op.work_order.number}: pins on “{op.name}” changed",
+    )
+    return op
+
+
+@transaction.atomic
+def move_in_queue(wo: WorkOrder, direction: str) -> WorkOrder:
+    """Moves a work order one place "up" or "down" the schedule's queue, or
+    "back" to where its priority and dates put it (0.8.1)."""
+    from . import scheduling
+
+    if wo.status not in scheduling.PLANNED:
+        raise ValidationError(
+            f"{wo.number} isn't in the queue: only open and in-progress work orders are."
+        )
+    before = audit.snapshot(wo)
+    if direction == "back":
+        if wo.queue_anchor_id is None:
+            return wo
+        wo.queue_anchor, wo.queue_side, wo.queue_moved_at = None, "", None
+        summary = f"{wo.number}: back to its own place in the queue"
+    elif direction in ("up", "down"):
+        other, side = scheduling.move(wo, direction)
+        if other is None:
+            where = "first" if direction == "up" else "last"
+            raise ValidationError(f"{wo.number} is already {where} in the queue.")
+        wo.queue_anchor, wo.queue_side, wo.queue_moved_at = other, side, timezone.now()
+        summary = f"{wo.number}: moved {direction} the queue, {side} {other.number}"
+    else:
+        raise ValidationError("Move it up, down or back.")
+    wo.save(update_fields=["queue_anchor", "queue_side", "queue_moved_at"])
+    audit.record("workorder.queue", wo, before=before, after=audit.snapshot(wo), summary=summary)
+    return wo
 
 
 @transaction.atomic

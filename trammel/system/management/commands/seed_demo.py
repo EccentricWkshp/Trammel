@@ -30,12 +30,17 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--yes", action="store_true", help="Do not ask for confirmation.")
+        parser.add_argument(
+            "--only",
+            choices=["schedule"],
+            help="Add just this part (to an instance that already has demo data).",
+        )
 
-    def handle(self, *args, yes=False, **options):
+    def handle(self, *args, yes=False, only=None, **options):
         from trammel.accounts.models import User
         from trammel.customers.models import Customer
 
-        if Customer.all_objects.filter(email__endswith=MARKER).exists():
+        if not only and Customer.all_objects.filter(email__endswith=MARKER).exists():
             raise CommandError("Demo data is already loaded.")
         admin = User.objects.filter(is_admin=True, is_active=True).order_by("date_joined").first()
         if admin is None:
@@ -43,7 +48,11 @@ class Command(BaseCommand):
         if not yes and input("This adds sample data to THIS instance. Type DEMO: ") != "DEMO":
             raise CommandError("Cancelled.")
         with audit.acting_as(admin, source="cli"), transaction.atomic():
-            Builder(admin, self.stdout).run()
+            builder = Builder(admin, self.stdout)
+            if only:
+                getattr(builder, only)()
+            else:
+                builder.run()
         self.stdout.write(self.style.SUCCESS("Demo data loaded."))
 
 
@@ -69,6 +78,200 @@ class Builder:
         self.routed_job()
         self.purchasing()
         self.direct_sale()
+        self.schedule()
+
+    # ------------------------------------------------------------------
+    SCHEDULE_MARK = "Rush: 40 engraved tap handles"
+
+    def schedule(self):
+        """Open work for the shop schedule (0.8.x): jobs competing for people and
+        a printer group, a rush job pinned to stay late, a weekend pin, a pin
+        before its steps can be done, an operation kept on its machine, and a
+        work order moved up the queue. Adds to an instance already holding
+        demo data (``--only schedule``) as well as to a fresh one."""
+        from trammel.core import workhours
+        from trammel.core.services import save_audited
+        from trammel.customers.models import Customer
+        from trammel.jobs import services as jobs
+        from trammel.jobs.models import Priority
+        from trammel.quotes import services as quotes
+        from trammel.shop.models import Machine
+        from trammel.workorders import services as wos
+        from trammel.workorders.models import WorkOrder
+
+        if WorkOrder.objects.filter(title=self.SCHEDULE_MARK).exists():
+            self.say("schedule demo already loaded; skipped")
+            return
+
+        def machine(name, kind, rate):
+            return Machine.objects.get_or_create(
+                name=name, defaults={"kind": kind, "hourly_rate": D(rate)}
+            )[0]
+
+        prusa = machine("Prusa MK4", "printer_3d", "6")
+        bambu = machine("Bambu Lab X1-C", "printer_3d", "8")
+        laser = machine("Epilog Fusion 32", "laser", "85")
+        cnc = machine("ShopBot Desktop", "cnc", "65")
+        for printer in (prusa, bambu):
+            if not printer.group:
+                before = audit.snapshot(printer)
+                printer.group = "FDM printers"
+                save_audited(printer, before=before)
+
+        demo = {c.email.split("@")[0]: c for c in Customer.objects.filter(email__endswith=MARKER)}
+        internal = Customer.internal()
+
+        def who(key):
+            return demo.get(key, internal)
+
+        hours = workhours.Hours.load()
+        today = timezone.localdate()
+        ahead = [today + dt.timedelta(days=k) for k in range(1, 22)]
+        workdays = [d for d in ahead if hours.shift_on(d)]
+        day_off = next((d for d in ahead if not hours.shift_on(d)), None)
+
+        def approved(customer, title, scope, *, quoted_hours, **job):
+            j = self._job(customer, title, scope, tags=["schedule"], **job)
+            if customer.is_internal:
+                jobs.transition(j, "approved", actor=self.admin)
+            else:
+                rev = self._quote(
+                    j, [("labor", {"description": title, "quantity": str(quoted_hours)})]
+                )
+                self._approve(rev, customer.name)
+            j.refresh_from_db()
+            return j
+
+        def work_order(job, title, *steps):
+            wo = wos.create(job, title=title)
+            ops = []
+            for name, on, labor, run, wait, *note in steps:
+                op = wos.add_operation(wo, name=name, machine=on)
+                wos.update_operation(
+                    op,
+                    name=name,
+                    description=note[0] if note else "",
+                    machine=on,
+                    planned_labor_minutes=D(labor) if labor else None,
+                    planned_machine_minutes=D(run) if run else None,
+                    planned_wait_hours=D(wait) if wait else None,
+                )
+                ops.append(op)
+            return wo, ops
+
+        # The approvals' staff notifications would only queue test emails.
+        notify = [h for h in quotes.on_approved if h.__module__.endswith("notifications.wiring")]
+        for hook in notify:
+            quotes.on_approved.remove(hook)
+        try:
+            # A rush: pinned to the next working day, staying late to finish.
+            j = approved(
+                who("foundry"),
+                "Rush tap handles for the festival",
+                "40 walnut tap handles engraved with the festival logo, needed this week.",
+                quoted_hours=5,
+                due=3,
+                promised=3,
+                priority=Priority.RUSH,
+            )
+            _wo, (_setup, engrave) = work_order(
+                j,
+                self.SCHEDULE_MARK,
+                ("Set up the engraving file", laser, 30, 0, 0),
+                ("Engrave the handles", laser, 15, 240, 0),
+            )
+            if workdays:
+                wos.pin_operation(engrave, pinned_date=workdays[0], pinned_overtime=True)
+
+            # Printers in a group: the second job goes to whichever is free.
+            j = approved(
+                who("northwest"),
+                "Cable organizers for the shop counter",
+                "50 printed cable organizers in black PETG, packed in tens.",
+                quoted_hours=9,
+                due=10,
+            )
+            _wo, (_print, pack) = work_order(
+                j,
+                "Cable organizers ×50",
+                ("Print the organizers", prusa, 15, 480, 0),
+                ("Pack and label", None, 20, 0, 0),
+            )
+            if workdays:
+                # Pinned before the printing can be done: flagged.
+                wos.pin_operation(pack, pinned_date=workdays[0])
+            j = approved(
+                who("lantern"),
+                "Menu holder clips",
+                "Replacement clips for the table menu holders, printed in white PLA.",
+                quoted_hours=4,
+                due=12,
+            )
+            work_order(j, "Menu holder clips", ("Print the clips", prusa, 10, 240, 0))
+            j = approved(
+                who("ava"),
+                "Phone stand",
+                "A desk phone stand with a textured finish.",
+                quoted_hours=3,
+                due=20,
+                priority=Priority.LOW,
+            )
+            _wo, (stand,) = work_order(
+                j,
+                "Phone stand",
+                (
+                    "Print the stand",
+                    prusa,
+                    10,
+                    180,
+                    0,
+                    "Only the Prusa has the textured sheet this needs.",
+                ),
+            )
+            wos.pin_operation(stand, machine_pinned=True)
+
+            # A glue-up and its wait, with the finishing pinned to a day off.
+            j = approved(
+                who("tom"),
+                "Walnut keepsake box",
+                "A small walnut box with a sliding lid and an engraved monogram.",
+                quoted_hours=6,
+                due=8,
+                promised=8,
+            )
+            _wo, (_mill, _glue, finish, _lid) = work_order(
+                j,
+                "Walnut keepsake box",
+                ("Mill the box parts", cnc, 30, 90, 0),
+                ("Glue up", None, 45, 0, 12),
+                ("Sand and finish", None, 180, 0, 0),
+                ("Engrave the lid", laser, 10, 20, 0),
+            )
+            if day_off:
+                wos.pin_operation(
+                    finish, pinned_date=day_off, pinned_from=dt.time(9), pinned_overtime=True
+                )
+        finally:
+            quotes.on_approved.extend(notify)
+
+        # The shop's own work, moved up the queue ahead of customer work.
+        j = approved(
+            internal,
+            "Reorganize the lumber rack",
+            "Sort the offcuts and rack them by species and thickness.",
+            quoted_hours=0,
+            due=30,
+            priority=Priority.LOW,
+        )
+        rack, _ops = work_order(
+            j, "Reorganize the lumber rack", ("Sort and rack the offcuts", None, 240, 0, 0)
+        )
+        wos.move_in_queue(rack, "up")
+        wos.move_in_queue(rack, "up")
+        self.say(
+            "open work for the schedule: a printer group, a rush pinned to stay late, "
+            "a weekend pin, a pin too early, one kept on its machine, one moved up the queue"
+        )
 
     # ------------------------------------------------------------------
     def business(self):
