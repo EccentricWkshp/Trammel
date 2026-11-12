@@ -16,6 +16,7 @@ from __future__ import annotations
 import datetime as dt
 import hmac
 import secrets
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from django.conf import settings
@@ -46,6 +47,23 @@ FAILURES_PER_IP = 20
 #: Wrong codes for one address in a day, from anywhere, before its codes stop
 #: working until the day has passed: a six-digit code then can't be guessed.
 FAILURES_PER_ADDRESS = 10
+
+
+#: Where customers are served instead of here, if anywhere: each fn() returns
+#: that portal's public address, or "". The edge portal registers one (0.9.x);
+#: while it serves customers, these pages are off (staff previews aside).
+elsewhere: list[Callable[[], str]] = []
+#: Called with (the AccessCode row, the code) when staff make a code: the one
+#: time the code itself is known, for a portal elsewhere to keep its own hash.
+on_code_made: list[Callable] = []
+
+
+def served_elsewhere() -> str:
+    """The address of the portal serving customers instead of this one, or ""."""
+    for fn in elsewhere:
+        if url := fn():
+            return url
+    return ""
 
 
 def is_on() -> bool:
@@ -439,6 +457,8 @@ def make_code(customer: Customer, *, user) -> tuple[str, AccessCode]:
         created_by=user,
         expires_at=timezone.now() + dt.timedelta(days=AccessCode.LIFETIME_DAYS),
     )
+    for fn in on_code_made:
+        fn(row, raw)
     audit.record(
         "portal.code_made",
         customer,
@@ -519,7 +539,8 @@ def link(path: str = "") -> str:
     """An absolute link into the portal, for emails."""
     from django.urls import reverse
 
-    return settings.BASE_URL + (path or reverse("portal:home"))
+    base = served_elsewhere() or settings.BASE_URL
+    return base.rstrip("/") + (path or reverse("portal:home"))
 
 
 def has_access(customer) -> bool:

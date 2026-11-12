@@ -152,6 +152,7 @@ INSTALLED_APPS = [
     "trammel.reports.apps.ReportsConfig",
     "trammel.notifications.apps.NotificationsConfig",
     "trammel.portal.apps.PortalConfig",
+    "trammel.edge.apps.EdgeConfig",
     "trammel.imports.apps.ImportsConfig",
     "trammel.api",
 ]

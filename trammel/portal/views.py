@@ -65,6 +65,10 @@ def portal_view(view):
     @wraps(view)
     def wrapped(request, *args, **kwargs):
         visitor = services.current(request)
+        # Served from the edge portal instead: these pages are off, but staff
+        # can still view them as a customer would (FR-PRT-9).
+        if services.served_elsewhere() and not (visitor and visitor.is_preview):
+            raise Http404
         if visitor is None:
             return redirect("portal:sign_in")
         request.visitor = visitor
@@ -91,6 +95,18 @@ def portal_view(view):
     return wrapped
 
 
+def signing_in(view):
+    """A sign-in page: off while customers are served elsewhere (the edge portal)."""
+
+    @wraps(view)
+    def wrapped(request, *args, **kwargs):
+        if services.served_elsewhere():
+            raise Http404
+        return view(request, *args, **kwargs)
+
+    return wrapped
+
+
 def _context(request, **extra) -> dict:
     return {"visitor": getattr(request, "visitor", None), **extra}
 
@@ -100,6 +116,7 @@ def _context(request, **extra) -> dict:
 # ---------------------------------------------------------------------------
 
 
+@signing_in
 def sign_in(request):
     """Ask for an address to send a code to (FR-PRT-1)."""
     if services.current(request):
@@ -120,6 +137,7 @@ def sign_in(request):
     return render(request, "portal/sign_in.html", _context(request, ready=ready))
 
 
+@signing_in
 def code(request):
     """Enter the code that was emailed."""
     email = request.session.get(services.PENDING_KEY)
@@ -146,6 +164,7 @@ def code(request):
     return render(request, "portal/code.html", _context(request, email=email, error=error))
 
 
+@signing_in
 def choose(request):
     """An address that signs in for more than one customer picks which."""
     import datetime as dt
@@ -173,6 +192,7 @@ def choose(request):
     )
 
 
+@signing_in
 def access_code(request):
     """Sign in with a code staff gave the customer (FR-PRT-10)."""
     if services.current(request):
@@ -192,6 +212,7 @@ def access_code(request):
     )
 
 
+@signing_in
 @require_POST
 def sign_out(request):
     services.sign_out(request)

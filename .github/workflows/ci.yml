@@ -56,6 +56,11 @@ jobs:
         run: python manage.py makemigrations --check --dry-run --settings=config.settings_test
       - name: Tests
         run: pytest -q
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Edge portal Worker tests
+        run: node --import ./trammel/edge/worker/tests/register.mjs --test "trammel/edge/worker/tests/*.test.mjs"
       - name: Migrations apply cleanly to an empty database
         run: python manage.py migrate --noinput
       - name: Upgrade from the previous release

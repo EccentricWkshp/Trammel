@@ -43,6 +43,10 @@ class SmtpForm(forms.ModelForm):
 
     def __init__(self, *args, password_set: bool = False, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields["port"].help_text = (
+            "Use 465 with SSL/TLS or 587 with STARTTLS: encrypted, and what the portal on "
+            "Cloudflare needs. Port 25 and no encryption are only for a relay on your own network."
+        )
         if password_set:
             self.fields[
                 "password"
@@ -127,6 +131,14 @@ def smtp(request):
                 summary="Changed the SMTP password",
             )
         messages.success(request, "Email settings saved.")
+        saved = form.instance
+        if saved.security == "none" or saved.port == 25:
+            messages.warning(
+                request,
+                "This mail isn't encrypted on its way to the server, or uses port 25. Use SSL/TLS "
+                "on 465 or STARTTLS on 587 unless the server is a relay on your own network; "
+                "the customer portal on Cloudflare can't use these settings.",
+            )
         return redirect("notifications:smtp")
     return render(request, "notifications/smtp.html", {"form": form})
 

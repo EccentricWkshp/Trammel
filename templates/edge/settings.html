@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% load trammel %}
+{% block title %}Portal on Cloudflare{% endblock %}
+{% block head %}{% if row.deploying %}<meta http-equiv="refresh" content="4">{% endif %}{% endblock %}
+{% block content %}
+<h1>Customer portal on Cloudflare</h1>
+<p class="lede">Serve the customer portal from Cloudflare, so this server never has to be reachable from the internet. Trammel publishes what each customer may see and, every 30 seconds, pulls back what they did there. Only what customers can see is copied to Cloudflare.</p>
+
+<section class="card" aria-labelledby="status-heading">
+  <h2 id="status-heading">Status</h2>
+  {% if row.active %}
+  <dl class="facts">
+    <dt>Customers use</dt><dd><a href="{{ row.public_url }}/portal/" target="_blank" rel="noopener">{{ row.public_url }}/portal/</a></dd>
+    <dt>Deployed</dt><dd>{{ row.deployed_at|dt }} (Trammel {{ row.deployed_version }}){% if row.account_name %} · {{ row.account_name }}{% endif %}</dd>
+    <dt>Last sync</dt><dd>{% if row.last_sync_at %}{{ row.last_sync_at|dt }}{% else %}Not yet{% endif %}</dd>
+    <dt>Published</dt><dd>{% for type, n in counts.items %}{{ n }} {{ type }}{{ n|pluralize }}{% if not forloop.last %}, {% endif %}{% empty %}Nothing yet{% endfor %}</dd>
+  </dl>
+  {% if row.last_error %}<p class="flag flag-late" role="alert">The last sync failed{% if row.last_error_at %} at {{ row.last_error_at|dt }}{% endif %}: {{ row.last_error }}</p>{% endif %}
+  <div class="actions">
+    <form method="post" action="{% url 'edge:sync' %}" class="inline">{% csrf_token %}<button type="submit">Sync now</button></form>
+    <form method="post" action="{% url 'edge:deploy' %}" class="inline">{% csrf_token %}<button type="submit"{% if row.deploying %} disabled{% endif %}>Deploy again</button></form>
+    <form method="post" action="{% url 'edge:stop' %}" class="inline">{% csrf_token %}<button type="submit" class="danger">Stop using it</button></form>
+  </div>
+  <p class="muted small">Stopping removes everything published to Cloudflare and signs customers out there; Trammel's own portal pages come back (they need this server reachable from the internet). The Worker, database and storage stay on Cloudflare, empty, for next time.</p>
+  {% else %}
+  <p>Not deployed{% if row.deployed_at %} (stopped){% endif %}. While it isn't, the portal is served by Trammel itself, if it's switched on.</p>
+  {% endif %}
+  {% if row.deploying or row.deploy_log %}
+  <h3>{% if row.deploying %}Deploying…{% else %}The last deploy{% endif %}</h3>
+  <ol class="deploy-log">{% for step in row.deploy_log %}<li>{{ step.text }}</li>{% endfor %}</ol>
+  {% endif %}
+</section>
+
+<section class="card" aria-labelledby="setup-heading">
+  <h2 id="setup-heading">Setting it up</h2>
+  <ol>
+    <li>In Cloudflare's dashboard, make an API token (My Profile, API Tokens, Create Token, Custom token) with these permissions:
+      <ul>{% for p in permissions %}<li>{{ p.0 }}, {{ p.1 }}, {{ p.2 }}{% if p.3 %} <span class="muted">({{ p.3 }})</span>{% endif %}</li>{% endfor %}</ul>
+    </li>
+    <li>If Cloudflare asks, turn on R2 (Cloudflare's file storage) once in its dashboard.</li>
+    <li>For your own address (portal.example.com), its domain's DNS must be on Cloudflare; otherwise the portal gets a free workers.dev address.</li>
+    <li>Email must be encrypted: SSL/TLS on port 465 or STARTTLS on 587 (Settings, Email). The portal sends sign-in codes itself.</li>
+    <li>Paste the token below, save, then deploy.</li>
+  </ol>
+  <form method="post" class="stack" novalidate>{% csrf_token %}
+    {% include "partials/form_body.html" %}
+    <div class="actions"><button type="submit" class="primary">Save</button></div>
+  </form>
+  {% if token_set and not row.active %}
+  <form method="post" action="{% url 'edge:deploy' %}" class="actions">{% csrf_token %}<button type="submit" class="primary"{% if row.deploying %} disabled{% endif %}>Deploy to Cloudflare</button></form>
+  {% endif %}
+</section>
+{% endblock %}

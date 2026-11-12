@@ -190,6 +190,51 @@ certificate checks. With systemd enabled, turn on time sync inside the
 distribution: `sudo timedatectl set-ntp true` (install `systemd-timesyncd` if it
 is missing). `wsl --shutdown` also resets the clock.
 
+## The customer portal on Cloudflare
+
+The customer portal can be served from Cloudflare instead of from this server,
+so Trammel never has to be reachable from the internet: Trammel publishes what
+each customer may see to a Cloudflare Worker and, every 30 seconds, pulls back
+what they did there. Nothing connects in to your network. Only what customers
+can see is copied to Cloudflare, and stopping it removes everything.
+
+Trammel deploys and updates the Worker itself, over Cloudflare's API. A few
+things are done once, by hand, in Cloudflare's dashboard:
+
+1. **An account.** The free plan is enough for a small shop.
+2. **R2.** Open R2 (Cloudflare's file storage) once and turn it on. Cloudflare
+   may ask for a payment method, even for the free allowance.
+3. **Your own address (optional).** To serve the portal at, say,
+   `portal.example.com`, the domain's DNS must be on Cloudflare. Without one,
+   the portal gets a free `workers.dev` address (open Workers & Pages once to
+   choose its name).
+4. **An API token.** My Profile, API Tokens, Create Token, Custom token, with:
+   - Account · Workers Scripts · Edit
+   - Account · D1 · Edit
+   - Account · Workers R2 Storage · Edit
+   - Account · Account Settings · Read
+   - Zone · Workers Routes · Edit, and Zone · Zone · Read (only for your own
+     address; limit them to that domain)
+
+Then in Trammel:
+
+1. **Email must be encrypted** (Settings, Email): SSL/TLS on port 465 or
+   STARTTLS on port 587. The portal on Cloudflare sends sign-in codes itself
+   with these settings, and Cloudflare doesn't allow port 25.
+2. Turn on the **Customer portal** and **Edge portal (Cloudflare)** modules
+   (Settings, Modules).
+3. **Settings, Portal on Cloudflare**: paste the token, give your own address
+   if you have one, save, then **Deploy to Cloudflare**. The page follows the
+   deploy step by step and shows the portal's address when it's done.
+
+While the portal is on Cloudflare, Trammel's own portal pages are off (staff
+can still view the portal as a customer sees it), and links in emails point at
+Cloudflare. Customers' access, the portal switch and `PORTAL_OFF` work as
+before: turning the portal off closes it on Cloudflare and signs everyone out
+within 30 seconds. **Stop using it** on the same page removes everything
+published and brings Trammel's own pages back. Updating Trammel updates the
+Worker to match, within the hour.
+
 ## Shopify order webhooks
 
 Fetching orders by date needs nothing from the internet. Webhooks, which bring

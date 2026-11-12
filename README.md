@@ -48,6 +48,9 @@ printing, laser work. Self-hosted: the data stays on the shop's own hardware.
   Washington's).
 - **Reports** — job profitability, sales, receivables aging, sales tax and
   gross receipts (B&O), time and machine use.
+- **Customer portal on Cloudflare** — optional: the portal served from a
+  Cloudflare Worker that Trammel deploys and keeps in sync over Cloudflare's
+  API, so the server never has to be reachable from the internet.
 - **Customer portal** — off until you turn it on. Customers you give access
   sign in with an emailed code, or one you give them, to see their jobs,
   quotes, invoices, shared files and updates, approve or decline quotes,
