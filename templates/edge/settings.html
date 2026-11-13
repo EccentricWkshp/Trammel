@@ -1,8 +1,8 @@
-{% extends "base.html" %}
+{% extends "settings_base.html" %}
 {% load trammel %}
 {% block title %}Portal on Cloudflare{% endblock %}
 {% block head %}{% if row.deploying %}<meta http-equiv="refresh" content="4">{% endif %}{% endblock %}
-{% block content %}
+{% block settings_content %}
 <h1>Customer portal on Cloudflare</h1>
 <p class="lede">Serve the customer portal from Cloudflare, so this server never has to be reachable from the internet. Trammel publishes what each customer may see and, every 30 seconds, pulls back what they did there. Only what customers can see is copied to Cloudflare.</p>
 

@@ -1,7 +1,7 @@
-{% extends "base.html" %}
+{% extends "settings_base.html" %}
 {% load trammel %}
 {% block title %}Online payments{% endblock %}
-{% block content %}
+{% block settings_content %}
 <h1>Online payments</h1>
 <p class="lede">Customers pay invoices online, through Stripe (card or bank) and PayPal. Trammel makes each open invoice a page to pay its balance at each one that's on, shown in the customer portal and in invoice emails, and asks every minute what was paid, recording each payment against its invoice. Nothing has to reach this server from the internet.</p>
 

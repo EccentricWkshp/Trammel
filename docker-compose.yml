@@ -19,7 +19,10 @@ x-app: &app
   cap_drop: [ALL]
   security_opt: ["no-new-privileges:true"]
   environment:
-    DATABASE_URL: postgresql://${POSTGRES_USER:-trammel}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-trammel}
+    # The password goes on its own, not inside the URL, so any character in it
+    # (%, /, #, @, ?) reaches PostgreSQL exactly as the database was given it.
+    DATABASE_URL: postgresql://${POSTGRES_USER:-trammel}@db:5432/${POSTGRES_DB:-trammel}
+    DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
     MEDIA_ROOT: /data/media
     BACKUP_DIR: /data/backups
     STATIC_HASHED: "true"

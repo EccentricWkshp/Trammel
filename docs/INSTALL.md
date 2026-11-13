@@ -18,7 +18,7 @@ cp .env.example .env
 | Setting | What to put |
 | --- | --- |
 | `SECRET_KEY` | A long random value: `python3 -c "import secrets; print(secrets.token_urlsafe(50))"` |
-| `POSTGRES_PASSWORD` | Another long random value. |
+| `POSTGRES_PASSWORD` | Another long random value, made the same way. Set it before the first start: the database keeps the password it was created with. |
 | `SITE_ADDRESS` | The name devices will use, e.g. `trammel.home.arpa` or `shop.example.com`. |
 | `BASE_URL` | `https://` + that name + `:` + `HTTPS_PORT`, e.g. `https://trammel.home.arpa:8727`. Links in emails and the QR codes on travelers are built from it. |
 | `HTTP_PORT`, `HTTPS_PORT` | The ports Trammel listens on, `8726` and `8727` by default so it can share a machine with anything on 80 and 443. Set `HTTPS_PORT=443` (and drop the port from `BASE_URL`) if the machine is Trammel's alone. |
@@ -41,6 +41,20 @@ without it the browser goes to 443 and whatever answers there. A new instance sh
 creates the system admin account; there is no default login. If the machine
 may be reachable by anyone else before you finish setup, set `SETUP_TOKEN` in
 `.env` first and the page will ask for it.
+
+**`password authentication failed for user "trammel"`** in the app's log means
+the database was made with a different `POSTGRES_PASSWORD` than `.env` has now.
+PostgreSQL takes the password only when its volume is first created, so changing
+`.env` afterwards, or installing again, leaves the old one. Docker keeps the
+volumes apart from the folder, named `trammel_db-data` and so on whatever the
+folder is called, so deleting the folder and cloning again doesn't remove them
+(`docker volume ls | grep trammel_` lists them).
+On a new install with nothing in it yet, start the database afresh (this deletes
+its data): `docker compose down -v`, then `docker compose up -d`. On an
+install you're keeping, set the database to the password in `.env` instead:
+`docker compose exec db psql -U trammel -c "ALTER USER trammel PASSWORD '<the
+password from .env>'"`. (Before 0.10.7, a password containing `%`, `/`, `#`,
+`?` or `@` also failed this way; take the current `docker-compose.yml`.)
 
 ## 4. HTTPS certificates
 

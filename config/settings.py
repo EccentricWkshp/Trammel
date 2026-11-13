@@ -221,7 +221,9 @@ DATABASES = {
         "ENGINE": "django.db.backends.postgresql",
         "NAME": _db.path.lstrip("/"),
         "USER": unquote(_db.username or ""),
-        "PASSWORD": unquote(_db.password or ""),
+        # DATABASE_PASSWORD, when set, as it is: a password inside the URL has
+        # to be URL-encoded, and the Docker stack gives it this way instead.
+        "PASSWORD": env("DATABASE_PASSWORD", "") or unquote(_db.password or ""),
         "HOST": _db.hostname or "",
         "PORT": str(_db.port or ""),
         "CONN_MAX_AGE": 60,
