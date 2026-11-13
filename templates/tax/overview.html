@@ -14,6 +14,7 @@
   {% endif %}
 </div>
 <p class="lede">Sales tax is looked up from the delivery address — or the shop's, for pickups and origin-based states — using rates entered here or imported from files. Nothing is looked up online. Sourcing: <strong>{{ settings.get_sourcing_display }}</strong>. Shipping: <strong>{{ settings.get_shipping_tax_display|lower }}</strong>.</p>
+{% if no_boundaries %}<p class="message warning">SST rates are imported, but no SST boundary file is, so no ZIP code maps to them yet. Import the state's boundary file too — the one with <code>B</code> in its name, such as <code>WAB2026Q4.zip</code>.</p>{% endif %}
 
 <section aria-labelledby="lookup-heading">
   <h2 id="lookup-heading">Look up a rate</h2>
@@ -47,31 +48,45 @@
 
 <section aria-labelledby="jur-heading">
   <h2 id="jur-heading">Jurisdictions and rates</h2>
-  <form method="get" class="filters"><label>Search <input type="search" name="q" value="{{ q }}"></label><button type="submit">Search</button></form>
+  <form method="get" class="filters">
+    <label>Search <input type="search" name="q" value="{{ q }}"></label>
+    <label>Source <select name="source"><option value="">All</option>{% for value, label in sources %}<option value="{{ value }}"{% if value == source %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+    <button type="submit">Search</button>
+  </form>
+  {% if perms.tax.manage %}
+  <form method="post" action="{% url 'tax:rates_remove' %}" id="rates-remove">
+    {% csrf_token %}<input type="hidden" name="q" value="{{ q }}"><input type="hidden" name="source" value="{{ source }}">
+    <div class="bulk-actions">
+      <button type="submit">Remove ticked rates</button>
+      {% if matching %}<button type="submit" name="matching" value="1">Remove all {{ matching }} rate{{ matching|pluralize }} this search shows</button>{% endif %}
+    </div>
+  {% endif %}
   <div class="table-wrap"><table>
-    <thead><tr><th scope="col">Jurisdiction</th><th scope="col">Rates</th></tr></thead>
+    <thead><tr><th scope="col">Jurisdiction</th><th scope="col">{% if perms.tax.manage %}<input type="checkbox" data-check-all="rate" aria-label="Tick every rate on this page"> {% endif %}Rates</th></tr></thead>
     <tbody>
     {% for j in page %}
       <tr>
         <td>{% if perms.tax.manage %}<a href="{% url 'tax:jurisdiction_edit' j.pk %}">{{ j.name }}</a>{% else %}{{ j.name }}{% endif %}<br><code class="muted">{{ j.code }}</code> <span class="muted">{{ j.get_level_display }} · {{ j.get_source_display }}</span></td>
         <td>
           <ul class="plain">{% for r in j.rates.all %}
-            <li>{{ r.rate|floatformat:"-4" }}% <span class="muted">{{ r.get_kind_display }}{% if r.classification %} — {{ r.classification }}{% endif %} · {{ r.effective_from|d }} → {{ r.effective_to|d|default:"open" }}</span>
+            <li>{% if perms.tax.manage %}<input type="checkbox" name="rate" value="{{ r.pk }}" aria-label="{{ j.code }} {{ r.rate|floatformat:'-4' }}% from {{ r.effective_from|d }}"> {% endif %}{{ r.rate|floatformat:"-4" }}% <span class="muted">{{ r.get_kind_display }}{% if r.classification %} — {{ r.classification }}{% endif %} · {{ r.effective_from|d }} → {{ r.effective_to|d|default:"open" }}</span>
               {% if perms.tax.manage and not r.effective_to %}<a href="{% url 'tax:rate_end' r.pk %}">End</a>{% endif %}</li>
           {% empty %}<li class="muted">No rates</li>{% endfor %}</ul>
           {% if perms.tax.manage %}<a href="{% url 'tax:rate_create' %}?jurisdiction={{ j.pk }}">Add rate</a>{% endif %}
         </td>
       </tr>
-    {% empty %}<tr><td colspan="2" class="muted">No jurisdictions yet. Add one, or import a rate file.</td></tr>{% endfor %}
+    {% empty %}<tr><td colspan="2" class="muted">{% if query %}No jurisdictions match.{% else %}No jurisdictions yet. Add one, or import a rate file.{% endif %}</td></tr>{% endfor %}
     </tbody>
   </table></div>
+  {% if perms.tax.manage %}</form>{% endif %}
   {% include "partials/pagination.html" %}
 </section>
 
 {% if batches %}
 <section aria-labelledby="imports-heading">
   <h2 id="imports-heading">Recent imports</h2>
-  <ul>{% for b in batches %}<li>{{ b }} — {% if b.status == "done" %}{{ b.kind }}: {{ b.rows }} row(s){% if b.skipped %}, {{ b.skipped }} skipped{% endif %}{% elif b.status == "failed" %}<span class="flag flag-late">failed</span> {{ b.error }}{% else %}<span class="flag flag-risk">{{ b.get_status_display|lower }}</span>{% if b.rows %} {{ b.rows }} row(s) so far{% endif %}{% endif %}</li>{% endfor %}</ul>
+  <ul>{% for b in batches %}<li>{{ b }} — {% if b.status == "done" %}{{ b.kind }}: {{ b.rows }} row(s){% if b.skipped %}, {{ b.skipped }} skipped{% endif %}{% elif b.status == "replaced" %}<span class="muted">{{ b.kind }}: replaced by a newer import</span>{% elif b.status == "failed" %}<span class="flag flag-late">failed</span> {{ b.error }}{% else %}<span class="flag flag-risk">{{ b.get_status_display|lower }}</span>{% if b.rows %} {{ b.rows }} row(s) so far{% endif %}{% endif %}
+    {% if perms.tax.manage and b.status != "queued" and b.status != "running" %} · <a href="{% url 'tax:import_remove' b.pk %}">Remove</a>{% endif %}</li>{% endfor %}</ul>
 </section>
 {% endif %}
 {% endblock %}

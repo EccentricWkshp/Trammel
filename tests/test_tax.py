@@ -4,6 +4,7 @@ import datetime as dt
 from decimal import Decimal
 
 import pytest
+from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 
 from trammel.tax import importers, services
@@ -108,6 +109,41 @@ def test_generic_csv_import(setup_done):
     assert (batch.rows, batch.skipped) == (2, 1)
     assert services.lookup_postal("98405", JUL).total_rate == D("10.30")
     assert services.lookup_postal("98101-0001", JUL).location_code == "1726"
+
+
+@pytest.mark.django_db
+def test_a_new_csv_replaces_the_earlier_ones_unless_added(tacoma):
+    header = b"postal_code,jurisdiction_code,jurisdiction_name,rate,effective_from\n"
+    first = importers.import_generic_csv(
+        header + b"98101,1726,Seattle,10.35,2025-04-01\n10001,NYC,New York,8.875,2020-01-01\n",
+        filename="one.csv",
+    )
+    importers.import_generic_csv(
+        header + b"98101,1726,Seattle,10.55,2026-04-01\n", filename="two.csv"
+    )
+    # Seattle's ZIP is mapped once, at the new rate; New York went with the old file.
+    assert Boundary.objects.filter(source="csv").count() == 1
+    assert list(TaxRate.objects.filter(source="csv").values_list("rate", flat=True)) == [D("10.55")]
+    assert not Jurisdiction.objects.filter(code="NYC").exists()
+    first.refresh_from_db()
+    assert first.status == "replaced"
+    # Rates and postal codes entered by hand are never touched by an import.
+    assert services.lookup_postal("98402", JUL).total_rate == D("10.40")
+
+    importers.import_generic_csv(
+        header + b"10001,NYC,New York,8.875,2020-01-01\n", filename="three.csv", replace=False
+    )
+    assert services.lookup_postal("10001", JUL).resolved
+    assert services.lookup_postal("98101", JUL).total_rate == D("10.55")
+
+
+@pytest.mark.django_db
+def test_a_csv_with_no_good_row_leaves_the_earlier_one(setup_done):
+    header = b"postal_code,jurisdiction_code,rate,effective_from\n"
+    importers.import_generic_csv(header + b"98101,1726,10.35,2025-04-01\n", filename="one.csv")
+    with pytest.raises(ValidationError):
+        importers.import_generic_csv(header + b"bogus,1726,10.35,2025-04-01\n", filename="bad.csv")
+    assert services.lookup_postal("98101", JUL).resolved
 
 
 @pytest.mark.django_db

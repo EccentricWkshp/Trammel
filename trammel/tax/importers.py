@@ -13,6 +13,9 @@ A header row, then one row per postal code or range::
 `postal_code` is a ZIP, a ZIP+4, or a range "low-high" of either. `rate` is a
 percentage. Dates are YYYY-MM-DD; `effective_to` may be blank.
 
+A CSV is taken as the complete table: importing one replaces the rates and
+postal codes of earlier CSV imports, unless it is added to them on purpose.
+
 Streamlined Sales Tax (SST) files
 ---------------------------------
 SST member states publish free rate and boundary files each quarter, usually as
@@ -35,8 +38,10 @@ record are additive: the state plus whichever county, city and districts it
 names (Washington: 6.5 % state + 4.0 % Tacoma = 10.5 %).
 
 Importing a state's new boundary file replaces that state's previous SST
-boundaries; a new rate file replaces its previous SST rates. Rates on issued
-invoices are snapshots and never change.
+boundaries; a new rate file replaces its previous SST rates, and the SST
+jurisdictions left with no rate go too. An import whose rows have all been
+replaced is marked "replaced". Rates on issued invoices are snapshots and never
+change.
 """
 
 from __future__ import annotations
@@ -59,6 +64,7 @@ from django.utils import timezone
 
 from trammel.core import audit, outbound
 
+from .cleanup import mark_replaced, prune_jurisdictions
 from .models import Boundary, ImportBatch, Jurisdiction, Source, TaxRate
 from .services import normalize_postal
 
@@ -119,11 +125,23 @@ def _record(batch: ImportBatch, errors: list[str]) -> None:
 
 
 @transaction.atomic
-def import_generic_csv(data: bytes, *, filename: str, user=None) -> ImportBatch:
+def import_generic_csv(
+    data: bytes, *, filename: str, user=None, replace: bool = True
+) -> ImportBatch:
+    """Import a generic CSV; with `replace`, earlier CSV imports' rows go first."""
     reader = csv.DictReader(io.StringIO(data.decode("utf-8-sig", errors="replace")))
     required = {"postal_code", "jurisdiction_code", "rate", "effective_from"}
     if not reader.fieldnames or not required <= {f.strip() for f in reader.fieldnames}:
         raise ValidationError(f"The CSV needs a header row with: {', '.join(sorted(required))}.")
+    if replace:
+        earlier = list(
+            Jurisdiction.objects.filter(rates__source=Source.CSV)
+            .distinct()
+            .values_list("pk", flat=True)
+        )
+        TaxRate.objects.filter(source=Source.CSV).delete()
+        Boundary.objects.filter(source=Source.CSV).delete()
+        prune_jurisdictions(Jurisdiction.objects.filter(pk__in=earlier))
     batch = ImportBatch.objects.create(
         source=Source.CSV, kind="combined", filename=filename, imported_by=user
     )
@@ -173,6 +191,7 @@ def import_generic_csv(data: bytes, *, filename: str, user=None) -> ImportBatch:
     if errors and not batch.rows:
         raise ValidationError(errors[:10])
     batch.save(update_fields=["rows", "skipped"])
+    mark_replaced(keep=batch)
     _record(batch, errors)
     return batch
 
@@ -266,6 +285,12 @@ def import_sst_rates(
         )
         batch.rows += len(rows)
         batch.save(update_fields=["rows", "skipped"])
+        # Jurisdictions the new file no longer lists go with their old rates.
+        for state in states:
+            prune_jurisdictions(
+                Jurisdiction.objects.filter(source=Source.SST, code__startswith=f"SST-{state}-")
+            )
+        mark_replaced(keep=batch)
     _record(batch, [])
     return batch
 
@@ -360,6 +385,7 @@ def import_sst_boundaries(
         Boundary.objects.bulk_create(pending)
         batch.rows += len(pending)
         batch.save(update_fields=["rows", "skipped"])
+        mark_replaced(keep=batch)
     _record(batch, [])
     return batch
 

@@ -106,6 +106,14 @@ def collected_rates(codes: list[str], on: dt.date) -> list[Component]:
     return out
 
 
+def sst_rates_without_boundaries() -> bool:
+    """A rate (R) file was imported but no boundary (B) file: no ZIP code maps to it."""
+    return (
+        TaxRate.objects.filter(source=Source.SST).exists()
+        and not Boundary.objects.filter(source=Source.SST).exists()
+    )
+
+
 def lookup_postal(postal: str, on: dt.date) -> Determination:
     zip9 = normalize_postal(postal)
     if zip9 is None:
@@ -128,9 +136,12 @@ def lookup_postal(postal: str, on: dt.date) -> Determination:
     # The narrowest range wins: a ZIP+4 match beats a whole-ZIP match.
     best = min(candidates, key=lambda b: int(b.zip_high) - int(b.zip_low), default=None)
     if best is None:
-        return Determination(
-            False, postal, method="unresolved", note=f"No tax boundary covers {postal}."
-        )
+        note = f"No tax boundary covers {postal}."
+        if settings.sst_enabled and sst_rates_without_boundaries():
+            note += (
+                " SST rates are imported but no SST boundary file is; import the state's B file."
+            )
+        return Determination(False, postal, method="unresolved", note=note)
     components = collected_rates(best.jurisdiction_codes, on)
     if not components:
         return Determination(

@@ -57,9 +57,16 @@ class ImportForm(forms.Form):
         required=False,
         assume_scheme="https",
         help_text="For SST files: the published link, e.g. "
-        "https://dor.wa.gov/sites/default/files/2026-08/WAR2026Q4.zip",
+        "https://dor.wa.gov/sites/default/files/2026-08/WAB2026Q4.zip "
+        "(boundaries) — then the same with WAR (rates).",
     )
     file = forms.FileField(required=False, help_text="…or upload the file.")
+    add_to_earlier = forms.BooleanField(
+        label="Add to the earlier CSV imports",
+        required=False,
+        help_text="Generic CSV only. Left unticked, the new file replaces the rates and "
+        "postal codes of earlier CSV imports.",
+    )
 
     def clean(self):
         data = super().clean()

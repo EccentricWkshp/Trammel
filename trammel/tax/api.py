@@ -1,16 +1,17 @@
 # No `from __future__ import annotations`: the paginated view below must see its
 # annotations as real types (see trammel/jobs/api.py).
 import datetime as dt
+from uuid import UUID
 
 from django.db.models import Q
 from django.utils import timezone
-from ninja import ModelSchema, Router, Schema
+from ninja import Field, ModelSchema, Router, Schema
 from ninja.pagination import LimitOffsetPagination, paginate
 
 from trammel.core import access
 
-from . import services
-from .models import Jurisdiction
+from . import cleanup, services
+from .models import ImportBatch, Jurisdiction, TaxRate
 
 router = Router(tags=["tax"])
 
@@ -50,6 +51,60 @@ def jurisdictions(request, q: str = "", region: str = ""):
     if region:
         rows = rows.filter(region__iexact=region)
     return rows
+
+
+class ImportOut(ModelSchema):
+    class Meta:
+        model = ImportBatch
+        fields = [
+            "id",
+            "source",
+            "kind",
+            "filename",
+            "imported_at",
+            "rows",
+            "skipped",
+            "status",
+            "error",
+            "source_url",
+        ]
+
+
+class RemovedOut(Schema):
+    rates: int = 0
+    boundaries: int = 0
+    jurisdictions: int = 0
+
+
+class RatesRemoveIn(Schema):
+    ids: list[UUID] = Field(..., min_length=1, max_length=5000)
+    reason: str = ""
+
+
+@router.get("/imports", response=list[ImportOut])
+@paginate(LimitOffsetPagination)
+def imports(request):
+    """Rate and boundary file imports, newest first."""
+    access.require(request.actor, "tax.view")
+    return ImportBatch.objects.all()
+
+
+@router.delete("/imports/{import_id}", response=RemovedOut)
+def remove_import(request, import_id: UUID, reason: str = ""):
+    """Remove an import with every rate and postal code range it brought in.
+
+    Imported jurisdictions left with no rate go too. Issued invoices keep the
+    tax they were given. Refused while the import is still running.
+    """
+    batch = access.get_or_404(request.actor, "tax.manage", ImportBatch.objects.all(), pk=import_id)
+    return cleanup.remove_batch(batch, reason=reason)
+
+
+@router.post("/rates/remove", response=RemovedOut)
+def remove_rates(request, payload: RatesRemoveIn):
+    """Remove tax rates in bulk; imported jurisdictions left with none go too."""
+    access.require(request.actor, "tax.manage")
+    return cleanup.remove_rates(TaxRate.objects.filter(pk__in=payload.ids), reason=payload.reason)
 
 
 @router.get("/lookup", response=LookupOut)

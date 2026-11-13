@@ -51,6 +51,8 @@ class ImportBatch(models.Model):
             ("running", "Running"),
             ("done", "Done"),
             ("failed", "Failed"),
+            # Every row it brought in has since been replaced by a newer import.
+            ("replaced", "Replaced"),
         ],
     )
     error = models.TextField(blank=True)

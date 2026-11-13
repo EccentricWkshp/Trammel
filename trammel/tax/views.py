@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import uuid
+from urllib.parse import urlencode
+
 from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
@@ -10,7 +14,7 @@ from trammel.core import audit, tasks
 from trammel.core.services import save_audited
 from trammel.core.web import paginate, permission_required
 
-from . import importers, services
+from . import cleanup, importers, services
 from .forms import (
     BoundaryForm,
     ImportForm,
@@ -27,14 +31,32 @@ def _form_page(request, form, title, back):
     return render(request, "core/settings_form.html", {"form": form, "title": title, "back": back})
 
 
+def _filters(params) -> tuple[str, str]:
+    q = params.get("q", "").strip()
+    source = params.get("source", "")
+    return q, source if source in Source.values else ""
+
+
+def _jurisdictions(q: str, source: str):
+    rows = Jurisdiction.objects.all()
+    if q:
+        rows = rows.filter(Q(code__icontains=q) | Q(name__icontains=q))
+    if source:
+        rows = rows.filter(Q(source=source) | Q(rates__source=source)).distinct()
+    return rows
+
+
+def _matching_rates(q: str, source: str):
+    """The rates a search shows, for removing them all at once."""
+    rates = TaxRate.objects.filter(jurisdiction__in=_jurisdictions(q, source).values("pk"))
+    return rates.filter(source=source) if source else rates
+
+
 @permission_required("tax.view")
 def overview(request):
-    q = request.GET.get("q", "").strip()
-    jurisdictions = Jurisdiction.objects.prefetch_related("rates")
-    if q:
-        jurisdictions = jurisdictions.filter(code__icontains=q) | jurisdictions.filter(
-            name__icontains=q
-        )
+    q, source = _filters(request.GET)
+    jurisdictions = _jurisdictions(q, source).prefetch_related("rates")
+    query = urlencode({k: v for k, v in (("q", q), ("source", source)) if v})
     lookup = LookupForm(request.GET if "postal_code" in request.GET else None)
     result = None
     if lookup.is_bound and lookup.is_valid():
@@ -46,12 +68,97 @@ def overview(request):
         {
             "page": paginate(request, jurisdictions, 50),
             "q": q,
+            "source": source,
+            "sources": Source.choices,
+            "matching": _matching_rates(q, source).count() if query else 0,
+            "no_boundaries": services.sst_rates_without_boundaries(),
             "settings": TaxSettings.load(),
             "categories": TaxCategory.objects.all(),
             "batches": ImportBatch.objects.all()[:10],
             "lookup": lookup,
             "result": result,
-            "query": f"q={q}" if q else "",
+            "query": query,
+        },
+    )
+
+
+@permission_required("tax.manage")
+def import_remove(request, pk):
+    """Remove an import and everything it brought in, after a confirmation."""
+    batch = get_object_or_404(ImportBatch, pk=pk)
+    if request.method == "POST":
+        try:
+            counts = cleanup.remove_batch(batch, reason=request.POST.get("reason", "").strip())
+        except ValidationError as exc:
+            messages.error(request, " ".join(exc.messages))
+        else:
+            messages.success(
+                request,
+                f"Removed {batch.filename}: {counts['rates']} rate(s), "
+                f"{counts['boundaries']} postal code range(s).",
+            )
+        return redirect("tax:overview")
+    preview = cleanup.preview_batch(batch)
+    return render(
+        request,
+        "tax/confirm_remove.html",
+        {
+            "title": f"Remove the import {batch.filename}?",
+            "lines": [
+                f"{preview['rates']} rate(s)",
+                f"{preview['boundaries']} postal code range(s)",
+                "the imported jurisdictions left with no rate",
+            ],
+            "busy": batch.status in ("queued", "running"),
+        },
+    )
+
+
+@permission_required("tax.manage")
+def rates_remove(request):
+    """Remove the ticked rates, or every rate a search shows, after a confirmation."""
+    if request.method != "POST":
+        return redirect("tax:overview")
+    q, source = _filters(request.POST)
+    if request.POST.get("matching"):
+        rates = _matching_rates(q, source)
+        hidden = [("matching", "1"), ("q", q), ("source", source)]
+    else:
+        ids = []
+        for value in request.POST.getlist("rate"):
+            try:
+                ids.append(uuid.UUID(value))
+            except ValueError:
+                continue
+        rates = TaxRate.objects.filter(pk__in=ids)
+        hidden = [("rate", str(pk)) for pk in ids]
+    count = rates.count()
+    if not count:
+        messages.error(request, "Tick the rates to remove first.")
+        return redirect("tax:overview")
+    if request.POST.get("confirm"):
+        counts = cleanup.remove_rates(rates, reason=request.POST.get("reason", "").strip())
+        messages.success(
+            request,
+            f"Removed {counts['rates']} rate(s)"
+            + (
+                f" and {counts['jurisdictions']} jurisdiction(s) left without one."
+                if counts["jurisdictions"]
+                else "."
+            ),
+        )
+        return redirect("tax:overview")
+    imported = rates.exclude(source=Source.MANUAL).count()
+    return render(
+        request,
+        "tax/confirm_remove.html",
+        {
+            "title": f"Remove {count} rate(s)?",
+            "lines": [
+                f"{count - imported} entered by hand" if count - imported else "",
+                f"{imported} imported" if imported else "",
+            ],
+            "hidden": hidden,
         },
     )
 
@@ -162,7 +269,10 @@ def import_file(request):
         elif kind == "csv":
             try:
                 batch = importers.import_generic_csv(
-                    upload.read(), filename=upload.name, user=request.user
+                    upload.read(),
+                    filename=upload.name,
+                    user=request.user,
+                    replace=not form.cleaned_data["add_to_earlier"],
                 )
             except ValidationError as exc:
                 form.add_error("file", exc)

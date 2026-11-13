@@ -15,7 +15,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 
 from trammel.core import outbound, tasks
 from trammel.tax import importers, services
-from trammel.tax.models import Boundary, ImportBatch, TaxRate
+from trammel.tax.models import Boundary, ImportBatch, Jurisdiction, TaxRate
 
 ON = dt.date(2026, 11, 15)
 
@@ -128,12 +128,139 @@ def test_washington_files_resolve_tacoma_and_snohomish(setup_done, tmp_path):
 
 @pytest.mark.django_db
 def test_a_new_quarter_replaces_the_last(setup_done, tmp_path):
-    import_bytes(zipped("WAB.csv", BOUNDARIES), "WAB2026Q3.zip", tmp_path)
-    import_bytes(zipped("WAB.csv", BOUNDARIES), "WAB2026Q4.zip", tmp_path)
+    q3 = import_bytes(zipped("WAB.csv", BOUNDARIES), "WAB2026Q3.zip", tmp_path)
+    q4 = import_bytes(zipped("WAB.csv", BOUNDARIES), "WAB2026Q4.zip", tmp_path)
     assert Boundary.objects.filter(source="sst").count() == 3
+    assert set(Boundary.objects.values_list("batch", flat=True)) == {q4.pk}
     import_bytes(RATES.encode(), "WAR2026Q3.csv", tmp_path)
+    # The next quarter drops the L3131 district: its jurisdiction goes with it.
+    fewer = "\n".join(line for line in RATES.splitlines() if "L3131" not in line) + "\n"
+    rates_q4 = import_bytes(fewer.encode(), "WAR2026Q4.csv", tmp_path)
+    assert TaxRate.objects.filter(source="sst").count() == 5
+    assert set(TaxRate.objects.values_list("batch", flat=True)) == {rates_q4.pk}
+    assert not Jurisdiction.objects.filter(code="SST-53-D-L3131").exists()
+    statuses = dict(ImportBatch.objects.values_list("filename", "status"))
+    assert statuses == {
+        "WAB2026Q3.zip": "replaced",
+        "WAB2026Q4.zip": "done",
+        "WAR2026Q3.csv": "replaced",
+        "WAR2026Q4.csv": "done",
+    }
+    q3.refresh_from_db()
+    assert q3.rows == 3  # what it brought in is kept for the record
+
+
+@pytest.mark.django_db
+def test_rates_without_a_boundary_file_say_so(admin_client, tmp_path):
     import_bytes(RATES.encode(), "WAR2026Q4.csv", tmp_path)
-    assert TaxRate.objects.filter(source="sst").count() == 6
+    looked = services.lookup_postal("98402", ON)
+    assert not looked.resolved and "B file" in looked.note
+    assert "no SST boundary file is" in admin_client.get("/tax/").content.decode()
+    import_bytes(zipped("WAB.csv", BOUNDARIES), "WAB2026Q4.zip", tmp_path)
+    assert services.lookup_postal("98402", ON).resolved
+    assert "no SST boundary file is" not in admin_client.get("/tax/").content.decode()
+
+
+@pytest.mark.django_db
+def test_removing_an_import_takes_everything_it_brought(admin_client, tmp_path, customer):
+    from trammel.billing import services as billing
+    from trammel.billing.models import Invoice
+
+    rates = import_bytes(RATES.encode(), "WAR2026Q4.csv", tmp_path)
+    bounds = import_bytes(zipped("WAB.csv", BOUNDARIES), "WAB2026Q4.zip", tmp_path)
+    # An invoice that chose a jurisdiction by hand keeps it.
+    draft = billing.create(customer, kind=Invoice.Kind.DIRECT_SALE)
+    draft.manual_jurisdiction = Jurisdiction.objects.get(code="SST-53-01-70000")
+    draft.save()
+
+    page = admin_client.get(f"/tax/imports/{rates.pk}/remove/").content.decode()
+    assert "6 rate(s)" in page and "Remove" in page
+    assert admin_client.post(f"/tax/imports/{rates.pk}/remove/").status_code == 302
+    assert not TaxRate.objects.exists()
+    assert list(Jurisdiction.objects.values_list("code", flat=True)) == ["SST-53-01-70000"]
+    assert Boundary.objects.count() == 3  # the boundary import is its own
+
+    admin_client.post(f"/tax/imports/{bounds.pk}/remove/")
+    assert not Boundary.objects.exists() and not ImportBatch.objects.exists()
+    from trammel.core.models import AuditEvent
+
+    assert AuditEvent.objects.filter(action="tax.import_removed").count() == 2
+
+
+@pytest.mark.django_db
+def test_a_running_import_cannot_be_removed(admin_client):
+    batch = ImportBatch.objects.create(source="sst", filename="WAB.zip", status="running")
+    admin_client.post(f"/tax/imports/{batch.pk}/remove/")
+    assert ImportBatch.objects.filter(pk=batch.pk).exists()
+
+
+@pytest.mark.django_db
+def test_removing_rates_in_bulk(admin_client, tmp_path):
+    import_bytes(RATES.encode(), "WAR2026Q4.csv", tmp_path)
+    by_hand = Jurisdiction.objects.create(code="9999", name="By hand")
+    manual = TaxRate.objects.create(
+        jurisdiction=by_hand, rate=Decimal("8"), effective_from=dt.date(2026, 1, 1)
+    )
+    county = TaxRate.objects.get(jurisdiction__code="SST-53-00-053")
+
+    # Ticked: a confirmation first, then the removal.
+    ticked = {"rate": [str(county.pk), str(manual.pk), "not-a-uuid"]}
+    page = admin_client.post("/tax/rates/remove/", ticked).content.decode()
+    assert "Remove 2 rate(s)?" in page and TaxRate.objects.count() == 7
+    admin_client.post("/tax/rates/remove/", {**ticked, "confirm": "1"})
+    assert TaxRate.objects.count() == 5
+    # The imported jurisdiction goes with its last rate; the one entered by hand stays.
+    assert not Jurisdiction.objects.filter(code="SST-53-00-053").exists()
+    assert Jurisdiction.objects.filter(code="9999").exists()
+
+    # Everything a search shows.
+    listing = admin_client.get("/tax/?q=SST-53-D&source=sst").content.decode()
+    assert "Remove all 2 rates this search shows" in listing
+    admin_client.post(
+        "/tax/rates/remove/", {"matching": "1", "q": "SST-53-D", "source": "sst", "confirm": "1"}
+    )
+    assert set(TaxRate.objects.values_list("jurisdiction__code", flat=True)) == {
+        "SST-53-45-53",
+        "SST-53-00-061",
+        "SST-53-01-70000",
+    }
+
+
+@pytest.mark.django_db
+def test_removing_needs_manage_permission(staff_client, setup_done):
+    batch = ImportBatch.objects.create(source="sst", filename="WAB.zip")
+    assert staff_client.post(f"/tax/imports/{batch.pk}/remove/").status_code in (302, 403)
+    assert staff_client.post("/tax/rates/remove/", {"matching": "1"}).status_code in (302, 403)
+    assert ImportBatch.objects.filter(pk=batch.pk).exists()
+
+
+@pytest.mark.django_db
+def test_removing_through_the_api(admin, tmp_path):
+    import json
+
+    from django.test import Client
+
+    from trammel.accounts.models import ApiKey
+    from trammel.core import access
+
+    issued = ApiKey.issue(admin, "Tax", sorted(access.permissions_of(access.as_actor(admin))))
+    token = issued[1] if isinstance(issued, tuple) else issued
+    client = Client(HTTP_AUTHORIZATION=f"Bearer {token}")
+    rates = import_bytes(RATES.encode(), "WAR2026Q4.csv", tmp_path)
+    import_bytes(zipped("WAB.csv", BOUNDARIES), "WAB2026Q4.zip", tmp_path)
+
+    listed = client.get("/api/v1/tax/imports").json()
+    assert {i["filename"] for i in listed["items"]} == {"WAR2026Q4.csv", "WAB2026Q4.zip"}
+    one = TaxRate.objects.get(jurisdiction__code="SST-53-00-061")
+    removed = client.post(
+        "/api/v1/tax/rates/remove",
+        data=json.dumps({"ids": [str(one.pk)]}),
+        content_type="application/json",
+    ).json()
+    assert removed == {"rates": 1, "boundaries": 0, "jurisdictions": 1}
+    removed = client.delete(f"/api/v1/tax/imports/{rates.pk}").json()
+    assert removed == {"rates": 5, "boundaries": 0, "jurisdictions": 5}
+    assert not TaxRate.objects.exists()
 
 
 @pytest.mark.django_db
