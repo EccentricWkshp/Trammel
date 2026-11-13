@@ -404,3 +404,20 @@ def test_online_payments_over_the_api(paying, taxes, customer, admin):  # noqa: 
     assert response.status_code == 403
     assert dt  # (imported for the times above)
     assert BusinessProfile.load().currency == "USD"
+
+
+@pytest.mark.django_db
+def test_a_live_key_retires_the_test_mode_link(paying, taxes, customer, admin):  # noqa: F811
+    """Swapping the test key for a live one: the test link isn't shown again,
+    and the live key isn't asked to turn off a link it can't see."""
+    invoice = _issued(customer, admin)
+    services.keep_links()
+    assert PayLink.objects.get().test_mode
+    secrets.put(stripe.KEY, "rk_live_abc")
+    assert billing.pay_url(invoice) == ""
+    before = len(paying.calls)
+    assert services.keep_links() == 1
+    assert not [c for c in paying.calls[before:] if c[1] == "/payment_links/plink_1"]
+    assert paying.links["plink_1"]["active"] is True  # left as it was, at Stripe
+    made_live = PayLink.objects.get(active=True)
+    assert not made_live.test_mode and billing.pay_url(invoice) == made_live.url

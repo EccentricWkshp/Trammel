@@ -571,3 +571,24 @@ def test_when_a_paypal_payment_was_made():
         # A date alone: noon that day, locally.
         noon = paypal_paid_at({"payment_date": "2026-11-12"}, {})
         assert noon.astimezone(pacific) == dt.datetime(2026, 11, 12, 12, tzinfo=pacific)
+
+
+@pytest.mark.django_db
+def test_switching_to_live_retires_the_sandbox_page(pp, taxes, customer, admin):  # noqa: F811
+    """A page made in sandbox is never shown once PayPal is live (seen 11/12/2026):
+    retired here (live credentials can't reach a sandbox invoice to cancel it, and
+    no real money moves through one), and a live one made in its place."""
+    invoice = _issued(customer, admin)
+    services.keep_links()
+    sandbox = PayLink.objects.get()
+    assert sandbox.test_mode and billing.pay_options(invoice)
+    PayPalSettings.objects.filter(pk=1).update(sandbox=False)
+    assert billing.pay_options(invoice) == []  # not even before the next check
+    pp.calls.clear()
+    assert services.keep_links() == 1
+    assert not any(c[1].endswith("/cancel") for c in pp.calls)  # not reachable to cancel
+    sandbox.refresh_from_db()
+    assert not sandbox.active
+    made_live = PayLink.objects.get(active=True)
+    assert not made_live.test_mode and made_live.link_id != sandbox.link_id
+    assert billing.pay_url(invoice) == made_live.url

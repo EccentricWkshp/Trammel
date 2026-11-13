@@ -105,7 +105,12 @@ def current_link(invoice: Invoice, provider: str | None = None) -> PayLink | Non
         provider = chosen.key
     return (
         PayLink.objects.filter(
-            invoice=invoice, active=True, amount=invoice.balance, provider=provider
+            invoice=invoice,
+            active=True,
+            amount=invoice.balance,
+            provider=provider,
+            # Never a sandbox or test page once live, nor the other way round.
+            test_mode=get(provider).test_mode(),
         )
         .order_by("-created_at")
         .first()
@@ -141,9 +146,20 @@ def _waiting_invoices() -> set:
     )
 
 
+def _reachable(link: PayLink) -> bool:
+    """Whether the provider's current credentials can reach the page: they're
+    set, and in the mode it was made in. A sandbox or test page can't be closed
+    with live credentials (or the other way round); no real money moves
+    through a sandbox or test page, so it's only retired here."""
+    provider = get(link.provider)
+    return provider.credentials() and link.test_mode == provider.test_mode()
+
+
 def _turn_off(link: PayLink) -> None:
-    """Close the page; raises BeingPaid (leaving it open) when it's being paid."""
-    get(link.provider).deactivate(link.link_id)
+    """Close the page; raises BeingPaid (leaving it open) when it's being paid.
+    One the credentials can't reach is retired here only."""
+    if _reachable(link):
+        get(link.provider).deactivate(link.link_id)
     PayLink.objects.filter(pk=link.pk).update(active=False, deactivated_at=timezone.now())
 
 
@@ -200,18 +216,14 @@ def keep_links(invoice_ids=None) -> int:
             target is not None
             and target[1].key == link.provider
             and provider.active()
+            # Made in sandbox or test mode, now live (or the other way round).
+            and link.test_mode == provider.test_mode()
             and link.currency == cur
             and link.return_url == return_url(invoice)
         )
         try:
             if not keep:
-                if provider.credentials() or provider.active():
-                    _turn_off(link)
-                else:
-                    # Its credentials are gone: it can't be reached to close.
-                    PayLink.objects.filter(pk=link.pk).update(
-                        active=False, deactivated_at=timezone.now()
-                    )
+                _turn_off(link)
             elif link.amount != invoice.balance:
                 # The same page for the new amount where the provider allows it
                 # (a PayPal invoice keeps its number); otherwise a new one.
