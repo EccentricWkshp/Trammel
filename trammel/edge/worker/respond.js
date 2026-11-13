@@ -67,6 +67,9 @@ export function respondSection(site, visitor, found, picks) {
     return html`<p class="card message info" role="status">Thank you. We've received your ${q.pending.answer === "approve" ? "approval" : "answer"} and will confirm it here shortly.</p>`;
   }
   const problem = q.problem ? html`<p class="card message error" role="alert">${q.problem}</p>` : "";
+  if (!q.open && q.status === "Sent" && !q.problem) {
+    return html`<p class="muted">This ${q.noun} has expired. Please contact us for an updated one.</p>`;
+  }
   if (!q.open || !q.respond) return problem;
   const r = q.respond;
   const choice = picked(r, picks);

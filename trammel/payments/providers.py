@@ -27,6 +27,43 @@ FIRST_LOOK = dt.timedelta(days=1)
 GIVE_UP = dt.timedelta(days=21)
 
 
+def _parse(stamp: str) -> dt.datetime | None:
+    try:
+        return dt.datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    except TypeError, ValueError:
+        return None
+
+
+def paypal_paid_at(transaction: dict, found: dict) -> dt.datetime:
+    """When a PayPal payment was made.
+
+    PayPal's `payment_date_time` can carry the PayPal account's local clock
+    time marked "Z" (seen 11/12/2026: "19:30:45Z" for a payment made at 7:30 PM
+    Pacific, 03:30:45 UTC, which the invoice's `metadata.last_update_time` gave
+    correctly). So the clock time is read both as given and as the shop's local
+    time, and the one nearer the invoice's last update (true UTC, normally the
+    payment itself) is taken. A date alone is noon that day in the shop's zone.
+    """
+    zone = timezone.get_current_timezone()
+    given = _parse(transaction.get("payment_date_time") or "")
+    if given is not None:
+        naive = given.replace(tzinfo=None)
+        readings = [given if given.tzinfo else naive.replace(tzinfo=dt.UTC)]
+        readings.append(naive.replace(tzinfo=zone))
+        updated = _parse(
+            ((found.get("detail") or {}).get("metadata") or {}).get("last_update_time")
+        )
+        if updated is not None and updated.tzinfo is not None:
+            return min(readings, key=lambda r: abs(r - updated))
+        now = timezone.now()
+        return next((r for r in reversed(readings) if r <= now), readings[0])
+    try:
+        day = dt.date.fromisoformat(transaction.get("payment_date") or "")
+    except TypeError, ValueError:
+        return timezone.now()
+    return dt.datetime.combine(day, dt.time(12), tzinfo=zone)
+
+
 class Base:
     key: str
     label: str
@@ -219,13 +256,7 @@ class PayPalProvider(Base):
         paid = payments.get("paid_amount") or found.get("amount") or {}
         transactions = payments.get("transactions") or [{}]
         first = transactions[0] if transactions else {}
-        when = first.get("payment_date_time") or first.get("payment_date") or ""
-        try:
-            paid_at = dt.datetime.fromisoformat(when.replace("Z", "+00:00"))
-            if paid_at.tzinfo is None:
-                paid_at = paid_at.replace(tzinfo=dt.UTC)
-        except ValueError:
-            paid_at = timezone.now()
+        paid_at = paypal_paid_at(first, found)
         recipients = found.get("primary_recipients") or [{}]
         email = ((recipients[0] or {}).get("billing_info") or {}).get("email_address") or ""
         return take(

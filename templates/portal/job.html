@@ -6,6 +6,7 @@
 <dl class="facts-inline">
   <div><dt>Status</dt><dd>{{ job.portal_status }}</dd></div>
   {% if job.promised_date %}<div><dt>Promised</dt><dd>{{ job.promised_date|d }}</dd></div>{% endif %}
+  {% if job.due_date %}<div><dt>Due</dt><dd>{{ job.due_date|d }}</dd></div>{% endif %}
   {% if job.delivery_actual %}<div><dt>Delivered or picked up</dt><dd>{{ job.delivery_actual|d }}</dd></div>
   {% elif job.delivery_planned %}<div><dt>Delivery or pickup planned</dt><dd>{{ job.delivery_planned|d }}</dd></div>{% endif %}
 </dl>
@@ -16,7 +17,7 @@
   <ol class="timeline">
   {% for n in updates %}
     <li><time datetime="{{ n.created_at|date:'c' }}">{{ n.created_at|dt }}</time>{% if n.author %} {{ n.author.get_short_name }}{% endif %} — {{ n.text|linebreaksbr }}
-      {% if n.document %}<br><a href="{% url 'portal:note_photo' n.pk %}">See the photo</a>{% endif %}</li>
+      {% if n.document.current %}<br>{% if n.document.current.blob.mime|slice:":6" == "image/" %}<a href="{% url 'portal:note_photo' n.pk %}"><img src="{% url 'portal:note_photo' n.pk %}" alt="The photo with this update" class="portal-thumb"></a>{% else %}<a href="{% url 'portal:note_photo' n.pk %}">See the photo</a>{% endif %}{% endif %}</li>
   {% endfor %}
   </ol>
 </section>

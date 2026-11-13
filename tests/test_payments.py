@@ -315,6 +315,17 @@ def test_customers_see_a_pay_button(paying, taxes, grace, admin, signed_in):  # 
         "Your payment"
         not in signed_in.get(f"/portal/invoices/{invoice.pk}/?notice=<b>x</b>").content.decode()
     )
+    assert "<dt>To pay</dt><dd>$99.27</dd>" in page
+    # Paid: nothing to pay, as on the portal on Cloudflare.
+    billing.record_payment(
+        grace,
+        amount=invoice.balance,
+        received_on=timezone.localdate(),
+        method="check",
+        allocations={invoice: invoice.balance},
+    )
+    page = signed_in.get(f"/portal/invoices/{invoice.pk}/").content.decode()
+    assert "To pay" not in page and "Pay $99.27 online" not in page
 
 
 @pytest.mark.django_db

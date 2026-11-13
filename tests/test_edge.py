@@ -128,7 +128,10 @@ def test_publishing_what_a_customer_may_see(live, grace, admin):  # noqa: F811
     assert quote["data"]["doc"] in live.objects
     assert live.objects[quote["data"]["doc"]][1].startswith("text/html")
     assert revision.quote.number.encode() in live.objects[quote["data"]["doc"]][0]
-    assert live.of("job")[str(revision.quote.job_id)]["data"]["status"] == "Quote sent"
+    job = live.of("job")[str(revision.quote.job_id)]["data"]
+    assert job["status"] == "Quote sent"
+    # Delivery or pickup, as Trammel's own portal shows it.
+    assert job["delivery_planned"] == "" and job["delivery_actual"] == ""
 
     # Nothing changed: nothing pushed again.
     before = len(live.calls)

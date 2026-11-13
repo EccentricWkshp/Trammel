@@ -128,6 +128,9 @@ class FakePayPal:
 def pp(monkeypatch, setup_done):
     fake = FakePayPal()
     monkeypatch.setattr(paypal, "call", fake.call)
+    monkeypatch.setattr(
+        paypal, "signed_in", lambda: {"scopes": ["openid", paypal.INVOICING], "hours": 9}
+    )
     modules.set_enabled("payments", True)
     secrets.put(paypal.SECRET_KEY, "pp-secret")
     PayPalSettings.objects.update_or_create(
@@ -413,7 +416,12 @@ def test_signing_in_to_paypal(monkeypatch, setup_done):
     def send(method, url, *, body=None, headers=None, signing_in=False):
         sent.append((method, url, headers.get("Authorization", "")))
         if url.endswith("/v1/oauth2/token"):
-            assert body == b"grant_type=client_credentials" and url.startswith(paypal.SANDBOX)
+            # Invoicing asked for by name: PayPal's default sign-in can leave it out.
+            assert body == (
+                b"grant_type=client_credentials"
+                b"&scope=https%3A%2F%2Furi.paypal.com%2Fservices%2Finvoicing"
+            )
+            assert url.startswith(paypal.SANDBOX)
             return {"access_token": f"tok{len(sent)}", "expires_in": 32400}
         if "tok1" in headers["Authorization"] and expired["now"]:
             expired["now"] = False
@@ -423,13 +431,74 @@ def test_signing_in_to_paypal(monkeypatch, setup_done):
         return {"items": []}
 
     monkeypatch.setattr(paypal, "_send", send)
-    paypal.check_credentials()
-    paypal.check_credentials()
+    paypal.invoice("INV2-1")
+    paypal.invoice("INV2-1")
     tokens = [s for s in sent if s[1].endswith("/v1/oauth2/token")]
     assert len(tokens) == 1  # kept
     expired["now"] = True
-    paypal.check_credentials()  # the token expired: a new one, and tried again
+    paypal.invoice("INV2-1")  # the token expired: a new one, and tried again
     assert len([s for s in sent if s[1].endswith("/v1/oauth2/token")]) == 2
+
+
+@pytest.mark.django_db
+def test_the_test_says_why_paypal_refuses(monkeypatch, setup_done):
+    """The test signs in afresh and reads what PayPal granted: Invoicing left out
+    of the app's sign-in, or refused despite it (the account), with the debug ID."""
+    modules.set_enabled("payments", True)
+    secrets.put(paypal.SECRET_KEY, "pp-secret")
+    PayPalSettings.objects.update_or_create(
+        pk=1, defaults={"client_id": "AbCdEf-client-xyz123", "sandbox": True}
+    )
+    answer = {"scope": "openid https://uri.paypal.com/services/payments/payment", "refuse": False}
+    signs_in = []
+
+    def send(method, url, *, body=None, headers=None, signing_in=False):
+        if url.endswith("/v1/oauth2/token"):
+            signs_in.append(1)
+            return {"access_token": "tok", "scope": answer["scope"], "expires_in": 32400}
+        if answer["refuse"]:
+            error = paypal.PayPalError("refused")
+            error.status, error.detail, error.debug_id = 403, "Not authorized.", "f00dbabe"
+            raise error
+        return {"items": []}
+
+    monkeypatch.setattr(paypal, "_send", send)
+    with pytest.raises(paypal.PayPalError) as missing:
+        paypal.check_credentials()
+    text = str(missing.value)
+    assert "hasn't given it Invoicing" in text and "Sandbox" in text and "…xyz123" in text
+
+    answer["scope"] = paypal.INVOICING
+    paypal.check_credentials()  # signed in afresh each time: the change shows at once
+    assert len(signs_in) == 2
+
+    answer["refuse"] = True
+    with pytest.raises(paypal.PayPalError) as refused:
+        paypal.check_credentials()
+    text = str(refused.value)
+    assert "(Not authorized.)" in text and "does include Invoicing" in text
+    assert "Business" in text and "f00dbabe" in text
+
+
+@pytest.mark.django_db
+def test_paypal_refusing_the_invoicing_scope(monkeypatch, setup_done):
+    """An app without Invoicing: PayPal refuses the scope when signing in."""
+    import io
+    import urllib.error
+
+    modules.set_enabled("payments", True)
+    secrets.put(paypal.SECRET_KEY, "pp-secret")
+    PayPalSettings.objects.update_or_create(pk=1, defaults={"client_id": "pp-client"})
+
+    def urlopen(request, timeout=None):
+        body = b'{"error": "invalid_scope", "error_description": "No permission for scope"}'
+        raise urllib.error.HTTPError(request.full_url, 400, "Bad Request", {}, io.BytesIO(body))
+
+    monkeypatch.setattr(paypal.urllib.request, "urlopen", urlopen)
+    with pytest.raises(paypal.PayPalError) as refused:
+        paypal.check_credentials()
+    assert refused.value.issue == "invalid_scope"
+    assert "won't give the app Invoicing" in str(refused.value)
 
 
 @pytest.mark.django_db
@@ -480,3 +549,25 @@ def test_paypal_settings_and_api(pp, taxes, customer, admin, admin_client):  # n
     remade = api("POST", f"/invoices/{invoice.pk}/link", {"provider": "paypal"})
     assert remade["links"][0]["url"].endswith("INV2-TEST-0002")
     api("POST", f"/invoices/{invoice.pk}/link", {"provider": "stripe"}, expect=422)  # not on
+
+
+def test_when_a_paypal_payment_was_made():
+    """PayPal can mark its account's local clock time "Z": the reading nearer the
+    invoice's last update (true UTC) is taken (seen 11/12/2026 in sandbox)."""
+    import zoneinfo
+
+    from trammel.payments.providers import paypal_paid_at
+
+    pacific = zoneinfo.ZoneInfo("America/Los_Angeles")
+    paid = {"payment_date": "2026-11-12", "payment_date_time": "2026-11-12T19:30:45Z"}
+    found = {"detail": {"metadata": {"last_update_time": "2026-11-13T03:30:45Z"}}}
+    with timezone.override(pacific):
+        when = paypal_paid_at(paid, found)
+        assert when == dt.datetime(2026, 11, 13, 3, 30, 45, tzinfo=dt.UTC)
+        assert timezone.localdate(when) == dt.date(2026, 11, 12)
+        # A true UTC time stays as it is.
+        true = {"payment_date_time": "2026-11-13T03:30:45Z"}
+        assert paypal_paid_at(true, found) == dt.datetime(2026, 11, 13, 3, 30, 45, tzinfo=dt.UTC)
+        # A date alone: noon that day, locally.
+        noon = paypal_paid_at({"payment_date": "2026-11-12"}, {})
+        assert noon.astimezone(pacific) == dt.datetime(2026, 11, 12, 12, tzinfo=pacific)

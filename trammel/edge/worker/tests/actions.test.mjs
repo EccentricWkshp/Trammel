@@ -299,6 +299,44 @@ test("each way to pay gets its own button, https only", async () => {
   assert.match(home, /Pay online: <a href="https:\/\/buy.stripe.com\/test_1" rel="noopener">Card<\/a> · <a href="https:\/\/www.paypal.com\/invoice\/p\/#INV2-1" rel="noopener">PayPal<\/a>/);
 });
 
+test("the job's dates and the quote's status read as on Trammel's own portal", async () => {
+  const { environment, cookie } = await shop();
+  const OLD = "01900000-0000-7000-8000-000000000021";
+  await call(environment, await syncRequest(environment, "POST", "/_sync/records", {
+    upsert: [
+      {
+        type: "job", id: JOB, customer: CUSTOMER, sort: "1",
+        data: { number: "J-1", title: "Table", status: "In progress", due: "12/01/2026", delivery_planned: "12/05/2026" },
+      },
+      {
+        type: "quote", id: OLD, customer: CUSTOMER, job: JOB, sort: "0",
+        data: { kind: "Quote", noun: "quote", number: "Q-0", title: "Old table", total: "$900.00", status: "Sent", open: false },
+      },
+    ],
+    delete: [],
+  }));
+  let page = await (await call(environment, browser("GET", `/portal/jobs/${JOB}/`, { cookie }))).text();
+  assert.match(page, /<dt>Due<\/dt><dd>12\/01\/2026<\/dd>/);
+  assert.match(page, /<dt>Delivery or pickup planned<\/dt><dd>12\/05\/2026<\/dd>/);
+  assert.match(page, /Q-0<\/strong> · Old table<\/a> — \$900.00 · Expired/);
+  assert.match(page, /Q-1<\/strong> · Table<\/a> — \$1,800.00 · Waiting for you/);
+  page = await (await call(environment, browser("GET", `/portal/quotes/${OLD}/`, { cookie }))).text();
+  assert.match(page, /<dt>Status<\/dt><dd>Expired<\/dd>/);
+  assert.match(page, /This quote has expired. Please contact us for an updated one./);
+  assert.doesNotMatch(page, /Approve quote/);
+
+  await call(environment, await syncRequest(environment, "POST", "/_sync/records", {
+    upsert: [{
+      type: "job", id: JOB, customer: CUSTOMER, sort: "1",
+      data: { number: "J-1", title: "Table", status: "Completed", delivery_planned: "12/05/2026", delivery_actual: "12/04/2026" },
+    }],
+    delete: [],
+  }));
+  page = await (await call(environment, browser("GET", `/portal/jobs/${JOB}/`, { cookie }))).text();
+  assert.match(page, /<dt>Delivered or picked up<\/dt><dd>12\/04\/2026<\/dd>/);
+  assert.doesNotMatch(page, /pickup planned/);
+});
+
 test("store webhooks wait in the inbox; sign-in callbacks go on to Trammel", async () => {
   const { environment } = await shop({ hooks: { shopify: true, etsy: true, ebay: true, ebay_deletion: true } });
   let response = await call(environment, new Request("https://portal.example.com/imports/shopify/webhook/", {

@@ -241,6 +241,8 @@ def job_items(customer) -> Iterator[Item]:
             "status": JOB_STATUS.get(job.status, job.get_status_display()),
             "promised": _d(job.promised_date),
             "due": _d(job.due_date),
+            "delivery_planned": _d(job.delivery_planned),
+            "delivery_actual": _d(job.delivery_actual),
         }
         yield Item(
             "job",

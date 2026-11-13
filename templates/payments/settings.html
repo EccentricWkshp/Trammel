@@ -38,8 +38,9 @@
   {% if paypal.row.last_error %}<p class="flag flag-late" role="alert">The last check failed{% if paypal.row.last_error_at %} at {{ paypal.row.last_error_at|dt }}{% endif %}: {{ paypal.row.last_error }}</p>{% endif %}
   <details{% if not paypal.credentials %} open{% endif %}><summary>Setting it up</summary>
   <ol>
-    <li>On developer.paypal.com, Apps &amp; Credentials, create an app under <strong>Sandbox</strong> (and later under <strong>Live</strong>) with the <strong>Invoicing</strong> feature, and copy its client ID and secret.</li>
-    <li>Paste them below with Sandbox ticked, switch PayPal on, and save. Then pay an invoice from the portal with a sandbox personal account to see it work, and swap in the live app's credentials with Sandbox unticked.</li>
+    <li>On developer.paypal.com, Apps &amp; Credentials, create an app under <strong>Sandbox</strong> (and later under <strong>Live</strong>). Then open it, tick <strong>Invoicing</strong> under its features, and Save. Copy its client ID and secret.</li>
+    <li>Paste them below with Sandbox ticked, switch PayPal on, save, and test the credentials. If PayPal refuses, the test says whether it's the app (Invoicing not ticked) or its PayPal account.</li>
+    <li>Then pay an invoice from the portal with a sandbox personal account to see it work, and swap in the live app's credentials with Sandbox unticked.</li>
   </ol>
   <p class="muted small">Each invoice gets one PayPal invoice, numbered exactly as in Trammel and sent to nobody (only its pay page is used); when the balance changes it's updated, and once it's no longer owed it's cancelled. PayPal can't send customers back to the portal after paying.</p>
   </details>

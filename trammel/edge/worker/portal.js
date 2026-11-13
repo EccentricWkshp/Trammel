@@ -82,9 +82,17 @@ function filesList(files) {
   )}</ul>`;
 }
 
+/** A quote's status as the customer reads it, as on Trammel's own portal: one
+ * they can answer is waiting for them; one sent but past answering, expired. */
+export function quoteStatus(q) {
+  if (q.pending) return "Answer received";
+  if (q.open) return "Waiting for you";
+  return q.status === "Sent" ? "Expired" : q.status;
+}
+
 function quoteList(quotes) {
   return html`<ul class="plain portal-list">${quotes.map(
-    (q) => html`<li><a href="/portal/quotes/${q.id}/"><strong>${q.data.kind} ${q.data.number}</strong> · ${q.data.title}</a> — ${q.data.total} · ${q.data.status}</li>`,
+    (q) => html`<li><a href="/portal/quotes/${q.id}/"><strong>${q.data.kind} ${q.data.number}</strong> · ${q.data.title}</a> — ${q.data.total} · ${quoteStatus(q.data)}</li>`,
   )}</ul>`;
 }
 
@@ -148,7 +156,13 @@ async function job(env, site, visitor, id, notice) {
     title: `${j.number} ${j.title}`,
     body: html`<p class="breadcrumb"><a href="/portal/">Your account</a></p>
 <h1>${j.number} · ${j.title}</h1>
-<dl class="facts-inline"><div><dt>Status</dt><dd>${j.status}</dd></div>${j.promised ? html`<div><dt>Promised</dt><dd>${j.promised}</dd></div>` : ""}${j.due ? html`<div><dt>Due</dt><dd>${j.due}</dd></div>` : ""}</dl>
+<dl class="facts-inline"><div><dt>Status</dt><dd>${j.status}</dd></div>${j.promised ? html`<div><dt>Promised</dt><dd>${j.promised}</dd></div>` : ""}${j.due ? html`<div><dt>Due</dt><dd>${j.due}</dd></div>` : ""}${
+  j.delivery_actual
+    ? html`<div><dt>Delivered or picked up</dt><dd>${j.delivery_actual}</dd></div>`
+    : j.delivery_planned
+      ? html`<div><dt>Delivery or pickup planned</dt><dd>${j.delivery_planned}</dd></div>`
+      : ""
+}</dl>
 ${quotes.length ? html`<section><h2>Quotes</h2>${quoteList(quotes)}</section>` : ""}
 ${invoices.length ? html`<section><h2>Invoices</h2>${invoiceList(invoices)}</section>` : ""}
 ${agreements.length ? html`<section><h2>Agreements</h2><ul class="plain">${agreements.map((a) => html`<li>${a.data.title}, accepted ${a.data.accepted}${a.data.pdf ? html` · <a href="/portal/agreements/${a.id}/pdf/">PDF</a>` : ""}</li>`)}</ul></section>` : ""}
@@ -173,7 +187,7 @@ async function quote(env, site, visitor, id, notice, picks) {
     title: `${q.kind} ${q.number}`,
     body: html`<p class="breadcrumb"><a href="/portal/">Your account</a>${found.job ? html` · <a href="/portal/jobs/${found.job}/">${q.job_number}</a>` : ""}</p>
 <h1>${q.kind} ${q.number} · ${q.title}</h1>
-<dl class="facts-inline"><div><dt>Total</dt><dd><strong>${q.total}</strong></dd></div><div><dt>Status</dt><dd>${q.status}</dd></div>${q.valid_until ? html`<div><dt>Valid until</dt><dd>${q.valid_until}</dd></div>` : ""}</dl>
+<dl class="facts-inline"><div><dt>Total</dt><dd><strong>${q.total}</strong></dd></div><div><dt>Status</dt><dd>${quoteStatus(q)}</dd></div>${q.valid_until ? html`<div><dt>Valid until</dt><dd>${q.valid_until}</dd></div>` : ""}</dl>
 ${q.approval ? html`<p class="card">Approved by ${q.approval.by} on ${q.approval.at}.</p>` : ""}
 <p class="actions">${q.pdf ? html`<a class="button" href="/portal/quotes/${found.id}/pdf/">Download PDF</a>` : ""}</p>
 ${q.doc ? documentFrame(`/portal/quotes/${found.id}/document/`, `${q.kind} ${q.number}`) : ""}

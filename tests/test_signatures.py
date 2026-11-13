@@ -185,3 +185,29 @@ def test_sharing_a_note_is_offered_only_with_the_portal_on(admin_client, admin, 
     wo = _approved_work_order(customer, admin)
     page = admin_client.get(f"/work-orders/{wo.pk}/?tab=notes").content.decode()
     assert "Share with the customer" not in page
+
+
+@pytest.mark.django_db
+def test_the_job_page_matches_the_edge_portal(
+    signed_in,  # noqa: F811
+    work_order,
+    admin,  # noqa: F811
+):
+    """As the portal on Cloudflare shows a job (0.10.2): its due date, delivery or
+    pickup, and a shared photo shown on the page itself."""
+    import datetime as dt
+
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    from tests.file_samples import _png
+
+    job = work_order.job
+    job.due_date, job.delivery_planned = dt.date(2026, 12, 1), dt.date(2026, 12, 5)
+    job.save(update_fields=["due_date", "delivery_planned"])
+    photo = SimpleUploadedFile("glue-up.png", _png(), content_type="image/png")
+    note = wos.add_note(work_order, text="Glue-up done.", upload=photo, user=admin, shared=True)
+    page = signed_in.get(f"/portal/jobs/{job.pk}/").content.decode()
+    assert "<dt>Due</dt><dd>12/01/2026</dd>" in page
+    assert "<dt>Delivery or pickup planned</dt><dd>12/05/2026</dd>" in page
+    assert f'<img src="/portal/notes/{note.pk}/photo/"' in page
+    assert signed_in.get(f"/portal/notes/{note.pk}/photo/").status_code == 200

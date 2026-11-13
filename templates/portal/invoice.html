@@ -6,7 +6,7 @@
 <dl class="facts-inline">
   <div><dt>Status</dt><dd>{{ invoice.get_status_display }}</dd></div>
   <div><dt>Total</dt><dd>{{ invoice.total|money }}</dd></div>
-  <div><dt>To pay</dt><dd>{{ invoice.balance|money }}</dd></div>
+  {% if invoice.balance > 0 %}<div><dt>To pay</dt><dd>{{ invoice.balance|money }}</dd></div>{% endif %}
   {% if invoice.due_date %}<div><dt>Due</dt><dd>{{ invoice.due_date|d }}</dd></div>{% endif %}
 </dl>
 <p class="actions">{% for way in pay_options %}<a class="button primary" href="{{ way.url }}" rel="noopener">{{ way.label }}</a> {% endfor %}<a class="button" href="{% url 'portal:invoice_pdf' invoice.pk %}">Download PDF</a></p>

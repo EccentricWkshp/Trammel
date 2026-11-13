@@ -338,10 +338,15 @@ is updated; once it's no longer owed, it's cancelled. Trammel asks PayPal every
 minute what was paid; there's no webhook to set up.
 
 1. On developer.paypal.com, **Apps & Credentials**, create an app under
-   **Sandbox** with the **Invoicing** feature, and copy its client ID and
-   secret.
+   **Sandbox**. Then open it, tick **Invoicing** under its features, and
+   Save. Copy its client ID and secret.
 2. **Settings, Online payments, PayPal**: paste them with **Sandbox** ticked,
-   switch PayPal on, save, and **Test the credentials**.
+   switch PayPal on, save, and **Test the credentials**. Trammel asks PayPal
+   for Invoicing by name when it signs in. If PayPal won't give it, check
+   Invoicing is ticked and saved on that exact app (under the same Sandbox or
+   Live tab). If Invoicing is given and PayPal still refuses, the app's
+   PayPal account is the problem: it has to be a business account that can
+   send invoices. The message carries PayPal's debug ID for PayPal's support.
 3. Pay a portal invoice with a sandbox personal account (Apps & Credentials,
    Sandbox accounts). Within a minute it's recorded (method PayPal, with
    PayPal's transaction id). Then make the app under **Live**, paste its

@@ -356,7 +356,7 @@ def _updates(actor, job) -> list:
     return list(
         access.scoped(actor, "workorders.view", WorkOrderNote.objects.all())
         .filter(work_order__job=job, shared_with_customer=True)
-        .select_related("author", "document")
+        .select_related("author", "document__current__blob")
         .order_by("-created_at")
     )
 

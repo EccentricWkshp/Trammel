@@ -34,12 +34,16 @@ MAX_PAGES = 20
 PAID = ("PAID",)
 #: Nobody is told anything PayPal does here.
 QUIET = {"send_to_recipient": False, "send_to_invoicer": False}
+#: The scope PayPal's sign-in must list for any of the Invoicing calls.
+INVOICING = "https://uri.paypal.com/services/invoicing"
 
 
 class PayPalError(ProviderError):
     """PayPal refused or couldn't be reached; the message says what to do."""
 
     issue: str = ""
+    detail: str = ""
+    debug_id: str = ""
 
 
 def _config():
@@ -56,39 +60,59 @@ def _base(row) -> str:
     return SANDBOX if row.sandbox else LIVE
 
 
+def _key(row) -> str:
+    where = "sandbox" if row.sandbox else "live"
+    return f"payments.paypal.invoicing-token:{where}:{row.client_id}"
+
+
+def _keep(row, found: dict) -> str:
+    token = found["access_token"]
+    cache.set(_key(row), token, max(60, int(found.get("expires_in") or 3600) - 120))
+    return token
+
+
 def _token(row, secret, *, fresh=False) -> str:
-    key = f"payments.paypal.token:{'sandbox' if row.sandbox else 'live'}:{row.client_id}"
-    if not fresh and (token := cache.get(key)):
+    if not fresh and (token := cache.get(_key(row))):
         return token
+    return _keep(row, _sign_in(row, secret))
+
+
+def _sign_in(row, secret) -> dict:
+    """PayPal's token answer: access_token, scope (space-separated), expires_in.
+
+    Invoicing is asked for by name. PayPal's default sign-in for an app can
+    leave it out even when the app has it ticked (seen 11/12/2026: the default
+    token listed ~30 scopes but not invoicing, and PayPal kept handing out that
+    same token; asking for the scope gave a new token that has it)."""
     basic = base64.b64encode(f"{row.client_id}:{secret}".encode()).decode()
-    found = _send(
+    return _send(
         "POST",
         _base(row) + "/v1/oauth2/token",
-        body=b"grant_type=client_credentials",
+        body=urllib.parse.urlencode(
+            {"grant_type": "client_credentials", "scope": INVOICING}
+        ).encode(),
         headers={
             "Authorization": f"Basic {basic}",
             "Content-Type": "application/x-www-form-urlencoded",
         },
         signing_in=True,
     )
-    token = found["access_token"]
-    cache.set(key, token, max(60, int(found.get("expires_in") or 3600) - 120))
-    return token
 
 
-def _explain(body: bytes) -> tuple[str, str]:
-    """(issue, readable message) from PayPal's error body."""
+def _explain(body: bytes) -> tuple[str, str, str]:
+    """(issue, readable message, debug id) from PayPal's error body."""
     try:
         data = json.loads(body or b"{}")
     except ValueError:
-        return "", ""
+        return "", "", ""
     details = data.get("details") or []
     issue = details[0].get("issue", "") if details and isinstance(details[0], dict) else ""
     text = " ".join(
         str(d.get("description") or d.get("issue") or "") for d in details if isinstance(d, dict)
     )
     message = data.get("message") or data.get("error_description") or data.get("name") or ""
-    return issue or data.get("name", ""), f"{message} {text}".strip()
+    issue = issue or data.get("name", "") or str(data.get("error") or "")
+    return issue, f"{message} {text}".strip(), data.get("debug_id", "")
 
 
 def _send(method, url, *, body=None, headers=None, signing_in=False) -> dict:
@@ -107,19 +131,29 @@ def _send(method, url, *, body=None, headers=None, signing_in=False) -> dict:
             raw = response.read()
             return json.loads(raw) if raw else {}
     except urllib.error.HTTPError as exc:
-        issue, detail = _explain(exc.read())
-        if exc.code == 401 and signing_in:
+        issue, detail, debug_id = _explain(exc.read())
+        debug_id = debug_id or (exc.headers.get("Paypal-Debug-Id", "") if exc.headers else "")
+        if signing_in and issue == "invalid_scope":
+            message = (
+                "PayPal won't give the app Invoicing. On developer.paypal.com, Apps & "
+                "Credentials (Sandbox or Live, as set here), open the app, tick Invoicing "
+                "under its features, and Save."
+            )
+        elif exc.code == 401 and signing_in:
             message = (
                 "PayPal didn't accept the client ID and secret. Check them, and that sandbox "
                 "is set to match (Settings, Online payments)."
             )
         elif exc.code == 403:
-            message = f"The PayPal app isn't allowed to do this: {detail or 'see PayPal'}. Give "
-            message += "it the Invoicing feature (developer.paypal.com, Apps & Credentials)."
+            message = f"PayPal didn't allow the app to do this ({detail or 'no reason given'}). "
+            message += "Test it in Settings, Online payments, to see why."
         else:
             message = f"PayPal answered {exc.code}: {detail or exc.reason}"
+        if debug_id:
+            message += f" PayPal debug ID: {debug_id}."
         error = PayPalError(message)
-        error.status, error.issue = exc.code, issue
+        error.status, error.issue, error.debug_id = exc.code, issue, debug_id
+        error.detail = detail
         raise error from None
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         raise PayPalError(f"Couldn't reach PayPal: {getattr(exc, 'reason', exc)}") from None
@@ -147,9 +181,52 @@ def call(method: str, path: str, data=None, *, query: dict | None = None) -> dic
     return {}
 
 
+def signed_in() -> dict:
+    """A fresh sign-in, kept for the calls that follow: {"scopes": [...]}."""
+    row, secret = _config()
+    found = _sign_in(row, secret)
+    _keep(row, found)
+    return {"scopes": str(found.get("scope") or "").split()}
+
+
 def check_credentials() -> None:
-    """Raise PayPalError unless the app can sign in and read invoices."""
-    call("GET", "/v2/invoicing/invoices", query={"page": 1, "page_size": 1})
+    """Raise PayPalError unless the app can sign in and read invoices; when it
+    can't, say whether PayPal left Invoicing out of the app's sign-in or
+    refused the account itself."""
+    row, _ = _config()
+    where = "Sandbox" if row.sandbox else "Live"
+    app = f"the app whose client ID ends …{row.client_id[-6:]}"
+    granted = signed_in()
+    if granted["scopes"] and INVOICING not in granted["scopes"]:
+        raise PayPalError(
+            f"PayPal signs the app in but hasn't given it Invoicing. On developer.paypal.com, "
+            f"Apps & Credentials, {where}: open {app}, tick Invoicing under its features, "
+            f"and Save, then Test again."
+        )
+    try:
+        call("GET", "/v2/invoicing/invoices", query={"page": 1, "page_size": 1})
+    except PayPalError as exc:
+        if exc.status != 403:
+            raise
+        refused = f"PayPal refused to list the app's invoices ({exc.detail or 'no reason given'})."
+        if granted["scopes"]:
+            message = (
+                f"{refused} Its sign-in does include Invoicing, which points at the PayPal "
+                "account the app belongs to rather than the app: it has to be a business "
+                "account that can send invoices. In sandbox, check the app's sandbox account "
+                "(Testing Tools, Sandbox Accounts) is a Business one, or make a new Business "
+                "sandbox account and an app under it."
+            )
+        else:
+            message = (
+                f"{refused} On developer.paypal.com, Apps & Credentials, {where}: check {app} "
+                "has Invoicing ticked under Features, and Save."
+            )
+        if exc.debug_id:
+            message += f" PayPal debug ID, for PayPal's support: {exc.debug_id}."
+        error = PayPalError(message)
+        error.status, error.issue, error.debug_id = exc.status, exc.issue, exc.debug_id
+        raise error from None
 
 
 def _body(
