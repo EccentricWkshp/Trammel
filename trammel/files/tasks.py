@@ -19,8 +19,18 @@ def make_thumbnail(payload: dict) -> None:
     blob = Blob.objects.filter(pk=payload["blob"]).first()
     if blob is None or blob.thumb_state == Blob.Thumb.READY:
         return
+    from trammel.core import limits
+
     try:
-        made = previews.render(blob.kind, blob_path(blob))
+        # Read in a child with memory and time limits (SEC-02, 0.10.6): a file
+        # that asks for too much fails alone, not the worker with it.
+        made = limits.run(
+            previews.render,
+            blob.kind,
+            blob_path(blob),
+            memory_mb=previews.MEMORY_MB,
+            seconds=previews.SECONDS,
+        )
     except Exception:
         # A file its reader can't make sense of has no preview; trying again
         # won't change that.

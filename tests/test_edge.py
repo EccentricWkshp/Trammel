@@ -454,3 +454,37 @@ def test_a_job_moved_to_another_customer_goes_with_its_records(live, grace, admi
         assert live.of(kind)[str(key)]["customer"] == str(other.pk), kind
     # Settled: nothing more to send.
     assert sync.run()["pushed"] == 0
+
+
+@pytest.mark.django_db
+def test_the_worker_is_given_shopifys_webhook_secret_when_it_changes(monkeypatch, setup_done):
+    """SEC-08 (0.10.6): the Worker checks Shopify's signature itself, so it
+    is given the secret, and given it again when it changes, once."""
+    from trammel.imports import shopify
+    from trammel.imports.models import ShopifySettings
+
+    modules.set_enabled("imports", True)
+    secrets.put(deploy.TOKEN_KEY, "cf-token")
+    EdgeSettings.objects.update_or_create(pk=1, defaults={"active": True, "account_id": "acct0"})
+    fake = FakeCloudflare()
+    monkeypatch.setattr(cloudflare, "call", fake.call)
+
+    def sent():
+        return [c[2] for c in fake.calls if c[1].endswith("/secrets")]
+
+    assert deploy.push_hook_secret() and sent()[-1]["text"] == "none"
+    config = ShopifySettings.load()
+    config.enabled, config.webhooks_enabled = True, True
+    config.shop_domain = "eccentric.myshopify.com"
+    config.save()
+    secrets.put(shopify.API_SECRET_KEY, "shpss_first")
+    assert deploy.push_hook_secret()
+    assert sent()[-1] == {
+        "name": "SHOPIFY_WEBHOOK_SECRET",
+        "text": "shpss_first",
+        "type": "secret_text",
+    }
+    assert not deploy.push_hook_secret()  # unchanged: not sent again
+    secrets.put(shopify.API_SECRET_KEY, "shpss_second")
+    assert deploy.push_hook_secret() and sent()[-1]["text"] == "shpss_second"
+    assert "shpss" not in EdgeSettings.load().hook_secret_hash

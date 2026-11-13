@@ -476,6 +476,11 @@ def run() -> dict:
         return {}
     try:
         check()
+        from . import deploy
+
+        # A changed Shopify webhook secret reaches the Worker before its next
+        # webhook would be refused (SEC-08, 0.10.6).
+        deploy.push_hook_secret()
         counts = push()
         counts["applied"] = pull()
         if counts["applied"]:

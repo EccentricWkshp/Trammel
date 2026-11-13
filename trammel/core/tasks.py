@@ -88,6 +88,45 @@ def enqueue(name: str, payload: dict | None = None, *, run_after=None, dedupe: b
     )
 
 
+#: Sign-in emails anyone can ask for (a sign-in link, a portal code): how many
+#: one network may ask for in an hour, and how many may wait at once in all.
+PUBLIC_PER_NETWORK_HOUR = 20
+PUBLIC_PENDING_CAP = 200
+
+
+def enqueue_public(name: str, email: str, ip: str | None) -> bool:
+    """Queue a sign-in email someone asked for on a public page, unless it would
+    be too much: more than PUBLIC_PER_NETWORK_HOUR from their network (an IPv6
+    /64 counts as one) in the past hour, one already waiting for the same
+    address, or PUBLIC_PENDING_CAP waiting in all. Checked here, before anything
+    is stored, not later by the worker (SEC-07, 0.10.6). The caller answers the
+    same either way, so nobody learns whether an address has an account.
+    Returns whether it was queued."""
+    import datetime as dt
+
+    from trammel.accounts.security import network
+
+    from .models import BackgroundTask
+
+    net = network(ip) or ""
+    tasks = BackgroundTask.objects.filter(name=name)
+    pending = tasks.filter(state=BackgroundTask.State.PENDING)
+    hour_ago = timezone.now() - dt.timedelta(hours=1)
+    if (
+        (
+            net
+            and tasks.filter(payload__net=net, created_at__gte=hour_ago).count()
+            >= PUBLIC_PER_NETWORK_HOUR
+        )
+        or pending.filter(payload__email=email).exists()
+        or pending.count() >= PUBLIC_PENDING_CAP
+    ):
+        log.info("Not queued: %s for %s from %s (limits)", name, email, net or "unknown")
+        return False
+    enqueue(name, {"email": email, "ip": ip, "net": net})
+    return True
+
+
 def _claim():
     from .models import BackgroundTask
 

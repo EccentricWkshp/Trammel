@@ -48,6 +48,9 @@ class EdgeSettings(SingletonModel):
     awaiting_address = models.BooleanField(default=False, editable=False)
     #: The last inbox event applied.
     inbox_after = models.BigIntegerField(default=0, editable=False)
+    #: A hash of the Shopify webhook secret the Worker was last given, so a
+    #: changed one is sent again (SEC-08, 0.10.6).
+    hook_secret_hash = models.CharField(max_length=64, blank=True, editable=False)
     #: Which Worker database this is (it says): a new one gets everything again.
     instance = models.CharField(max_length=64, blank=True, editable=False)
     #: Inbox events that failed, by number: how many times, until one is skipped.

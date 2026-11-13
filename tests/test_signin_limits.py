@@ -69,3 +69,32 @@ def test_ipv6_counts_by_its_64():
     assert security.network("203.0.113.9") == "203.0.113.9"
     assert security.network("::ffff:203.0.113.9") == "203.0.113.9"
     assert security.network("not an address") is None
+
+
+@pytest.mark.django_db
+def test_public_sign_in_requests_are_limited_before_they_queue(admin, monkeypatch):
+    """SEC-07 (0.10.6): the pages answer the same, but only so much is queued."""
+    from trammel.core import tasks
+    from trammel.core.models import BackgroundTask
+    from trammel.notifications.models import SmtpSettings
+
+    smtp = SmtpSettings.load()
+    smtp.host, smtp.from_address = "smtp.example.com", "shop@example.com"
+    smtp.save()
+    client = Client(REMOTE_ADDR="198.51.100.10")
+    for _ in range(30):
+        response = client.post("/accounts/email-link/", {"email": "nobody@example.com"})
+        assert response.status_code == 302
+    magic = BackgroundTask.objects.filter(name="accounts.magic_link")
+    assert magic.count() == 1  # one waits for an address at a time
+
+    for n in range(30):
+        client.post("/accounts/email-link/", {"email": f"guess{n}@example.com"})
+    assert magic.count() == tasks.PUBLIC_PER_NETWORK_HOUR  # from one network, an hour
+
+    monkeypatch.setattr(tasks, "PUBLIC_PENDING_CAP", 25)
+    for n in range(10):
+        Client(REMOTE_ADDR=f"203.0.113.{n + 1}").post(
+            "/accounts/email-link/", {"email": f"far{n}@example.com"}
+        )
+    assert magic.count() == 25  # and only so many wait in all

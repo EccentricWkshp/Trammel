@@ -278,8 +278,10 @@ online stores, at the same paths, so nothing else has to be public:
 
 - **Shopify webhooks** go to the portal's address
   (`https://<portal address>/imports/shopify/webhook/`, shown on Settings,
-  Online stores). The portal keeps each one for Trammel, which checks
-  Shopify's signature before taking the order.
+  Online stores). The portal checks Shopify's signature itself before keeping
+  one (Trammel gives it Shopify's webhook secret, and gives it again within a
+  minute when you change it), and Trammel checks it again before taking the
+  order.
 - **Etsy's and eBay's sign-in** come back to the portal's address, which sends
   your browser on to Trammel (your browser can reach it; the internet can't).
   Settings, Online stores shows the addresses to give Etsy and eBay.
@@ -288,6 +290,10 @@ online stores, at the same paths, so nothing else has to be public:
   developer portal). The portal answers eBay's check; Trammel checks each
   notice's signature with eBay's published key before wiping anything. No
   separate relay is needed.
+
+A notice with no signature at all is turned away before it's read, and store
+notices have their own room in what waits for Trammel, so a flood of them never
+holds up what customers do.
 
 ## Online payments (Stripe and PayPal)
 

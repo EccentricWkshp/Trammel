@@ -138,9 +138,16 @@ def _request(method: str, url: str, *, data: dict | None = None, headers: dict |
         method=method,
         headers={"User-Agent": f"Trammel/{settings.APP_VERSION}", **(headers or {})},
     )
+    from django.core.exceptions import ValidationError
+
+    from trammel.core import outbound
+
     try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:  # noqa: S310
+        # Pinned to a public address, redirects kept to the store (SEC-10, 0.10.6).
+        with outbound.open_url(request, timeout=TIMEOUT, same_origin=True) as response:
             return json.loads(response.read() or b"{}"), response.headers
+    except ValidationError as exc:
+        raise ShopifyError(f"Refusing to reach Shopify: {' '.join(exc.messages)}") from None
     except urllib.error.HTTPError as exc:
         detail = ""
         with contextlib.suppress(ValueError):

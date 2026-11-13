@@ -131,7 +131,7 @@ def sign_in(request):
             # time whether or not the address can sign in.
             from trammel.core import tasks
 
-            tasks.enqueue("portal.request_code", {"email": email, "ip": client_ip(request)})
+            tasks.enqueue_public("portal.request_code", email, client_ip(request))
             request.session[services.PENDING_KEY] = email
             return redirect("portal:code")
     return render(request, "portal/sign_in.html", _context(request, ready=ready))

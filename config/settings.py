@@ -337,6 +337,9 @@ STATIC_ROOT.mkdir(parents=True, exist_ok=True)
 WHITENOISE_MIMETYPES = {".webmanifest": "application/manifest+json"}
 MEDIA_ROOT = Path(env("MEDIA_ROOT", str(BASE_DIR / "data" / "media")))
 MAX_UPLOAD_MB = env_int("MAX_UPLOAD_MB", 100)
+# File previews and user-written templates run in a child process with memory
+# and time limits (core/limits.py), on Linux; off only to diagnose a problem.
+PROCESS_LIMITS = env_bool("PROCESS_LIMITS", True)
 # Backups and exports (FR-BAK). Keep this on the Linux filesystem in WSL2 and
 # copy backups off the machine (SPEC §4.2).
 BACKUP_DIR = Path(env("BACKUP_DIR", str(BASE_DIR / "data" / "backups")))

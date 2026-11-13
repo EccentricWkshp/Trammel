@@ -17,6 +17,7 @@ import functools
 import warnings
 from decimal import Decimal
 
+import babel.numbers  # noqa: F401 — loaded before a render's child process starts
 from jinja2 import TemplateSyntaxError, Undefined
 from jinja2.exceptions import SecurityError, TemplateError
 from jinja2.sandbox import SandboxedEnvironment
@@ -36,6 +37,12 @@ def _money(value, currency=None):
     if value in (None, ""):
         return ""
     return format_money(Decimal(str(value)), currency)
+
+
+def _money_in(value, currency=None, *, default: str):
+    """`money`, with the shop's currency already looked up (no database where
+    the template renders)."""
+    return _money(value, currency or default)
 
 
 def _date(value, fmt="%B %-d, %Y"):
@@ -92,9 +99,9 @@ class _Sandbox(SandboxedEnvironment):
         return result
 
 
-def environment(*, html: bool = True) -> SandboxedEnvironment:
+def environment(*, html: bool = True, currency: str | None = None) -> SandboxedEnvironment:
     env = _Sandbox(autoescape=html, undefined=Undefined, trim_blocks=True, lstrip_blocks=True)
-    env.filters["money"] = _money
+    env.filters["money"] = functools.partial(_money_in, default=currency) if currency else _money
     env.filters["date"] = _date
     env.filters["percent"] = _percent
     return env
@@ -108,9 +115,51 @@ def validate(source: str, *, html: bool = True) -> list[str]:
     return []
 
 
+#: The most a template may produce, in characters: far beyond any document or
+#: email, short of tying up the server (SEC-09, 0.10.6).
+MAX_OUTPUT = 5_000_000
+#: What rendering one template may use, in a child process (core.limits).
+RENDER_MEMORY_MB = 512
+RENDER_SECONDS = 20
+
+
+def _render_capped(template, context: dict) -> str:
+    out, size = [], 0
+    for chunk in template.generate(**context):
+        size += len(chunk)
+        if size > MAX_OUTPUT:
+            raise TemplateProblem("This template makes too much text to show.")
+        out.append(chunk)
+    return "".join(out)
+
+
 def render(source: str, context: dict, *, html: bool = True) -> str:
+    """A user's template, rendered in the sandbox with its output bounded, in a
+    child process limited in memory and time where that's available (Linux)."""
+    from . import limits
+
     try:
-        return environment(html=html).from_string(source).render(**context)
+        currency = None
+        if "money" in source:
+            from .money import _instance_currency
+
+            currency = _instance_currency()
+        template = environment(html=html, currency=currency).from_string(source)
+        try:
+            return limits.run(
+                _render_capped,
+                template,
+                context,
+                memory_mb=RENDER_MEMORY_MB,
+                seconds=RENDER_SECONDS,
+            )
+        except limits.NeedsDatabase:
+            # Its data wasn't all worked out beforehand: render it here instead.
+            return _render_capped(template, context)
+    except limits.Exceeded as exc:
+        if exc.what == "time":
+            raise TemplateProblem("This template takes too long to render.") from exc
+        raise TemplateProblem("This template needs too much memory to render.") from exc
     except TemplateSyntaxError as exc:
         raise TemplateProblem(f"Line {exc.lineno}: {exc.message}") from exc
     except SecurityError as exc:

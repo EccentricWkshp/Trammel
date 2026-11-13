@@ -43,12 +43,7 @@ from __future__ import annotations
 
 import csv
 import datetime as dt
-import functools
-import http.client
 import io
-import ipaddress
-import socket
-import ssl
 import tempfile
 import urllib.request
 import zipfile
@@ -62,7 +57,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
-from trammel.core import audit
+from trammel.core import audit, outbound
 
 from .models import Boundary, ImportBatch, Jurisdiction, Source, TaxRate
 from .services import normalize_postal
@@ -420,83 +415,17 @@ def _chain(first: str, rest: Iterator[str]) -> Iterator[str]:
     yield from rest
 
 
-def check_url(url: str) -> str:
-    """Refuse anything but https to a public address (no reaching into the LAN).
-    Returns the address checked, which the download then connects to, so the
-    name can't be pointed somewhere else in between (DNS rebinding)."""
-    parsed = urlparse(url)
-    if parsed.scheme != "https" or not parsed.hostname:
-        raise ValidationError("Give an https:// address.")
-    try:
-        infos = socket.getaddrinfo(parsed.hostname, parsed.port or 443)
-    except OSError as exc:
-        raise ValidationError(f"Cannot resolve {parsed.hostname}.") from exc
-    for info in infos:
-        address = ipaddress.ip_address(info[4][0])
-        if address.version == 6 and address.ipv4_mapped:
-            address = address.ipv4_mapped
-        if not address.is_global:
-            raise ValidationError("That address is on a private network.")
-    return infos[0][4][0]
-
-
-class _PinnedHTTPSConnection(http.client.HTTPSConnection):
-    """HTTPS to one checked address, with the certificate still checked against
-    the host name."""
-
-    def __init__(self, host, *args, address: str, **kwargs):
-        super().__init__(host, *args, **kwargs)
-        self._address = address
-
-    def connect(self):
-        sock = socket.create_connection((self._address, self.port), self.timeout)
-        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
-
-
-class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
-    def __init__(self, address: str):
-        super().__init__(context=ssl.create_default_context())
-        self._address = address
-
-    def https_open(self, req):
-        return self.do_open(
-            functools.partial(_PinnedHTTPSConnection, address=self._address),
-            req,
-            context=self._context,
-        )
-
-
-class _NoRedirects(urllib.request.HTTPRedirectHandler):
-    """Redirects come back as errors, so each new address is checked first."""
-
-    def redirect_request(self, *args, **kwargs):
-        return None
-
-
-MAX_REDIRECTS = 5
+# Public https only, pinned to the address checked, each redirect checked
+# (core.outbound, shared with the store importers since 0.10.6).
+check_url = outbound.check_url
 
 
 def _open(url: str):
     """Open `url`, following redirects only to addresses check_url accepts."""
-    import urllib.error
-    from urllib.parse import urljoin
-
-    for _ in range(MAX_REDIRECTS + 1):
-        address = check_url(url)
-        opener = urllib.request.build_opener(_NoRedirects, _PinnedHTTPSHandler(address))
-        request = urllib.request.Request(  # noqa: S310 — https checked above
-            url, headers={"User-Agent": f"Trammel/{settings.APP_VERSION} (tax import)"}
-        )
-        try:
-            return opener.open(request, timeout=60)
-        except urllib.error.HTTPError as exc:
-            location = (
-                exc.headers.get("Location") if exc.code in (301, 302, 303, 307, 308) else None
-            )
-            if not location:
-                raise
-            url = urljoin(url, location)
-    raise ValidationError("The address redirects too many times.")
+    request = urllib.request.Request(  # noqa: S310 — https checked by outbound
+        url, headers={"User-Agent": f"Trammel/{settings.APP_VERSION} (tax import)"}
+    )
+    return outbound.open_url(request, timeout=60)
 
 
 def download(url: str) -> Path:

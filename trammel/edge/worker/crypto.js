@@ -22,6 +22,21 @@ export async function hmacHex(key, message) {
   return hex(await crypto.subtle.sign("HMAC", material, encoder.encode(message)));
 }
 
+/** Shopify's webhook signature: base64 HMAC-SHA256 of the exact body. */
+export async function shopifySignature(secret, bodyText) {
+  const material = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const mac = new Uint8Array(await crypto.subtle.sign("HMAC", material, encoder.encode(bodyText)));
+  let binary = "";
+  for (const byte of mac) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
 /** Compare two strings in time that doesn't depend on where they differ. */
 export function same(a, b) {
   if (typeof a !== "string" || typeof b !== "string" || a.length !== b.length) return false;

@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import base64
 import datetime as dt
-import ipaddress
 import urllib.parse
 from decimal import Decimal
 
@@ -56,11 +55,13 @@ def check_url(value: str) -> str:
     if parts.scheme != "https" or not parts.hostname:
         raise ValidationError("Enter the store's address, starting with https://.")
     host = parts.hostname
-    try:
-        address = ipaddress.ip_address(host)
-    except ValueError:
-        address = None
-    if host == "localhost" or (address and (address.is_private or address.is_loopback)):
+    # A number in any spelling (2130706433 is 127.0.0.1) is an address, and only
+    # a public one will do. A name is resolved and checked each time Trammel
+    # connects (core.outbound, SEC-10, 0.10.6).
+    from trammel.core.outbound import public_address
+
+    address = public_address(host)
+    if host == "localhost" or host.endswith(".localhost") or (address and not address.is_global):
         raise ValidationError("Enter the store's public address, not one on your own network.")
     return f"https://{parts.netloc}{parts.path}".rstrip("/")
 

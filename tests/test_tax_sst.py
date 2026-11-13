@@ -13,7 +13,7 @@ import pytest
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 
-from trammel.core import tasks
+from trammel.core import outbound, tasks
 from trammel.tax import importers, services
 from trammel.tax.models import Boundary, ImportBatch, TaxRate
 
@@ -167,7 +167,7 @@ def test_import_by_url(admin_client, monkeypatch):
 
     requested = []
     monkeypatch.setattr(
-        importers.socket,
+        outbound.socket,
         "getaddrinfo",
         lambda host, port: (
             [(2, 1, 6, "", ("192.0.2.80", port))]
@@ -181,7 +181,7 @@ def test_import_by_url(admin_client, monkeypatch):
             requested.append(req.full_url)
             return FakeResponse(payload)
 
-    monkeypatch.setattr(importers.urllib.request, "build_opener", lambda *handlers: FakeOpener())
+    monkeypatch.setattr(outbound.urllib.request, "build_opener", lambda *handlers: FakeOpener())
     url = "https://dor.wa.gov/sites/default/files/2026-08/WAR2026Q4.zip"
     admin_client.post("/tax/import/", {"kind": "sst", "url": url})
     tasks.run_pending()
@@ -201,7 +201,7 @@ def test_a_redirect_into_the_local_network_is_refused(setup_done, monkeypatch):
     from email.message import Message
 
     monkeypatch.setattr(
-        importers.socket,
+        outbound.socket,
         "getaddrinfo",
         lambda host, port, *rest: [
             (2, 1, 6, "", ("10.0.0.5" if host == "router.lan" else "142.250.0.1", port))
@@ -216,7 +216,7 @@ def test_a_redirect_into_the_local_network_is_refused(setup_done, monkeypatch):
             headers["Location"] = "https://router.lan/admin"
             raise urllib.error.HTTPError(req.full_url, 302, "Found", headers, None)
 
-    monkeypatch.setattr(importers.urllib.request, "build_opener", lambda *handlers: Redirecting())
+    monkeypatch.setattr(outbound.urllib.request, "build_opener", lambda *handlers: Redirecting())
     with pytest.raises(ValidationError, match="private"):
         importers.download("https://example.com/rates.zip")
     assert opened == ["https://example.com/rates.zip"]  # the LAN address is never opened
@@ -227,7 +227,7 @@ def test_url_rules(setup_done, monkeypatch):
     with pytest.raises(ValidationError, match="https"):
         importers.check_url("http://dor.wa.gov/x.zip")
     monkeypatch.setattr(
-        importers.socket, "getaddrinfo", lambda host, port: [(2, 1, 6, "", ("192.168.1.10", port))]
+        outbound.socket, "getaddrinfo", lambda host, port: [(2, 1, 6, "", ("192.168.1.10", port))]
     )
     with pytest.raises(ValidationError, match="private"):
         importers.check_url("https://nas.local/rates.zip")
@@ -243,14 +243,14 @@ def test_url_rules(setup_done, monkeypatch):
 @pytest.mark.django_db
 def test_failed_download_is_reported(admin_client, monkeypatch):
     monkeypatch.setattr(
-        importers.socket, "getaddrinfo", lambda host, port: [(2, 1, 6, "", ("142.250.0.1", port))]
+        outbound.socket, "getaddrinfo", lambda host, port: [(2, 1, 6, "", ("142.250.0.1", port))]
     )
 
     class Failing:
         def open(self, req, timeout):
             raise OSError("404 Not Found")
 
-    monkeypatch.setattr(importers.urllib.request, "build_opener", lambda *handlers: Failing())
+    monkeypatch.setattr(outbound.urllib.request, "build_opener", lambda *handlers: Failing())
     admin_client.post("/tax/import/", {"kind": "sst", "url": "https://dor.wa.gov/missing.zip"})
     tasks.run_pending()
     batch = ImportBatch.objects.get()
@@ -270,8 +270,8 @@ def test_a_download_connects_to_the_address_that_was_checked(monkeypatch):
             seen["certificate_for"] = server_hostname
             return sock
 
-    monkeypatch.setattr(importers.socket, "create_connection", connect)
-    connection = importers._PinnedHTTPSConnection(
+    monkeypatch.setattr(outbound.socket, "create_connection", connect)
+    connection = outbound.PinnedHTTPSConnection(
         "dor.wa.gov", 443, address="142.250.0.1", context=Context()
     )
     connection.connect()
@@ -281,7 +281,7 @@ def test_a_download_connects_to_the_address_that_was_checked(monkeypatch):
 @pytest.mark.django_db
 def test_each_hop_is_pinned_to_its_own_checked_address(setup_done, monkeypatch):
     monkeypatch.setattr(
-        importers.socket,
+        outbound.socket,
         "getaddrinfo",
         lambda host, port, *rest: [(2, 1, 6, "", ("142.250.0.9", port))],
     )
@@ -292,10 +292,10 @@ def test_each_hop_is_pinned_to_its_own_checked_address(setup_done, monkeypatch):
             raise OSError("stop here")
 
     def build(*handlers):
-        pinned.extend(h._address for h in handlers if isinstance(h, importers._PinnedHTTPSHandler))
+        pinned.extend(h._address for h in handlers if isinstance(h, outbound.PinnedHTTPSHandler))
         return Opener()
 
-    monkeypatch.setattr(importers.urllib.request, "build_opener", build)
+    monkeypatch.setattr(outbound.urllib.request, "build_opener", build)
     with pytest.raises(OSError):
         importers._open("https://dor.wa.gov/rates.zip")
     assert pinned == ["142.250.0.9"]

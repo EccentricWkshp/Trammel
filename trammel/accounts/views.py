@@ -152,7 +152,7 @@ def magic_request(request):
         # whether or not the address has an account.
         from trammel.core import tasks
 
-        tasks.enqueue("accounts.magic_link", {"email": email, "ip": client_ip(request)})
+        tasks.enqueue_public("accounts.magic_link", email, client_ip(request))
         messages.success(
             request,
             "If that address belongs to an account, a sign-in link is on "

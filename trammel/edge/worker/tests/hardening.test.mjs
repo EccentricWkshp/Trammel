@@ -102,11 +102,43 @@ test("sending is limited per address, and what waits for Trammel is capped", asy
   for (let i = 0; i < 20; i++) assert.match((await send()).headers.get("Location"), /files-sent/);
   assert.match((await send()).headers.get("Location"), /send-too-often/);
 
+  // Store notices have their own room: customers' activity doesn't fill it,
+  // and a full one doesn't stop customers (SEC-08, 0.10.6).
   const db = environment.DB.raw;
-  const insert = db.prepare("INSERT INTO inbox (kind, at, data) VALUES ('x', '2026-01-01', '{}')");
-  for (let i = 0; i < 5000; i++) insert.run();
-  const hook = await worker.fetch(new Request("https://portal.example.com/imports/shopify/webhook/", { method: "POST", body: "{}" }), environment);
-  assert.equal(hook.status, 503);
+  const signed = () =>
+    worker.fetch(new Request("https://portal.example.com/imports/shopify/webhook/", {
+      method: "POST", headers: { "X-Shopify-Hmac-Sha256": "sig==" }, body: "{}",
+    }), environment);
+  const customerActivity = db.prepare("INSERT INTO inbox (kind, at, data) VALUES ('x', '2026-01-01', '{}')");
+  for (let i = 0; i < 5000; i++) customerActivity.run();
+  assert.equal((await signed()).status, 200);
+  const waiting = db.prepare("INSERT INTO inbox (kind, at, data) VALUES ('shopify_webhook', '2026-01-01', '{}')");
+  for (let i = 0; i < 1000; i++) waiting.run();
+  assert.equal((await signed()).status, 503);
+});
+
+test("store notices need a signature, Shopify's checked here, and are rate-limited (SEC-08)", async () => {
+  const { shopifySignature } = await import("../crypto.js");
+  const environment = await shop({ SHOPIFY_WEBHOOK_SECRET: "shpss_test" }, { hooks: { shopify: true, ebay_deletion: true } });
+  environment.EBAY_TOKEN = "verify-token-123";
+  const post = (path, headers, body = '{"id": 1}', ip = "203.0.113.5") =>
+    worker.fetch(new Request(`https://portal.example.com${path}`, {
+      method: "POST", headers: { "CF-Connecting-IP": ip, ...headers }, body,
+    }), environment);
+  const shopify = "/imports/shopify/webhook/";
+  assert.equal((await post(shopify, {})).status, 401);
+  assert.equal((await post(shopify, { "X-Shopify-Hmac-Sha256": "forged==" })).status, 401);
+  const good = await shopifySignature("shpss_test", '{"id": 1}');
+  assert.equal((await post(shopify, { "X-Shopify-Hmac-Sha256": good })).status, 200);
+  assert.equal((await post("/imports/ebay/deletion/", {})).status, 401);
+  const rows = environment.DB.raw.prepare("SELECT kind FROM inbox WHERE kind IN ('shopify_webhook', 'ebay_deletion')").all();
+  assert.equal(rows.length, 1);
+
+  const attempts = environment.DB.raw.prepare(
+    "INSERT INTO attempts (kind, email, ip_key, at, ok) VALUES ('hook', '', ?, ?, 1)",
+  );
+  for (let i = 0; i < 600; i++) attempts.run("198.51.100.9", new Date().toISOString());
+  assert.equal((await post(shopify, { "X-Shopify-Hmac-Sha256": good }, '{"id": 1}', "198.51.100.9")).status, 429);
 });
 
 test("files never collected are cleared after a month", async () => {

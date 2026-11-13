@@ -28,6 +28,11 @@ MODEL_PX = 960
 #: The kinds that get a preview.
 KINDS = frozenset({"image", "pdf", "dxf", "stl", "3mf", "lightburn", "gcode"})
 
+#: What making one preview may use, in a child process (core.limits, 0.10.6):
+#: room for a 2-million-triangle model, and time to draw it.
+MEMORY_MB = 1536
+SECONDS = 120
+
 #: Limits on what a reader takes in.
 MAX_TRIANGLES = 2_000_000
 MAX_3MF_MODEL_BYTES = 400 * 1024 * 1024

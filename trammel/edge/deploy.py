@@ -56,6 +56,42 @@ def ebay_token() -> str:
     return token
 
 
+def shopify_hook_secret() -> str:
+    """What the Worker checks Shopify's webhooks with before keeping them
+    (SEC-08, 0.10.6): Shopify's webhook secret while its webhooks are on, or
+    "none" (Cloudflare keeps no empty secret)."""
+    from trammel.core import modules
+
+    if not modules.is_enabled("imports"):
+        return "none"
+    from trammel.imports import shopify
+    from trammel.imports.models import ShopifySettings
+
+    shop = ShopifySettings.load()
+    secret = shopify.webhook_secret(shop) if shop.enabled and shop.webhooks_enabled else ""
+    return secret or "none"
+
+
+def _hook_hash(value: str) -> str:
+    import hashlib
+
+    return hashlib.sha256(f"trammel-shopify-hook:{value}".encode()).hexdigest()
+
+
+def push_hook_secret() -> bool:
+    """Give the Worker Shopify's webhook secret again when it has changed since
+    it was last given (run with each sync). Whether it was sent."""
+    row = EdgeSettings.load()
+    value = shopify_hook_secret()
+    digest = _hook_hash(value)
+    token = secrets.get(TOKEN_KEY)
+    if row.hook_secret_hash == digest or not (token and row.account_id and row.active):
+        return False
+    cloudflare.put_secret(token, row.account_id, row.worker_name, "SHOPIFY_WEBHOOK_SECRET", value)
+    EdgeSettings.objects.filter(pk=1).update(hook_secret_hash=digest)
+    return True
+
+
 def worker_modules() -> dict[str, bytes]:
     return {name: (WORKER_DIR / name).read_bytes() for name in MODULES}
 
@@ -126,6 +162,11 @@ def deploy() -> None:
             {"type": "secret_text", "name": "EBAY_TOKEN", "text": ebay_token()},
             {
                 "type": "secret_text",
+                "name": "SHOPIFY_WEBHOOK_SECRET",
+                "text": shopify_hook_secret(),
+            },
+            {
+                "type": "secret_text",
                 "name": "TURNSTILE_SECRET",
                 "text": _turnstile_secret(row),
             },
@@ -144,6 +185,7 @@ def deploy() -> None:
 
     _bot_check(token, account["id"], row, url)
     EdgeSettings.objects.filter(pk=1).update(
+        hook_secret_hash=_hook_hash(shopify_hook_secret()),
         database_id=database_id,
         bucket=bucket,
         public_url=url,
