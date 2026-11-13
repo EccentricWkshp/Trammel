@@ -31,8 +31,17 @@ and nothing is lost.
 
 **Demo data.** `manage.py seed_demo --yes` fills a fresh instance (after the
 setup page) with customers, quotes, jobs at every stage, work orders, time,
-invoices and payments, all made through the real services. It refuses to run
-twice.
+invoices and payments, the shop schedule, and the customer portal (customers
+who can sign in, files they sent for review, a shared update), all made through
+the real services. Two invoices are paid online, through Stripe and PayPal,
+recorded as if the providers had reported them; nothing calls either. Its dates
+are the shop's, in its time zone. It refuses to run twice; `--only schedule` or
+`--only portal` adds just that part to an instance that has the rest.
+
+**Screenshots.** `scripts/screenshots.py` retakes the pictures in
+`docs/screenshots/` from a demo instance, with Playwright (a development tool
+only: `pip install playwright` and `python -m playwright install chromium`).
+The script says how to run it.
 
 **PDFs.** Quote, invoice and traveler PDFs need WeasyPrint's system libraries
 (Pango). The Docker image has them; a Windows virtualenv usually does not, and

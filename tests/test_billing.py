@@ -239,6 +239,7 @@ def test_deposit_invoice_on_approval_and_applied_to_final(approved_job, customer
     deposit = job.invoices.get(kind="deposit")
     # Quote total includes the 10.3% tax estimate: 1103.00 → 551.50 deposit, not taxed itself.
     assert deposit.status == "issued" and deposit.total == D("551.50") and deposit.tax_total == 0
+    assert deposit.lines.get().description.endswith("(total $1,103.00)")
     services.record_payment(
         customer,
         amount=deposit.total,

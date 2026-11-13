@@ -25,6 +25,66 @@ def at(days_ago: int, hour: int = 9, minute: int = 0) -> dt.datetime:
     return timezone.make_aware(dt.datetime.combine(day, dt.time(hour, minute)))
 
 
+def _shop_clock():
+    """The shop's own time zone, as its pages use: "today" and every date made
+    here are the shop's, not UTC's (a US evening is already tomorrow in UTC).
+    A fresh setup has chosen it; the business step sets one if not."""
+    import zoneinfo
+
+    from trammel.core.models import BusinessProfile
+
+    name = BusinessProfile.load().timezone
+    if name == "UTC":
+        name = "America/Los_Angeles"
+    try:
+        return timezone.override(zoneinfo.ZoneInfo(name))
+    except zoneinfo.ZoneInfoNotFoundError, ValueError:
+        return timezone.override(dt.UTC)
+
+
+def _paid_on(invoice, days_ago: int) -> dt.date:
+    """`days_ago`, but never before the invoice's own date."""
+    day = timezone.localdate() - dt.timedelta(days=days_ago)
+    return max(day, invoice.invoice_date) if invoice.invoice_date else day
+
+
+def _sketch(kind: str) -> bytes:
+    """A simple line drawing as a PNG, standing in for a file a customer sends:
+    a logo, a measured alcove, or a table's breadboard ends."""
+    import io
+
+    from PIL import Image, ImageDraw
+
+    image = Image.new("RGB", (640, 420), "white")
+    pen = ImageDraw.Draw(image)
+    ink = (40, 44, 52)
+    if kind == "logo":
+        pen.ellipse((190, 40, 450, 300), outline=ink, width=8)
+        pen.line((270, 100, 270, 240), fill=ink, width=14)
+        pen.line((270, 100, 370, 100), fill=ink, width=14)
+        pen.line((270, 165, 345, 165), fill=ink, width=14)
+        pen.text((248, 330), "FOUNDRY BREWING", fill=ink, font_size=22)
+        pen.text((276, 362), "est. 2019", fill=ink, font_size=18)
+    elif kind == "alcove":
+        pen.rectangle((220, 30, 420, 390), outline=ink, width=4)
+        pen.line((180, 30, 180, 390), fill=ink, width=2)
+        pen.text((60, 200), "108 in", fill=ink, font_size=22)
+        pen.line((220, 405, 420, 405), fill=ink, width=2)
+        pen.text((290, 380), "38 in", fill=ink, font_size=20)
+        pen.rectangle((220, 360, 420, 390), outline=ink, width=2)
+        pen.text((440, 365), "baseboard", fill=ink, font_size=18)
+    else:
+        pen.rectangle((120, 120, 520, 300), outline=ink, width=4)
+        pen.rectangle((80, 120, 120, 300), outline=ink, width=4)
+        pen.rectangle((520, 120, 560, 300), outline=ink, width=4)
+        for y in (160, 210, 260):
+            pen.line((120, y, 520, y), fill=(150, 150, 150), width=1)
+        pen.text((210, 330), "breadboard ends, 3 in wide", fill=ink, font_size=22)
+    out = io.BytesIO()
+    image.save(out, "PNG")
+    return out.getvalue()
+
+
 class Command(BaseCommand):
     help = "Fill a TEST instance with sample customers, jobs, quotes, work orders and invoices."
 
@@ -32,7 +92,7 @@ class Command(BaseCommand):
         parser.add_argument("--yes", action="store_true", help="Do not ask for confirmation.")
         parser.add_argument(
             "--only",
-            choices=["schedule"],
+            choices=["schedule", "portal"],
             help="Add just this part (to an instance that already has demo data).",
         )
 
@@ -47,7 +107,11 @@ class Command(BaseCommand):
             raise CommandError("Complete the setup page first; demo data needs an admin.")
         if not yes and input("This adds sample data to THIS instance. Type DEMO: ") != "DEMO":
             raise CommandError("Cancelled.")
-        with audit.acting_as(admin, source="cli"), transaction.atomic():
+        with (
+            audit.acting_as(admin, source="cli"),
+            _shop_clock(),
+            transaction.atomic(),
+        ):
             builder = Builder(admin, self.stdout)
             if only:
                 getattr(builder, only)()
@@ -79,6 +143,7 @@ class Builder:
         self.purchasing()
         self.direct_sale()
         self.schedule()
+        self.portal()
 
     # ------------------------------------------------------------------
     SCHEDULE_MARK = "Rush: 40 engraved tap handles"
@@ -973,7 +1038,7 @@ class Builder:
             invoice.customer,
             amount=amount,
             method=method,
-            received_on=timezone.localdate() - dt.timedelta(days=days_ago),
+            received_on=_paid_on(invoice, days_ago),
             reference="demo",
             allocations={invoice: amount},
         )
@@ -1104,7 +1169,10 @@ class Builder:
             deposit="50",
         )
         self._approve(rev, "Dana Price")
-        self._pay(j.invoices.get(kind="deposit"), days_ago=2)
+        # Paid online with a card, through Stripe (recorded only; 0.10.0).
+        self._paid_online(
+            j.invoices.get(kind="deposit"), "stripe", days_ago=2, email=f"dana@{MARKER}"
+        )
 
         # 4. In progress: work order running, waiting on materials.
         j = self._job(
@@ -1217,10 +1285,16 @@ class Builder:
         wos.transition(wo, "closed", actor=self.admin)
         j.refresh_from_db()
         jobs.transition(j, "completed", actor=self.admin)
-        inv = billing.create(j.customer, kind="final", job=j)
+        inv = billing.create(
+            j.customer,
+            kind="final",
+            job=j,
+            invoice_date=timezone.localdate() - dt.timedelta(days=6),
+        )
         billing.add_from_quote(inv, rev)
         inv = billing.issue(inv, actor=self.admin)
-        self._pay(inv, days_ago=3, method="bank")
+        # Paid online through PayPal (recorded only; 0.10.1).
+        self._paid_online(inv, "paypal", days_ago=3, email=f"priya@{MARKER}")
         jobs.transition(j, "closed", actor=self.admin)
 
         # 7. On hold.
@@ -1316,6 +1390,120 @@ class Builder:
         purchasing.place(ply, actor=self.admin, ordered_on=today - dt.timedelta(days=2))
         order(self.filament_vendor, [(self.pla, "5", "spool", "21.50")])
         self.say("3 purchase orders: received, on order (partly for a job) and a draft")
+
+    PORTAL_MARK = "Logo for the tap handles"
+
+    def portal(self):
+        """The customer portal (0.9.x): customers who can sign in, files they sent
+        waiting for review (one already accepted) and an update shared from a
+        work order. Online payments are switched on (with no provider yet; the
+        jobs step records two invoices paid through Stripe and PayPal). Adds to
+        an instance already holding demo data (``--only portal``) as well as to
+        a fresh one."""
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        from trammel.core import modules
+        from trammel.customers.models import Customer
+        from trammel.jobs.models import Job
+        from trammel.portal import services as portal
+        from trammel.portal import uploads
+        from trammel.portal.models import PortalSettings, Upload
+        from trammel.workorders import services as wos
+        from trammel.workorders.models import WorkOrder
+
+        if Upload.objects.filter(note=self.PORTAL_MARK).exists():
+            self.say("portal and online payments: already there")
+            return
+        for key in ("portal", "payments"):
+            if not modules.is_enabled(key):
+                modules.set_enabled(key, True)
+        settings_row = PortalSettings.load()
+        if not settings_row.uploads_enabled:
+            settings_row.uploads_enabled = True
+            settings_row.save()
+
+        def demo(name):
+            return Customer.objects.get(name=name, email__endswith=MARKER)
+
+        brew, grace = demo("Foundry Brewing"), demo("Grace Hollis")
+        cafe, ava = demo("Lantern Café"), demo("Ava Lindqvist")
+        for customer in (brew, grace, cafe, ava):
+            portal.set_access(customer, True, user=self.admin)
+
+        def visitor(customer, name, email):
+            return portal.Visitor(
+                customer=customer, email=email, name=name, actor=portal._actor(customer, name)
+            )
+
+        def job(customer, title):
+            return Job.objects.get(customer=customer, title=title)
+
+        taps = job(brew, "Taproom tap handles")
+        uploads.send(
+            visitor(brew, "Dana Price", f"dana@{MARKER}"),
+            [SimpleUploadedFile("foundry-logo-final.png", _sketch("logo"), "image/png")],
+            job=taps,
+            note=self.PORTAL_MARK,
+            ip="203.0.113.24",
+        )
+        shelf = job(ava, "Built-in bookshelf")
+        uploads.send(
+            visitor(ava, "Ava Lindqvist", f"ava@{MARKER}"),
+            [SimpleUploadedFile("alcove-measurements.png", _sketch("alcove"), "image/png")],
+            job=shelf,
+            note="The alcove, measured top to bottom. The baseboard comes off.",
+            ip="198.51.100.7",
+        )
+        table = job(grace, "Walnut dining table")
+        made, _ = uploads.send(
+            visitor(grace, "Grace Hollis", f"grace@{MARKER}"),
+            [SimpleUploadedFile("breadboard-reference.png", _sketch("table"), "image/png")],
+            job=table,
+            note="The breadboard ends I liked.",
+            ip="198.51.100.31",
+        )
+        uploads.accept(
+            made[0], target=table, title="Breadboard end reference", shared=True, user=self.admin
+        )
+        wo = WorkOrder.objects.filter(job=table).first()
+        if wo is not None:
+            wos.add_note(
+                wo,
+                text="The top is glued up and flattened. Breadboard ends go on next week.",
+                user=self.hand,
+                shared=True,
+            )
+        self.say(
+            "portal access for 4 customers, 3 files sent (2 waiting for review) and a shared update"
+        )
+
+    def _paid_online(self, invoice, provider, *, days_ago, email):
+        """An online payment for the invoice's balance, recorded through the same
+        service as one Stripe or PayPal reports, as if it had (no call goes to
+        either; marked as test mode)."""
+        import uuid
+
+        from trammel.payments import services as payments
+        from trammel.payments.models import OnlinePayment
+
+        token = uuid.uuid4().hex[:16].upper()
+        session = (
+            f"cs_demo_{token.lower()}" if provider == "stripe" else f"paypal:INV2-DEMO-{token}"
+        )
+        online = OnlinePayment.objects.create(
+            provider=provider,
+            session_id=session,
+            invoice=invoice,
+            amount=invoice.balance,
+            currency=payments.currency(),
+            reference=f"pi_demo_{token.lower()}" if provider == "stripe" else f"8DEMO{token[:12]}",
+            email=email,
+            paid_at=timezone.make_aware(
+                dt.datetime.combine(_paid_on(invoice, days_ago), dt.time(19, 42))
+            ),
+            test_mode=True,
+        )
+        payments.record(online)
 
     def direct_sale(self):
         from trammel.billing import services as billing

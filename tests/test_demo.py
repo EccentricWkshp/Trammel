@@ -35,6 +35,19 @@ def test_seed_demo_builds_every_stage_once(admin):
     assert states == ["closed", "draft", "ordered"]
     with pytest.raises(CommandError, match="already"):
         call_command("seed_demo", yes=True)
+    # Paid online (recorded only), the portal, and files waiting for review.
+    from trammel.billing.models import Payment
+    from trammel.payments.models import OnlinePayment
+    from trammel.portal.models import Access, Upload
+
+    assert set(Payment.objects.values_list("method", flat=True)) >= {"stripe", "paypal"}
+    assert OnlinePayment.objects.filter(status="recorded").count() == 2
+    assert Access.objects.filter(enabled=True).count() == 4
+    assert Upload.objects.filter(status="pending").count() == 2
+    assert Upload.objects.filter(status="accepted").count() == 1
+    count = Upload.objects.count()
+    call_command("seed_demo", yes=True, only="portal")
+    assert Upload.objects.count() == count  # added once
     # The schedule part: moves, pins and a printer group, added once.
     from trammel.workorders import scheduling
 

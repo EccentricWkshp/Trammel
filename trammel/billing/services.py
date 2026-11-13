@@ -779,10 +779,13 @@ def create_deposit_invoice(revision, approval=None) -> Invoice | None:
         if revision.deposit_kind == "percent"
         else "Deposit"
     )
+    from trammel.core.money import format_money
+
     add_line(
         invoice,
         description=(
-            f"{label} on {revision.quote.noun} {revision.quote.number} (total {revision.total})"
+            f"{label} on {revision.quote.noun} {revision.quote.number} "
+            f"(total {format_money(revision.total)})"
         ),
         quantity=1,
         unit_price=amount,

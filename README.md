@@ -1,6 +1,6 @@
 # Trammel
 
-*Workshop management for small shops.*
+*Workshop and job management for small shops.*
 
 Customers, quoting, jobs and work orders, time and material tracking, invoicing
 and closeout for a 0–5 person job shop — woodworking, metal fabrication, 3D
@@ -40,28 +40,41 @@ printing, laser work. Self-hosted: the data stays on the shop's own hardware.
   G-code files carry.
 - **Machines, materials and vendors** — a machine rate calculator, a materials
   price list linked to vendors with product pages and files.
+- **Stock and purchasing** — stock locations, lots and a ledger, units and
+  barcodes per material, remnants kept and found by size, QR labels and one
+  scanner for labels, travelers and barcodes, and a restock list. Purchase
+  orders are placed, printed and received in part or whole at landed cost,
+  with vendor returns, cost changes after delivery, and buying for a work
+  order. Bills of materials are used from stock as the work is done.
 - **Time** — timers and manual entries for people and machines, costed at each
   machine's calculated cost per hour (from the machine rate calculator).
 - **Invoicing** — deposit, progress, final and direct-sale invoices, credit
-  notes, recorded payments, write-offs, and sales tax looked up offline from
-  manual rates, CSV files or Streamlined Sales Tax files (tested against
-  Washington's).
+  notes, recorded payments and write-offs. A paid invoice is stamped Paid (or
+  Partly paid, with what's still due) and lists the payments received, and a
+  payment receipt attaches the invoices it paid. Sales tax is looked up offline
+  from manual rates, CSV files or Streamlined Sales Tax files (tested against
+  Washington's), with tax exemption certificates kept on the customer.
 - **Reports** — job profitability, sales, receivables aging, sales tax and
-  gross receipts (B&O), time and machine use.
-- **Customer portal on Cloudflare** — optional: the portal served from a
-  Cloudflare Worker that Trammel deploys and keeps in sync over Cloudflare's
-  API, so the server never has to be reachable from the internet.
+  gross receipts (B&O), time and machine use, stock, material use, purchasing
+  and cost variances.
 - **Customer portal** — off until you turn it on. Customers you give access
   sign in with an emailed code, or one you give them, to see their jobs,
   quotes, invoices, shared files and updates, approve or decline quotes,
-  signing to accept the agreement, and send files, which wait for staff to
-  accept them. Customers can also sign on a shop tablet.
+  signing to accept the agreement, pay invoices online, and send files, which
+  wait for staff to accept them. Customers can also sign on a shop tablet.
   Staff can view the portal as a customer sees it, read-only. One switch, or
   the `PORTAL_OFF` setting, turns the portal off without touching anything
   else.
-- **Online payments** — optional: customers pay invoices by card or bank
-  through Stripe, or through PayPal, from the portal or an invoice email. Trammel makes each open
-  invoice a payment link and records what's paid, with no webhook to reach it.
+- **Customer portal on Cloudflare** — optional: the same portal, approvals,
+  files and payments included, served from a Cloudflare Worker that Trammel
+  deploys and keeps in sync over Cloudflare's API, so the server never has to
+  be reachable from the internet.
+- **Online payments** — optional: customers pay an invoice's balance by card
+  or bank through Stripe, or through PayPal (on a PayPal invoice numbered as in
+  Trammel), from the portal or an invoice email. One way to pay is offered per
+  invoice, so it can't be paid twice: the shop's primary provider, or one
+  chosen for the customer or the invoice. Trammel makes and keeps each payment
+  page and records what's paid, with no webhook to reach it.
 - **Online orders** — Shopify, Etsy, eBay and WooCommerce orders, and ShipStation
   and Shippo orders from anywhere else, fetched by date come in once each, as
   paid sales at the store's prices and tax, with their customers; tax a
@@ -70,11 +83,35 @@ printing, laser work. Self-hosted: the data stays on the shop's own hardware.
   passes on from a connected store only adds its shipping details. Orders whose
   buyer the store withheld wait for a customer; one that has to be made
   becomes a job.
-- **Running it** — users and roles, audit log, email notifications, the REST
-  API, scheduled backups with off-site copies (a network folder or
-  S3-compatible storage), restore and export, and an update check.
+- **Running it** — users and roles, two-factor sign-in, a configurable home
+  page, audit log, email notifications, the REST API, scheduled backups with
+  off-site copies (a network folder or S3-compatible storage), restore and
+  export, and an update check.
 
-Not yet: anything in the specification's later phases (online payments).
+Not yet: the rest of Phase 4 (STEP previews and an interactive 3D viewer,
+woodworking and metal fabrication estimators, and WebAuthn sign-in), then
+importing and exporting customers, machines, materials and vendors,
+user-defined reports, and in-app help.
+
+## Screenshots
+
+From the demo data (`manage.py seed_demo`). More in
+[docs/screenshots](docs/screenshots).
+
+| | |
+| --- | --- |
+| ![The home page: priority jobs, jobs on hold, quotes awaiting approval and files from customers](docs/screenshots/dashboard.png) | ![A job: its status, dates, a file from the customer to review, the scope, the accepted agreement and job costing](docs/screenshots/job.png) |
+| **Home**: what needs attention. | **A job**, with a file the customer sent to review. |
+| ![A quote with an estimator line, an item, tax and the estimated margin](docs/screenshots/quote.png) | ![The week's schedule: work orders laid onto shop hours, the crew and each machine](docs/screenshots/schedule.png) |
+| **A quote**, priced with the laser estimator. | **The schedule**, by machine and priority. |
+| ![A work order waiting on materials, with its operations and estimated finish](docs/screenshots/work-order.png) | ![A final invoice stamped PAID, with the PayPal payment listed under Payments received](docs/screenshots/invoice-document.png) |
+| **A work order**, waiting on materials. | **An invoice paid online** through PayPal. |
+| ![The customer portal: a quote to approve, with the customer agreement and a signature box](docs/screenshots/portal-quote.png) | ![The customer portal: a job with an update from the shop, its invoices, agreement and files](docs/screenshots/portal-job.png) |
+| **The customer portal**: approving a quote. | **The customer portal**: a job's updates and files. |
+| ![Files customers sent, waiting for review](docs/screenshots/files-to-review.png) | ![The shop-floor app on a phone: active work orders](docs/screenshots/floor-phone.png) |
+| **Files from customers**, waiting for review. | **The shop-floor app** on a phone. |
+
+## Documentation
 
 - [docs/INSTALL.md](docs/INSTALL.md) — install it with Docker.
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — run it locally, run the tests,
