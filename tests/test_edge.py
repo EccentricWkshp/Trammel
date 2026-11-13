@@ -406,3 +406,51 @@ def test_a_new_address_that_doesnt_answer_yet_goes_live_when_it_does(
 def test_cloudflare_explains_r2_being_off():
     assert "turn it on" in cloudflare._explain([{"code": 10042, "message": "Please enable R2"}])
     assert dt  # (imported for the inbox times above)
+
+
+@pytest.mark.django_db
+def test_a_job_moved_to_another_customer_goes_with_its_records(live, grace, admin):  # noqa: F811
+    """SEC-01 (0.10.5): what is published says whose it is, so a job moved to
+    another customer moves on Cloudflare too: its job, quote and shared file,
+    even though nothing in them changed. The old customer keeps none of it."""
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    from trammel.core import audit
+    from trammel.customers.models import Customer
+    from trammel.files import services as files
+    from trammel.files.models import Attachment
+    from trammel.jobs import services as jobs
+    from trammel.quotes import services as quotes
+
+    revision = _sent_quote(grace, admin)
+    quotes.approve(
+        revision,
+        actor=admin,
+        user=admin,
+        approved_by_name="Grace",
+        how="email",
+        accept_agreement=True,
+    )
+    job = revision.quote.job
+    files.upload(
+        SimpleUploadedFile("drawing.pdf", b"%PDF-1.4 drawing"),
+        name="drawing.pdf",
+        attach_to=job,
+        user=admin,
+    )
+    attachment = Attachment.objects.get(object_id=job.pk)
+    attachment.shared_with_customer = True
+    attachment.save()
+    other = Customer.objects.create(name="Linus", email="linus@example.com")
+    portal.set_access(other, True, user=admin)
+    assert "error" not in sync.run()
+    assert live.of("job")[str(job.pk)]["customer"] == str(grace.pk)
+
+    before = audit.snapshot(job)
+    job.customer = other
+    jobs.update_job(job, before=before)
+    assert "error" not in sync.run()
+    for kind, key in (("job", job.pk), ("quote", revision.pk), ("file", attachment.pk)):
+        assert live.of(kind)[str(key)]["customer"] == str(other.pk), kind
+    # Settled: nothing more to send.
+    assert sync.run()["pushed"] == 0

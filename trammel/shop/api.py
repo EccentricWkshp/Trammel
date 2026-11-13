@@ -75,6 +75,9 @@ class VendorIn(Schema):
 
 
 class MaterialOut(ModelSchema):
+    #: Null without permission to see costs (core.see_costs).
+    unit_cost: Decimal | None = None
+
     class Meta:
         model = Material
         fields = [
@@ -85,7 +88,6 @@ class MaterialOut(ModelSchema):
             "vendor",
             "url",
             "unit",
-            "unit_cost",
             "markup",
             "sheet_width",
             "sheet_length",
@@ -94,6 +96,10 @@ class MaterialOut(ModelSchema):
             "is_active",
             "notes",
         ]
+
+    @staticmethod
+    def resolve_unit_cost(obj, context):
+        return obj.unit_cost if access.sees_costs(context) else None
 
 
 class MaterialIn(Schema):

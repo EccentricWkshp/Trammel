@@ -100,19 +100,29 @@ def required(user) -> bool:
 
 
 def verify(user, code: str) -> bool:
-    """A TOTP code, or an unused recovery code. Each is accepted once."""
-    secret = decrypt(user.totp_secret) if user.totp_secret else None
-    if secret:
-        step = matching_step(secret, code)
-        if step is not None and step > (user.totp_last_step or 0):
-            user.totp_last_step = step
-            user.save(update_fields=["totp_last_step"])
+    """A TOTP code, or an unused recovery code. Each is accepted once: checked
+    and used up on the user's row locked for the purpose, so two requests at
+    the same moment can't both use the same code (SEC-05, 0.10.5)."""
+    from django.db import transaction
+
+    from .models import User
+
+    with transaction.atomic():
+        row = User.objects.select_for_update().get(pk=user.pk)
+        secret = decrypt(row.totp_secret) if row.totp_secret else None
+        if secret:
+            step = matching_step(secret, code)
+            if step is not None and step > (row.totp_last_step or 0):
+                row.totp_last_step = step
+                row.save(update_fields=["totp_last_step"])
+                user.totp_last_step = step
+                return True
+        digest = hash_code(code)
+        if digest in (row.recovery_codes or []):
+            row.recovery_codes = [c for c in row.recovery_codes if c != digest]
+            row.save(update_fields=["recovery_codes"])
+            user.recovery_codes = row.recovery_codes
             return True
-    digest = hash_code(code)
-    if digest in (user.recovery_codes or []):
-        user.recovery_codes = [c for c in user.recovery_codes if c != digest]
-        user.save(update_fields=["recovery_codes"])
-        return True
     return False
 
 

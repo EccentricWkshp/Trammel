@@ -324,3 +324,48 @@ def test_quote_emails_link_to_the_portal(
         admin_client.post(f"/settings/email/quote/{revision.pk}/")
     tasks.run_pending()
     assert "/portal/" not in mail.outbox[-1].body
+
+
+@pytest.mark.django_db(transaction=True)
+def test_guesses_at_once_never_get_more_than_five_tries(grace, monkeypatch):
+    """SEC-06 (0.10.5): ten guesses at the same moment are compared against a
+    code no more than its five tries; the rest find it used up."""
+    import concurrent.futures
+    import datetime as dt
+    import threading
+
+    from django.db import connections
+
+    from trammel.portal.models import SignInCode
+
+    SignInCode.objects.create(
+        email=grace.email,
+        code_hash=SignInCode.hash(grace.email, "987654"),
+        expires_at=timezone.now() + dt.timedelta(minutes=5),
+    )
+    real = portal._claim_tries
+    ready = threading.Barrier(10)
+    compared = []
+
+    def claim(email):
+        ready.wait(timeout=15)
+        rows = real(email)
+        compared.append(len(rows))
+        return rows
+
+    monkeypatch.setattr(portal, "_claim_tries", claim)
+
+    def guess(n):
+        try:
+            return portal.verify_code(grace.email, f"{n:06d}", f"198.51.100.{n + 1}")
+        finally:
+            connections.close_all()
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
+        results = list(pool.map(guess, range(10)))
+    assert not any(results)
+    assert sum(compared) == SignInCode.MAX_TRIES
+    assert SignInCode.objects.get(email=grace.email).tries == SignInCode.MAX_TRIES
+    # Used up: even the right code is refused now.
+    monkeypatch.setattr(portal, "_claim_tries", real)
+    assert portal.verify_code(grace.email, "987654", "198.51.100.200") == []

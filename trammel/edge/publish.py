@@ -381,14 +381,15 @@ def _answering(rev) -> dict:
         for line in offered["options"]
     ]
     combos = [[line["id"] for line in g["lines"]] for g in groups]
-    subsets = [
-        list(chosen)
-        for n in range(len(options) + 1)
-        for chosen in itertools.combinations([o["id"] for o in options], n)
-    ]
     totals = {}
-    count = len(subsets) * math.prod(len(c) for c in combos)
+    # Counted before any is listed: 25 options would be 33 million subsets.
+    count = (1 << len(options)) * math.prod(len(c) for c in combos)
     if count <= MAX_COMBINATIONS:
+        subsets = [
+            list(chosen)
+            for n in range(len(options) + 1)
+            for chosen in itertools.combinations([o["id"] for o in options], n)
+        ]
         for picks in itertools.product(*combos) if combos else [()]:
             for extra in subsets:
                 chosen = [*picks, *extra]

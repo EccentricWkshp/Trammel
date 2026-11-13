@@ -47,7 +47,11 @@ def render(kind: str, path: Path) -> tuple[bytes, str] | None:
 
         pdf = pypdfium2.PdfDocument(str(path))
         try:
-            image = pdf[0].render(scale=1.5).to_pil()
+            page = pdf[0]
+            scale = pdf_scale(*page.get_size())
+            if scale is None:
+                return None
+            image = page.render(scale=scale).to_pil()
         finally:
             pdf.close()
         return _webp(image, THUMB_PX), "webp"
@@ -62,6 +66,23 @@ def render(kind: str, path: Path) -> tuple[bytes, str] | None:
     if kind == "gcode":
         return _embedded(_gcode_thumbnail(path))
     return None
+
+
+#: A PDF page is drawn no larger than this on its longest side, in pixels,
+#: before it's shrunk to a thumbnail (SEC-02, 0.10.5): letter and A4 pages
+#: still at 1.5, and never more than about 7.7 MB of pixels.
+PDF_RENDER_PX = 1600
+
+
+def pdf_scale(width: float, height: float) -> float | None:
+    """The scale to draw a PDF page at for its thumbnail, from its size in
+    points: 1.5 for an ordinary page, less for a large one, so its size in
+    bytes says nothing about the picture drawn (a 553-byte PDF can declare a
+    page 14,000 points square). None for a page with no size."""
+    longest = max(width or 0, height or 0)
+    if not longest > 0:
+        return None
+    return min(1.5, PDF_RENDER_PX / longest)
 
 
 def _webp(image, px: int) -> bytes:

@@ -12,6 +12,25 @@ from .models import LoginAttempt
 LOCKED_MESSAGE = "Too many failed sign-in attempts. Try again in a few minutes."
 
 
+def network(ip: str | None) -> str | None:
+    """The address that counts for limits: an IPv4 address as it is, an IPv6
+    one as its /64, which one household or server usually holds whole, so
+    stepping through it isn't a new address each time (SEC-04, 0.10.5)."""
+    import ipaddress
+
+    if not ip:
+        return None
+    try:
+        address = ipaddress.ip_address(ip)
+    except ValueError:
+        return None
+    if address.version == 6 and address.ipv4_mapped:
+        return str(address.ipv4_mapped)
+    if address.version == 6:
+        return str(ipaddress.ip_network(f"{address}/64", strict=False).network_address)
+    return str(address)
+
+
 def _window_start():
     return timezone.now() - timedelta(minutes=settings.LOGIN_FAILURE_WINDOW_MINUTES)
 
@@ -37,6 +56,7 @@ def is_locked(email: str, ip: str | None) -> bool:
     from anywhere still stops a guesser spread over many addresses.
     """
     email = email.strip().lower()
+    ip = network(ip)
     if ip is None:
         if _failures_since_success(email=email) >= settings.LOGIN_MAX_FAILURES:
             return True
@@ -49,6 +69,7 @@ def is_locked(email: str, ip: str | None) -> bool:
 
 def ip_locked(ip: str | None) -> bool:
     """Too many failed sign-ins from this IP address, for any account."""
+    ip = network(ip)
     return bool(
         ip
         and LoginAttempt.objects.filter(ip=ip, succeeded=False, at__gte=_window_start()).count()
@@ -67,7 +88,12 @@ def recently_logged_lock(email: str) -> bool:
 
 
 def record_attempt(email: str, ip: str | None, succeeded: bool) -> None:
-    LoginAttempt.objects.create(email=email.strip().lower()[:254], ip=ip, succeeded=succeeded)
+    """A failed password or second factor, or a sign-in completed. A success is
+    recorded only once sign-in is complete, second factor and all, so passing
+    the password alone never clears the failures counted (SEC-04, 0.10.5)."""
+    LoginAttempt.objects.create(
+        email=email.strip().lower()[:254], ip=network(ip), succeeded=succeeded
+    )
 
 
 def prune(older_than_days: int = 30) -> int:

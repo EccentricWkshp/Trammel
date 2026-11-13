@@ -182,3 +182,30 @@ def test_a_page_waits_for_a_preview_and_shows_it_when_ready(
     assert response["Cache-Control"] == "no-store"
     page = admin_client.get(f"/customers/{customer.pk}/?tab=files").content.decode()
     assert "data-preview-wait" not in page and 'data-lightbox="ring.stl"' in page
+
+
+def test_a_huge_pdf_page_is_drawn_small(tmp_path, monkeypatch):
+    """SEC-02 (0.10.5): a tiny PDF can declare a huge page; it is drawn at a
+    scale from its size, never more than PDF_RENDER_PX on its longest side."""
+    import pypdfium2
+
+    assert previews.pdf_scale(612, 792) == 1.5  # a letter page, as before
+    assert previews.pdf_scale(0, 0) is None
+    path = tmp_path / "huge.pdf"
+    pdf = pypdfium2.PdfDocument.new()
+    pdf.new_page(14000, 14000)
+    pdf.save(str(path))
+    pdf.close()
+    assert path.stat().st_size < 2000
+    drawn = []
+    real = pypdfium2.PdfPage.render
+
+    def render(page, **kwargs):
+        width, height = page.get_size()
+        drawn.append(max(width, height) * kwargs["scale"])
+        return real(page, **kwargs)
+
+    monkeypatch.setattr(pypdfium2.PdfPage, "render", render)
+    data, ext = previews.render("pdf", path)
+    assert ext == "webp" and drawn and drawn[0] <= previews.PDF_RENDER_PX
+    assert max(Image.open(io.BytesIO(data)).size) <= previews.THUMB_PX

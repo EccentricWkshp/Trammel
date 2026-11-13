@@ -148,6 +148,20 @@ def has_perm(actor: Any, codename: str, obj: Model | None = None) -> bool:
     return True
 
 
+def sees_costs(context_or_actor: Any) -> bool:
+    """Whether costs and margins may be shown: the actor holds core.see_costs.
+    Takes an actor, or an API schema's resolver context (the request's actor,
+    an API key's scopes included), so every API output applies the same rule
+    as the pages (SEC-03, 0.10.5)."""
+    actor = context_or_actor
+    if isinstance(context_or_actor, dict):
+        request = context_or_actor.get("request")
+        actor = getattr(request, "actor", None) if request is not None else None
+    if actor is None:
+        return False
+    return has_perm(actor, "core.see_costs")
+
+
 def require(actor: Any, codename: str, obj: Model | None = None) -> None:
     """Raise unless allowed. A record the actor may not see at all is a 404."""
     actor = as_actor(actor)

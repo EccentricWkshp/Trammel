@@ -24,6 +24,11 @@ class CostPartOut(Schema):
 
 
 class ProductOut(ModelSchema):
+    #: What one unit costs. The cost fields are null, and the breakdown empty,
+    #: without permission to see costs (core.see_costs).
+    cost: Decimal | None = None
+    cost_override: Decimal | None = None
+    other_cost: Decimal | None = None
     #: What one unit costs, calculated from these parts plus other cost, unless
     #: `cost_override` is set (then `cost` is the override).
     cost_breakdown: list[CostPartOut]
@@ -37,9 +42,6 @@ class ProductOut(ModelSchema):
             "kind",
             "description",
             "price",
-            "cost",
-            "cost_override",
-            "other_cost",
             "batch_size",
             "unit",
             "tax_category",
@@ -47,7 +49,21 @@ class ProductOut(ModelSchema):
         ]
 
     @staticmethod
-    def resolve_cost_breakdown(obj):
+    def resolve_cost(obj, context):
+        return obj.cost if access.sees_costs(context) else None
+
+    @staticmethod
+    def resolve_cost_override(obj, context):
+        return obj.cost_override if access.sees_costs(context) else None
+
+    @staticmethod
+    def resolve_other_cost(obj, context):
+        return obj.other_cost if access.sees_costs(context) else None
+
+    @staticmethod
+    def resolve_cost_breakdown(obj, context):
+        if not access.sees_costs(context):
+            return []
         return [
             {"label": p.label, "amount": p.amount, "detail": p.detail} for p in costing.parts(obj)
         ]

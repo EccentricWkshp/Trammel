@@ -19,6 +19,15 @@ log = logging.getLogger(__name__)
 BATCH = 100
 
 
+def _published_as(item) -> str:
+    """What decides whether a record goes out again: its content and also whose
+    it is (customer, job) and its place in lists. The Worker lets a customer see
+    a record by its customer, so a job moved to another customer must republish
+    even when nothing in it changed (SEC-01, 0.10.5). Changing this formula
+    republishes everything once, which also repairs records published before."""
+    return publish.fingerprint("v2", item.fingerprint, item.customer, item.job, item.sort)
+
+
 def push() -> dict:
     """Publish what changed and take down what's no longer shown. Each item's
     files are stored before its record, and old files removed after, so a page
@@ -36,7 +45,7 @@ def push() -> dict:
             Published.objects.update_or_create(
                 type=item.type,
                 key=item.id,
-                defaults={"fingerprint": item.fingerprint, "objects_stored": objects},
+                defaults={"fingerprint": _published_as(item), "objects_stored": objects},
             )
             for key in stale:
                 client.delete_object(key)
@@ -47,7 +56,7 @@ def push() -> dict:
         key = (item.type, item.id)
         seen.add(key)
         before = stored.get(key)
-        if before is not None and before.fingerprint == item.fingerprint:
+        if before is not None and before.fingerprint == _published_as(item):
             continue
         data, objects = item.build()
         for object_key, (content, content_type) in objects.items():

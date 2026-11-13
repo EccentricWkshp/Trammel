@@ -167,18 +167,16 @@ export async function verifyCode(env, email, code, ip) {
     await attempt(db, "verify", email, ip);
     return [];
   }
+  // One statement counts this try against each waiting code and returns just
+  // the codes it counted against, so guesses at the same moment can't share a
+  // try (SEC-06, 0.10.5): only those are compared.
   const { results } = await db
     .prepare(
-      "SELECT id, code_hash FROM codes WHERE email = ? AND used_at IS NULL AND expires_at > ? AND tries < ?",
+      "UPDATE codes SET tries = tries + 1 WHERE email = ? AND used_at IS NULL AND expires_at > ? AND tries < ? RETURNING id, code_hash",
     )
     .bind(email, now(), MAX_TRIES)
     .all();
   const live = results || [];
-  if (live.length) {
-    await db.batch(
-      live.map((row) => db.prepare("UPDATE codes SET tries = tries + 1 WHERE id = ?").bind(row.id)),
-    );
-  }
   let match = null;
   if (code.length === 6) {
     const wanted = await codeHash(env, email, code);

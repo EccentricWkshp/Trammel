@@ -11,3 +11,15 @@ artifacts
 .vscode
 docs/screenshots
 scripts
+# Secrets never go into an image (0.10.5): TLS keys, DNS credentials, cloud
+# credentials and environment files are mounted or set at runtime.
+config/caddy/certs
+config/caddy/dns
+.aws
+.ssh
+.env.*
+!.env.example
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx

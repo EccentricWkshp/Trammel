@@ -141,6 +141,13 @@ and the portal on Cloudflare (`/edge/status`, `/edge/settings`, `/edge/sync`,
 portal's file settings (`PATCH /portal/settings`) need "portal.manage". A key
 made before a permission existed doesn't have it; make a new one.
 
+Costs follow "See costs and margins" (`core.see_costs`) as on the pages: without
+it, cost fields come back null (a product's `cost`, `cost_override`,
+`other_cost`, a material's `unit_cost`), lists of cost parts empty, and a quote
+line's `breakdown` rows without their `cost`. New outputs carrying a cost check
+`access.sees_costs(context)` in their resolver. Purchase orders keep their
+prices.
+
 Files come back as their bytes, not JSON: `GET /files/revisions/{id}/download`
 for any file revision, and `GET /portal/uploads/{id}/file` for one a customer
 sent. Viewing the portal as a customer would is the one staff feature left to

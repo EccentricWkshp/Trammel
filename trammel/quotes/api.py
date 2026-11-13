@@ -20,6 +20,10 @@ router = Router(tags=["quotes"])
 
 
 class QuoteLineOut(ModelSchema):
+    #: The estimator's rows ({label, detail, cost, price}); each row's cost is
+    #: left out without permission to see costs (core.see_costs).
+    breakdown: list[dict]
+
     class Meta:
         model = QuoteLine
         fields = [
@@ -34,12 +38,19 @@ class QuoteLineOut(ModelSchema):
             "line_total",
             "estimator",
             "inputs",
-            "breakdown",
             "split",
             "offer",
             "group",
             "included",
         ]
+
+    @staticmethod
+    def resolve_breakdown(obj, context):
+        rows = [row for row in (obj.breakdown or []) if isinstance(row, dict)]
+        if access.sees_costs(context):
+            return rows
+        hidden = {"cost", "unit_cost", "total_cost", "margin"}
+        return [{k: v for k, v in row.items() if k not in hidden} for row in rows]
 
 
 class RevisionOut(ModelSchema):

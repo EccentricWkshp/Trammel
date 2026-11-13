@@ -465,8 +465,7 @@ def record_material(request, wo_id: UUID, payload: MaterialUseIn):
         ),
         user=request.actor.user,
     )
-    total = sum((u.total_cost for u in usages), Decimal("0"))
-    return Status(
-        201,
-        {"id": str(usages[0].pk), "ids": [str(u.pk) for u in usages], "total_cost": str(total)},
-    )
+    made = {"id": str(usages[0].pk), "ids": [str(u.pk) for u in usages]}
+    if access.sees_costs(request.actor):
+        made["total_cost"] = str(sum((u.total_cost for u in usages), Decimal("0")))
+    return Status(201, made)

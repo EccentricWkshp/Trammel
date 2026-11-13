@@ -20,7 +20,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from django.conf import settings
-from django.db.models import F, Q
+from django.db.models import Q
 from django.utils import timezone
 
 from trammel.core import access, audit, modules
@@ -198,6 +198,25 @@ def request_code(email: str, ip) -> None:
     )
 
 
+def _claim_tries(email: str) -> list[tuple]:
+    """Count this try against each of `email`'s waiting codes, in one statement,
+    and return (id, hash) for just the codes it counted against: one still
+    unused, unexpired and under its tries when this statement reached it.
+    PostgreSQL rechecks those conditions on a row another request has just
+    changed, so guesses at the same moment can't share a try (SEC-06, 0.10.5)."""
+    from django.db import connection
+
+    table = SignInCode._meta.db_table
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"UPDATE {table} SET tries = tries + 1 "  # noqa: S608 — the model's own table
+            "WHERE email = %s AND used_at IS NULL AND expires_at > %s AND tries < %s "
+            "RETURNING id, code_hash",
+            [email, timezone.now(), SignInCode.MAX_TRIES],
+        )
+        return list(cursor.fetchall())
+
+
 def verify_code(email: str, code: str, ip) -> list[Customer]:
     """The customers `email` may sign in for, if `code` is one of its codes still
     waiting — which is then used up. Otherwise an empty list.
@@ -213,38 +232,18 @@ def verify_code(email: str, code: str, ip) -> list[Customer]:
     ):
         _record(Attempt.Kind.VERIFY, email, ip)
         return []
-    live = SignInCode.objects.filter(
-        email=email,
-        used_at__isnull=True,
-        expires_at__gt=timezone.now(),
-        tries__lt=SignInCode.MAX_TRIES,
-    )
-    ids = list(live.values_list("pk", flat=True))
-    counted = list(
-        SignInCode.objects.filter(pk__in=ids, tries__lt=SignInCode.MAX_TRIES).values_list(
-            "pk", flat=True
-        )
-    )
-    SignInCode.objects.filter(pk__in=counted, tries__lt=SignInCode.MAX_TRIES).update(
-        tries=F("tries") + 1
-    )
+    claimed = _claim_tries(email)
     match = None
     if len(code) == 6:
         wanted = SignInCode.hash(email, code)
         match = next(
-            (
-                row
-                for row in SignInCode.objects.filter(pk__in=counted)
-                if hmac.compare_digest(row.code_hash, wanted)
-            ),
+            (pk for pk, digest in claimed if hmac.compare_digest(digest, wanted)),
             None,
         )
     if match is None:
         _record(Attempt.Kind.VERIFY, email, ip)
         return []
-    used = SignInCode.objects.filter(pk=match.pk, used_at__isnull=True).update(
-        used_at=timezone.now()
-    )
+    used = SignInCode.objects.filter(pk=match, used_at__isnull=True).update(used_at=timezone.now())
     customers = customers_for(email) if used and is_on() else []
     _record(Attempt.Kind.VERIFY, email, ip, succeeded=bool(customers))
     return customers

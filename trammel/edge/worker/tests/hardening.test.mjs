@@ -128,3 +128,22 @@ test("files never collected are cleared after a month", async () => {
   const left = db.prepare("SELECT id FROM records WHERE type = 'upload' ORDER BY id").all().map((r) => r.id);
   assert.deepEqual(left, ["new", "taken"]);
 });
+
+test("guesses at the same moment get no more than a code's five tries (SEC-06)", async () => {
+  const { codeHash } = await import("../crypto.js");
+  const { verifyCode } = await import("../auth.js");
+  const environment = await shop();
+  const email = "dana@example.com";
+  environment.DB.raw
+    .prepare("INSERT INTO codes (id, email, code_hash, created_at, expires_at) VALUES (?, ?, ?, ?, ?)")
+    .run("code1", email, await codeHash(environment, email, "987654"), new Date().toISOString(), new Date(Date.now() + 300000).toISOString());
+  const results = await Promise.all(
+    Array.from({ length: 6 }, (_, n) =>
+      verifyCode(environment, email, n === 5 ? "987654" : String(n).padStart(6, "0"), `198.51.100.${n + 1}`),
+    ),
+  );
+  const code = environment.DB.raw.prepare("SELECT tries FROM codes WHERE id = ?").get("code1");
+  assert.equal(code.tries, 5);
+  // The sixth came after five tries were spent: refused, though it was right.
+  assert.equal(results[5].length, 0);
+});

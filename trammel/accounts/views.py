@@ -45,8 +45,8 @@ def login_view(request):
             form.add_error(None, security.LOCKED_MESSAGE)
         else:
             user = authenticate(request, username=email, password=form.cleaned_data["password"])
-            security.record_attempt(email, ip, succeeded=user is not None)
             if user is None:
+                security.record_attempt(email, ip, succeeded=False)
                 audit.record(
                     "auth.login_failed",
                     entity_type="accounts.user",
@@ -77,11 +77,19 @@ def _first_factor_passed(request, user, *, method: str):
         request.session["mfa_method"] = method
         request.session["mfa_started"] = timezone.now().timestamp()
         request.session["mfa_next"] = request.GET.get("next", "")
+        request.session["mfa_tries"] = 0
         return redirect("accounts:mfa_verify")
     return _complete_login(request, user, method=method)
 
 
+#: Wrong second-factor codes one password (or email link) allows before
+#: signing in has to start again (SEC-04, 0.10.5).
+MFA_TRIES = 5
+
+
 def _complete_login(request, user, *, method: str):
+    # Only now, with every factor passed, does a success clear the failures.
+    security.record_attempt(user.email, client_ip(request), succeeded=True)
     target = _safe_next(request)
     login(request, user, backend="django.contrib.auth.backends.ModelBackend")
     audit.record(
@@ -117,6 +125,13 @@ def mfa_verify(request):
                 summary=f"Wrong second-factor code for {user}",
                 actor=access.ANONYMOUS,
             )
+            tries = int(request.session.get("mfa_tries", 0)) + 1
+            if tries >= MFA_TRIES:
+                for key in ("mfa_user", "mfa_method", "mfa_started", "mfa_tries"):
+                    request.session.pop(key, None)
+                messages.error(request, "Too many wrong codes. Sign in again to try once more.")
+                return redirect("accounts:login")
+            request.session["mfa_tries"] = tries
             error = "That code is not right. Try the current one from your authenticator app."
     return render(request, "accounts/mfa_verify.html", {"error": error})
 
@@ -158,7 +173,6 @@ def magic_redeem(request, token):
     user = MagicLink.redeem(token)
     if user is None:
         return render(request, "accounts/magic_invalid.html", status=400)
-    security.record_attempt(user.email, client_ip(request), succeeded=True)
     return _first_factor_passed(request, user, method="email link")
 
 

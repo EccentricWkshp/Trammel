@@ -1,7 +1,7 @@
 # Trammel — runtime dependencies.
 # Python 3.14+ is required: primary keys use uuid.uuid7() from the stdlib.
 
-Django>=6.1,<6.2
+Django>=6.1.3,<6.2
 django-ninja>=1.7            # REST + OpenAPI 3.1 (SPEC §4.1)
 psycopg[binary]>=3.2         # PostgreSQL is the only supported database (SPEC §3.5)
 argon2-cffi>=25.1            # Argon2id password hashing (SPEC §9)
