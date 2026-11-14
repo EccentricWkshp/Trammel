@@ -47,6 +47,15 @@ The script says how to run it.
 (Pango). The Docker image has them; a Windows virtualenv usually does not, and
 the PDF buttons then say so. Print → Save as PDF works everywhere.
 
+**STEP previews.** STEP files are read with OpenCascade (`cadquery-ocp-novtk`,
+in requirements.txt; wheels for Windows, amd64 and arm64). On Linux it needs
+`libGL.so.1` to load, though it never draws: `apt-get install libgl1` on a
+desktop or CI machine. The Docker image unpacks just GLVND's libGL and libGLX,
+without the Mesa drivers (see the Dockerfile). Without OpenCascade, STEP files
+are stored and offered as before, with no preview. `trammel/files/step.py`
+reads them; the 3D viewer and measurements are shared with STL and 3MF
+(`meshes.py`, `static/viewer.js`).
+
 **PostgreSQL only.** There is no SQLite fallback. Full-text search, row locks
 for gap-free numbering and the job queue all depend on PostgreSQL, and
 HomeAutoShop's experience (a search that passed on SQLite and failed in

@@ -223,6 +223,36 @@ def three_mf_production() -> bytes:
     return _package({"3D/3dmodel.model": root, "3D/Objects/box.model": part})
 
 
+def step(size=(10, 20, 30), unit: str = "MM", hole: float = 0, tmp_path=None) -> bytes:
+    """A box as a STEP file, written by OpenCascade in `unit` ("MM" or "INCH"),
+    with a hole of that diameter (mm) straight through it from top to bottom
+    when `hole` is given. Needs OCP (tests skip without it)."""
+    import tempfile
+    from pathlib import Path
+
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
+    from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox, BRepPrimAPI_MakeCylinder
+    from OCP.gp import gp_Ax2, gp_Dir, gp_Pnt
+    from OCP.Interface import Interface_Static
+    from OCP.STEPControl import STEPControl_AsIs, STEPControl_Writer
+
+    shape = BRepPrimAPI_MakeBox(*size).Shape()
+    if hole:
+        axis = gp_Ax2(gp_Pnt(size[0] / 2, size[1] / 2, -1), gp_Dir(0, 0, 1))
+        cylinder = BRepPrimAPI_MakeCylinder(axis, hole / 2, size[2] + 2).Shape()
+        shape = BRepAlgoAPI_Cut(shape, cylinder).Shape()
+    Interface_Static.SetCVal_s("write.step.unit", unit)
+    try:
+        writer = STEPControl_Writer()
+        writer.Transfer(shape, STEPControl_AsIs)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "part.step"
+            writer.Write(str(path))
+            return path.read_bytes()
+    finally:
+        Interface_Static.SetCVal_s("write.step.unit", "MM")
+
+
 def _package(parts: dict) -> bytes:
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w") as zf:

@@ -13,6 +13,10 @@ Pillow>=12.0                 # thumbnails, EXIF GPS stripping (FR-DOC-4, FR-DOC-
 pypdfium2>=4.30              # PDF thumbnails; bundles PDFium, no system packages
 ezdxf>=1.4                   # DXF previews, drawn as SVG (FR-DOC-4); MIT
 numpy>=2.3                   # STL and 3MF previews; also needed by ezdxf
+# STEP previews (FR-DOC-4, 0.11.1): OpenCascade, as wheels for amd64, arm64
+# and Windows. Bindings Apache-2.0; OpenCascade itself LGPL-2.1 with its
+# exception. Held to 8.0.x: its Python names change between versions.
+cadquery-ocp-novtk>=8.0.1.1,<8.1
 qrcode>=8.0                  # traveler and label QR codes, as SVG (FR-WO-4)
 cryptography>=43.0           # Fernet encryption of stored credentials (SPEC §9)
 smbprotocol>=1.16            # backup copies on a network share (FR-BAK-1); pure Python, MIT

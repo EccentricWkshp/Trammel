@@ -29,9 +29,9 @@ THUMB_PX = 480
 #: Rendered models: big enough to open as the file's preview.
 MODEL_PX = 960
 #: The kinds that get a preview.
-KINDS = frozenset({"image", "pdf", "dxf", "stl", "3mf", "lightburn", "gcode"})
+KINDS = frozenset({"image", "pdf", "dxf", "stl", "3mf", "step", "lightburn", "gcode"})
 #: The kinds that are 3D models, opened in the viewer (0.11.0).
-MODEL_KINDS = frozenset({"stl", "3mf"})
+MODEL_KINDS = frozenset({"stl", "3mf", "step"})
 
 #: What making one preview may use, in a child process (core.limits, 0.10.6):
 #: room for a 2-million-triangle model (meshes.MAX_TRIANGLES), and time to
@@ -187,7 +187,9 @@ def make(kind: str, path: Path) -> Made | None:
         return Made(picture)
     if prepared is None:
         return Made(picture) if picture else None
-    return Made(picture or _model(prepared.shown), prepared.mesh, prepared.info)
+    info = prepared.info
+    facing = (-1 if info["inverted"] else 1) if info["solid"] else 0
+    return Made(picture or _model(prepared.shown, facing), prepared.mesh, info)
 
 
 def _3mf_thumbnail(zf: zipfile.ZipFile) -> tuple[bytes, str] | None:
@@ -206,9 +208,45 @@ def _3mf_thumbnail(zf: zipfile.ZipFile) -> tuple[bytes, str] | None:
     return None
 
 
-def _model(triangles) -> tuple[bytes, str] | None:
+#: Triangles longer than this share of the model are split before drawing,
+#: and splitting stops once there are this many.
+SPLIT_SHARE = 1 / 24
+SPLIT_LIMIT = 400_000
+
+
+def _split_long(triangles):
+    """Long triangles split in four, again until none is long. The picture is
+    drawn back to front by each triangle's middle; a plane made of a few
+    large triangles (as STEP files are) would otherwise sort wrongly against
+    the narrow walls beside it, and show them through it."""
+    import numpy as np
+
+    flat = triangles.reshape(-1, 3)
+    longest = max(float((flat.max(axis=0) - flat.min(axis=0)).max()), 1e-9) * SPLIT_SHARE
+    for _ in range(8):
+        sides = np.linalg.norm(triangles - triangles[:, [1, 2, 0]], axis=2).max(axis=1)
+        long = sides > longest
+        if not long.any() or len(triangles) + 3 * int(long.sum()) > SPLIT_LIMIT:
+            break
+        a, b, c = (triangles[long][:, i] for i in range(3))
+        ab, bc, ca = (a + b) / 2, (b + c) / 2, (c + a) / 2
+        parts = np.stack(
+            [
+                np.stack([a, ab, ca], 1),
+                np.stack([ab, b, bc], 1),
+                np.stack([ca, bc, c], 1),
+                np.stack([ab, bc, ca], 1),
+            ]
+        ).reshape(-1, 3, 3)
+        triangles = np.concatenate([triangles[~long], parts])
+    return triangles
+
+
+def _model(triangles, facing: int = 0) -> tuple[bytes, str] | None:
     """A shaded picture of a mesh: orthographic, from the front, right and above
-    (Z up), lit from the upper left, drawn back to front."""
+    (Z up), lit from the upper left, drawn back to front. `facing` is 1 for a
+    closed solid wound outward, -1 for one wound inward (meshes.prepare's
+    "inverted"), so faces turned away are left out; 0 draws every face."""
     import numpy as np
     from PIL import Image, ImageDraw
 
@@ -219,6 +257,14 @@ def _model(triangles) -> tuple[bytes, str] | None:
         return None
     eye = np.array([1.0, -1.4, 1.1])
     forward = -eye / np.linalg.norm(eye)
+    if facing:
+        # A closed solid's faces turned away can't be seen: leave them out,
+        # so nothing behind is drawn over what's in front.
+        outward = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+        triangles = triangles[(outward @ forward) * facing < 0]
+        if not len(triangles):
+            return None
+    triangles = _split_long(triangles)
     right = np.cross(forward, [0.0, 0.0, 1.0])
     right /= np.linalg.norm(right)
     up = np.cross(right, forward)

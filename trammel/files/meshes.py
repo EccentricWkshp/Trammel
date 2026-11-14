@@ -1,5 +1,6 @@
-"""3D models (FR-DOC-4, 0.11.0): read STL and 3MF files into triangles, measure
-them, and prepare the compact mesh the browser's viewer draws (viewer.js).
+"""3D models (FR-DOC-4, 0.11.0): read STL and 3MF files (and STEP, through
+step.py, 0.11.1) into triangles, measure them, and prepare the compact mesh the
+browser's viewer draws (viewer.js).
 
 Everything here runs in the limited child that makes a file's preview
 (core.limits), and every reader caps what it takes in.
@@ -61,10 +62,16 @@ class Model:
     triangles: object
     #: The unit the file says it's in (3MF), or "" when it says none (STL).
     unit: str
-    #: Parts placed (a 3MF's build items; 1 for an STL).
+    #: Parts placed (a 3MF's build items; a STEP file's solids; 1 for an STL).
     objects: int
     #: Whether the file had more triangles than are read.
     truncated: bool
+    #: The model's own edges, (n, 2, 3) in millimeters, when the file has them
+    #: (STEP); otherwise they're found from the angles between faces.
+    edges: object = None
+    #: Exact measurements from the model's geometry (STEP): {"volume", "area"}
+    #: in mm³ and mm², and "solid" when it's made of closed solids.
+    exact: dict | None = None
 
 
 def read(kind: str, path: Path) -> Model | None:
@@ -73,6 +80,10 @@ def read(kind: str, path: Path) -> Model | None:
     if kind == "3mf":
         with zipfile.ZipFile(path) as zf:
             return read_3mf(zf)
+    if kind == "step":
+        from . import step
+
+        return step.read(path)
     return None
 
 
@@ -344,6 +355,17 @@ def prepare(model: Model) -> Prepared | None:
     area = 0.5 * float(np.linalg.norm(cross, axis=1).sum())
     signed = float(np.einsum("ij,ij->i", a, np.cross(b, c)).sum()) / 6.0
     closed, oriented, edges = _edges(points, faces)
+    solid = closed and oriented
+    volume = abs(signed)
+    if model.edges is not None:
+        # The file's own edges (STEP), as drawn in the CAD program.
+        edges = model.edges[np.isfinite(model.edges).all(axis=(1, 2))][:MAX_EDGES]
+    if model.exact:
+        # Measured on the geometry itself, not the triangles.
+        area = model.exact["area"]
+        if model.exact.get("volume") is not None:
+            volume = model.exact["volume"]
+            solid = model.exact["solid"]
 
     shown_points, shown_faces = points, faces
     if len(faces) > VIEW_TRIANGLES:
@@ -354,9 +376,10 @@ def prepare(model: Model) -> Prepared | None:
         "unit": model.unit,
         "size": [round(float(v), 4) for v in (high - low)],
         "area": round(area, 3),
-        "volume": round(abs(signed), 3),
-        # A closed surface, every face the same way out: its volume is exact.
-        "solid": bool(closed and oriented),
+        "volume": round(volume, 3),
+        # A closed surface, every face the same way out (or a STEP file's
+        # closed solids): its volume is exact.
+        "solid": bool(solid),
         # Faces wound inward (normals pointing in): the viewer tells inside
         # from outside the other way round when drawing a section.
         "inverted": bool(signed < 0),

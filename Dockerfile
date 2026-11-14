@@ -11,6 +11,10 @@ ENV PYTHONUNBUFFERED=1 \
 ARG PG_MAJOR=18
 
 # Pango and fonts are for WeasyPrint (PDF quotes, invoices, travelers).
+# OpenCascade (STEP previews, 0.11.1) links libGL.so.1 without ever drawing:
+# GLVND's libGL and libGLX are unpacked from their packages, with the X11 and
+# expat libraries they load, but not the Mesa drivers (and LLVM, ~200 MB) the
+# packages would bring, which only drawing would use.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl gnupg \
     && install -d /usr/share/postgresql-common/pgdg \
@@ -24,6 +28,10 @@ https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" \
         postgresql-client-${PG_MAJOR} \
         libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz0b libharfbuzz-subset0 \
         fonts-dejavu-core fonts-liberation \
+        libglvnd0 libx11-6 libxext6 libexpat1 \
+    && cd /tmp && apt-get download libgl1 libglx0 \
+    && for deb in /tmp/libgl1_*.deb /tmp/libglx0_*.deb; do dpkg-deb -x "$deb" /; done \
+    && rm -f /tmp/*.deb && cd / \
     && apt-get purge -y curl gnupg && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
