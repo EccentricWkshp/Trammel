@@ -108,6 +108,7 @@ class MaterialForm(forms.ModelForm):
             "name",
             "category",
             "thickness",
+            "k_factor",
             "vendor",
             "sku",
             "url",

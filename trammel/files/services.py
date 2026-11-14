@@ -312,6 +312,96 @@ def status_response(blob: Blob):
     return response
 
 
+def flat_data(blob: Blob) -> dict | None:
+    """A sheet metal part's flat pattern as unfold.py made it, or None."""
+    import gzip
+    import json
+
+    if not blob.flat:
+        return None
+    path = media_root() / blob.flat
+    if not path.exists():
+        return None
+    return json.loads(gzip.decompress(path.read_bytes()))
+
+
+def flat_pattern(document: Document, *, metric: bool = False):
+    """A document's flat pattern laid out for its material's K-factor:
+    (pattern, choice), or None when its file isn't a sheet metal part."""
+    from trammel.shop import sheet
+
+    from . import flat
+
+    if document.current is None:
+        return None
+    data = flat_data(document.current.blob)
+    if data is None:
+        return None
+    choice = sheet.choose(data["thickness"], document.sheet_material, metric=metric)
+    return flat.pattern(data, choice.k_factor), choice
+
+
+def flat_print(document: Document, *, metric: bool = False) -> dict | None:
+    """What a printed flat pattern shows (its own sheet, and travelers): the
+    part, the picture as a data: address, the blank's numbers and bends, and
+    where its K-factor came from. None when the file isn't sheet metal."""
+    import base64
+
+    from . import flat
+
+    made = flat_pattern(document, metric=metric)
+    if made is None:
+        return None
+    pattern, choice = made
+    picture = flat.svg(pattern).encode()
+    if choice.material is not None:
+        k_note = f"K {flat._num(float(choice.k_factor), 3)}, from {choice.material}"
+    else:
+        k_note = f"K {flat._num(float(choice.k_factor), 3)}, Trammel's default"
+    return {
+        "document": document,
+        "title": document.title,
+        "file": document.current.original_name,
+        "revision": document.current.number,
+        "picture": "data:image/svg+xml;base64," + base64.b64encode(picture).decode(),
+        "facts": flat.facts(pattern, metric=metric),
+        "bends": len(pattern.bends),
+        "k_note": k_note,
+    }
+
+
+def flat_on_traveler(document: Document, on: bool) -> None:
+    if document.flat_on_traveler == on:
+        return
+    document.flat_on_traveler = on
+    document.save(update_fields=["flat_on_traveler"])
+    audit.record(
+        "file.flat_on_traveler",
+        document,
+        summary=f"Flat pattern of {document} {'printed' if on else 'not printed'} on travelers",
+        before={"flat_on_traveler": not on},
+        after={"flat_on_traveler": on},
+    )
+
+
+def choose_sheet_material(document: Document, material) -> None:
+    """The material a sheet metal part is made of (its K-factor lays the flat
+    pattern out), or None to go by its thickness."""
+    before = document.sheet_material
+    if (before and before.pk) == (material and material.pk):
+        return
+    document.sheet_material = material
+    document.save(update_fields=["sheet_material"])
+    audit.record(
+        "file.sheet_material",
+        document,
+        summary=f"Flat pattern of {document} laid out for "
+        + (str(material) if material else "the material its thickness"),
+        before={"sheet_material": str(before) if before else ""},
+        after={"sheet_material": str(material) if material else ""},
+    )
+
+
 def thumbnail_mime(blob: Blob) -> str:
     """A preview is a WebP picture, or an SVG drawing for a DXF."""
     return "image/svg+xml" if blob.thumbnail.endswith(".svg") else "image/webp"

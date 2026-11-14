@@ -327,7 +327,12 @@
     var caption = el("p", { class: "lightbox-caption" });
     var title = el("span");
     var picture = el("a", { target: "_blank", rel: "noopener" }, "Open the picture");
-    caption.append(title, picture);
+    // A sheet metal part's flat pattern (0.11.2), when it has one.
+    var flatLink = el("a", {}, "Flat pattern");
+    flatLink.hidden = true;
+    var links = el("span", { class: "mv-links" });
+    links.append(flatLink, picture);
+    caption.append(title, links);
 
     dialog.append(close, stage, bar, factsList, unitRow, caption);
     dialog.addEventListener("click", function (event) {
@@ -341,7 +346,7 @@
 
     ui = {
       dialog: dialog, canvas: canvas, status: status, axisLabels: axisLabels,
-      facts: factsList, unit: unitRow, title: title, picture: picture,
+      facts: factsList, unit: unitRow, title: title, picture: picture, flat: flatLink,
       edges: edges, wire: wire, ortho: ortho, axisSelect: axisSelect, slider: slider, flip: flip,
     };
     var viewer = new Viewer(ui);
@@ -788,6 +793,9 @@
     ui.dialog.setAttribute("aria-label", title ? "3D view of " + title : "3D view");
     ui.title.textContent = title;
     ui.picture.href = link.href;
+    var flat = link.getAttribute("data-flat");
+    ui.flat.hidden = !flat;
+    if (flat) ui.flat.href = flat + "?next=" + encodeURIComponent(location.pathname + location.search);
     ui.edges.box.checked = false;
     ui.wire.box.checked = false;
     ui.ortho.box.checked = false;

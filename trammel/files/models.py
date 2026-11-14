@@ -37,6 +37,9 @@ class Blob(models.Model):
     #: A 3D model's measurements: size, area and volume in millimeters, whether
     #: it's a closed solid, its unit and counts (meshes.prepare).
     model = models.JSONField(null=True, blank=True)
+    #: A sheet metal part's flat pattern (unfold.py, 0.11.2), gzipped JSON
+    #: under the media root, laid out for a K-factor on demand (flat.py).
+    flat = models.CharField(max_length=200, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
 
     def __str__(self) -> str:
@@ -126,6 +129,15 @@ class Document(BaseModel):
     current = models.ForeignKey(
         "DocumentRevision", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )
+    #: A sheet metal part's material, chosen on its flat pattern when more
+    #: than one of the shop's materials is its thickness (0.11.2); its
+    #: K-factor lays the pattern out.
+    sheet_material = models.ForeignKey(
+        "shop.Material", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    #: A sheet metal part's flat pattern prints on travelers of the jobs and
+    #: work orders it's attached to, unless unticked on its flat pattern page.
+    flat_on_traveler = models.BooleanField(default=True)
 
     class Meta:
         ordering = ["title"]

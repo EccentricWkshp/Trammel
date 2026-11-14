@@ -11,7 +11,7 @@ from decimal import Decimal
 from fractions import Fraction
 
 from django.core.exceptions import ValidationError
-from django.core.validators import MinValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.urls import reverse
 
@@ -246,6 +246,19 @@ class Material(BaseModel):
         choices=[(u.code, u.label) for u in units.UNITS.values() if u.dimension == "length"],
     )
     thickness = models.CharField(max_length=32, blank=True, help_text="e.g. “3 mm”, “3/4 in”")
+    # Sheet metal (0.11.2): where the neutral line sits in a bend, as a share
+    # of the thickness, for laying out flat patterns of parts this thickness.
+    k_factor = models.DecimalField(
+        "K-factor",
+        max_digits=4,
+        decimal_places=3,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(1)],
+        help_text="For sheet metal you bend: where the neutral line sits in a bend, as a share "
+        "of the thickness (0.44 is common for mild steel, 0.33 for a tight bend, 0.5 for the "
+        "middle). Flat patterns of parts this thickness use it.",
+    )
     is_active = models.BooleanField(default=True)
     notes = models.TextField(blank=True)
 

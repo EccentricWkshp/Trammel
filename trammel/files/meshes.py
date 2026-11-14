@@ -72,6 +72,8 @@ class Model:
     #: Exact measurements from the model's geometry (STEP): {"volume", "area"}
     #: in mm³ and mm², and "solid" when it's made of closed solids.
     exact: dict | None = None
+    #: A sheet metal part's flat pattern (unfold.py), when it is one (STEP).
+    flat: dict | None = None
 
 
 def read(kind: str, path: Path) -> Model | None:

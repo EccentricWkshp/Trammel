@@ -45,8 +45,14 @@ def make_thumbnail(payload: dict) -> None:
     # A model's mesh for the 3D viewer sits beside its picture, so backups
     # carry it too.
     mesh = _write(blob, "mesh.gz", made.mesh) if made.mesh else ""
+    # A sheet metal part's flat pattern (0.11.2), laid out on demand (flat.py).
+    flat = _write(blob, "flat.json.gz", made.flat) if made.flat else ""
     Blob.objects.filter(pk=blob.pk).update(
-        thumbnail=relative, mesh=mesh, model=made.model, thumb_state=Blob.Thumb.READY
+        thumbnail=relative,
+        mesh=mesh,
+        flat=flat,
+        model=made.model,
+        thumb_state=Blob.Thumb.READY,
     )
 
 

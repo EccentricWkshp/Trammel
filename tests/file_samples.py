@@ -253,6 +253,141 @@ def step(size=(10, 20, 30), unit: str = "MM", hole: float = 0, tmp_path=None) ->
         Interface_Static.SetCVal_s("write.step.unit", "MM")
 
 
+def _step_bytes(shape, unit: str = "MM") -> bytes:
+    import tempfile
+    from pathlib import Path
+
+    from OCP.Interface import Interface_Static
+    from OCP.STEPControl import STEPControl_AsIs, STEPControl_Writer
+
+    Interface_Static.SetCVal_s("write.step.unit", unit)
+    try:
+        writer = STEPControl_Writer()
+        writer.Transfer(shape, STEPControl_AsIs)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "part.step"
+            writer.Write(str(path))
+            return path.read_bytes()
+    finally:
+        Interface_Static.SetCVal_s("write.step.unit", "MM")
+
+
+def bracket(
+    first=60.0, second=40.0, radius=3.0, thickness=4.7625, width=50.0, hole=10.0, unit="MM"
+) -> bytes:
+    """A sheet metal L-bracket as a STEP file: a flat flange `first` mm long
+    (to where the bend starts), a 90° bend of inside `radius`, and a flange
+    `second` mm long, `width` wide and `thickness` thick, with a hole of
+    diameter `hole` in the middle of the first flange. Laid flat it's
+    first + second + π/2 × (radius + K × thickness) long. Needs OCP."""
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
+    from OCP.BRepBuilderAPI import (
+        BRepBuilderAPI_MakeEdge,
+        BRepBuilderAPI_MakeFace,
+        BRepBuilderAPI_MakeWire,
+    )
+    from OCP.BRepPrimAPI import BRepPrimAPI_MakeCylinder, BRepPrimAPI_MakePrism
+    from OCP.GC import GC_MakeArcOfCircle
+    from OCP.gp import gp_Ax2, gp_Circ, gp_Dir, gp_Pnt, gp_Vec
+
+    r, t = radius, thickness
+    # The section in the XZ plane: the first flange along -X, the bend about
+    # an axis along Y at (0, r), the second flange up +Z.
+    inner_arc = GC_MakeArcOfCircle(
+        gp_Circ(gp_Ax2(gp_Pnt(0, 0, r), gp_Dir(0, -1, 0)), r),
+        gp_Pnt(0, 0, 0),
+        gp_Pnt(r, 0, r),
+        True,
+    ).Value()
+    outer_arc = GC_MakeArcOfCircle(
+        gp_Circ(gp_Ax2(gp_Pnt(0, 0, r), gp_Dir(0, -1, 0)), r + t),
+        gp_Pnt(0, 0, -t),
+        gp_Pnt(r + t, 0, r),
+        True,
+    ).Value()
+    p = gp_Pnt
+    edges = [
+        BRepBuilderAPI_MakeEdge(p(-first, 0, 0), p(0, 0, 0)).Edge(),
+        BRepBuilderAPI_MakeEdge(inner_arc).Edge(),
+        BRepBuilderAPI_MakeEdge(p(r, 0, r), p(r, 0, r + second)).Edge(),
+        BRepBuilderAPI_MakeEdge(p(r, 0, r + second), p(r + t, 0, r + second)).Edge(),
+        BRepBuilderAPI_MakeEdge(p(r + t, 0, r + second), p(r + t, 0, r)).Edge(),
+        BRepBuilderAPI_MakeEdge(outer_arc).Edge(),
+        BRepBuilderAPI_MakeEdge(p(0, 0, -t), p(-first, 0, -t)).Edge(),
+        BRepBuilderAPI_MakeEdge(p(-first, 0, -t), p(-first, 0, 0)).Edge(),
+    ]
+    wire = BRepBuilderAPI_MakeWire()
+    for edge in edges:
+        wire.Add(edge)
+    face = BRepBuilderAPI_MakeFace(wire.Wire()).Face()
+    shape = BRepPrimAPI_MakePrism(face, gp_Vec(0, width, 0)).Shape()
+    if hole:
+        axis = gp_Ax2(gp_Pnt(-first / 2, width / 2, -t - 1), gp_Dir(0, 0, 1))
+        shape = BRepAlgoAPI_Cut(
+            shape, BRepPrimAPI_MakeCylinder(axis, hole / 2, t + 2).Shape()
+        ).Shape()
+    return _step_bytes(shape, unit)
+
+
+def channel(base=60.0, side=30.0, radius=3.0, thickness=4.7625, width=50.0) -> bytes:
+    """A sheet metal U-channel as a STEP file: a base `base` mm across (between
+    where its bends start) with a side `side` mm high up from each end, bent 90°
+    at inside `radius`. Laid flat it's base + 2 × side + 2 × π/2 × (radius +
+    K × thickness) long, its bend lines base + π/2 × (radius + K × thickness)
+    apart. Needs OCP."""
+    import math
+
+    from OCP.BRepBuilderAPI import (
+        BRepBuilderAPI_MakeEdge,
+        BRepBuilderAPI_MakeFace,
+        BRepBuilderAPI_MakeWire,
+    )
+    from OCP.BRepPrimAPI import BRepPrimAPI_MakePrism
+    from OCP.GC import GC_MakeArcOfCircle
+    from OCP.gp import gp_Pnt, gp_Vec
+
+    r, t, R = radius, thickness, radius + thickness
+    c, s = math.cos(math.radians(45)), math.sin(math.radians(45))
+
+    def p(x, z):
+        return gp_Pnt(x, 0, z)
+
+    def line(a, b):
+        return BRepBuilderAPI_MakeEdge(p(*a), p(*b)).Edge()
+
+    def arc(a, m, b):
+        return BRepBuilderAPI_MakeEdge(GC_MakeArcOfCircle(p(*a), p(*m), p(*b)).Value()).Edge()
+
+    # The section in the XZ plane: the inside of the base along z = 0, the
+    # left bend about (0, r), the right about (base, r).
+    edges = [
+        arc((0, 0), (-r * c, r - r * s), (-r, r)),
+        line((-r, r), (-r, r + side)),
+        line((-r, r + side), (-R, r + side)),
+        line((-R, r + side), (-R, r)),
+        arc((-R, r), (-R * c, r - R * s), (0, -t)),
+        line((0, -t), (base, -t)),
+        arc((base, -t), (base + R * c, r - R * s), (base + R, r)),
+        line((base + R, r), (base + R, r + side)),
+        line((base + R, r + side), (base + r, r + side)),
+        line((base + r, r + side), (base + r, r)),
+        arc((base + r, r), (base + r * c, r - r * s), (base, 0)),
+        line((base, 0), (0, 0)),
+    ]
+    wire = BRepBuilderAPI_MakeWire()
+    for edge in edges:
+        wire.Add(edge)
+    face = BRepBuilderAPI_MakeFace(wire.Wire()).Face()
+    return _step_bytes(BRepPrimAPI_MakePrism(face, gp_Vec(0, width, 0)).Shape())
+
+
+def block(size=(50.0, 50.0, 40.0)) -> bytes:
+    """A solid block: not sheet metal. Needs OCP."""
+    from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox
+
+    return _step_bytes(BRepPrimAPI_MakeBox(*size).Shape())
+
+
 def _package(parts: dict) -> bytes:
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w") as zf:

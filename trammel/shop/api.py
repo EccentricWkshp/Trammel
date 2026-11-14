@@ -4,6 +4,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from ninja import ModelSchema, Router, Schema, Status
+from pydantic import Field
 
 from trammel.api.types import choices
 from trammel.core import access, audit
@@ -93,6 +94,7 @@ class MaterialOut(ModelSchema):
             "sheet_length",
             "sheet_dimension_unit",
             "thickness",
+            "k_factor",
             "is_active",
             "notes",
         ]
@@ -115,6 +117,9 @@ class MaterialIn(Schema):
     sheet_length: Decimal | None = None
     sheet_dimension_unit: str = ""
     thickness: str = ""
+    #: Sheet metal: where the neutral line sits in a bend (0 to 1), for flat
+    #: patterns of parts this thickness (0.11.2). Left out, it's kept.
+    k_factor: Decimal | None = Field(default=None, ge=0, le=1)
     is_active: bool = True
     notes: str = ""
 
@@ -134,8 +139,15 @@ def _upsert(request, model, pk, payload):
     obj = access.get_or_404(request.actor, PERMS[model], model.objects.all(), pk=pk)
     before = audit.snapshot(obj)
     for field, value in payload.dict().items():
+        # Added since: an older client that doesn't send it keeps it as it was.
+        if field in KEEP_UNLESS_SENT and field not in payload.model_fields_set:
+            continue
         setattr(obj, field, value)
     return save_audited(obj, before=before)
+
+
+#: Fields added after the API was in use (0.11.2: a material's K-factor).
+KEEP_UNLESS_SENT = {"k_factor"}
 
 
 @router.get("/machines", response=list[MachineOut])

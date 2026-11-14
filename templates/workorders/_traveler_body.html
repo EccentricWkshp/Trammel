@@ -108,3 +108,8 @@
 <h2>Drawings and photos</h2>
 <div class="images">{% for img in images %}<figure><img src="{{ img.src }}" alt=""><figcaption>{{ img.title }}</figcaption></figure>{% endfor %}</div>
 {% endif %}
+
+{% if flats %}
+<h2>Flat patterns</h2>
+{% for fp in flats %}{% include "files/_flat_print.html" %}{% endfor %}
+{% endif %}

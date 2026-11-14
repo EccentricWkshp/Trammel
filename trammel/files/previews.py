@@ -164,6 +164,8 @@ class Made:
     picture: tuple[bytes, str] | None
     mesh: bytes | None = None
     model: dict | None = None
+    #: A sheet metal part's flat pattern (unfold.py), gzipped JSON.
+    flat: bytes | None = None
 
 
 def make(kind: str, path: Path) -> Made | None:
@@ -189,7 +191,18 @@ def make(kind: str, path: Path) -> Made | None:
         return Made(picture) if picture else None
     info = prepared.info
     facing = (-1 if info["inverted"] else 1) if info["solid"] else 0
-    return Made(picture or _model(prepared.shown, facing), prepared.mesh, info)
+    flat = None
+    if model.flat:
+        import gzip
+        import json
+
+        # A sheet metal part: its thickness and bends on the file, for the card.
+        info["sheet"] = {
+            "thickness": model.flat["thickness"],
+            "bends": len(model.flat["bends"]),
+        }
+        flat = gzip.compress(json.dumps(model.flat).encode(), mtime=0)
+    return Made(picture or _model(prepared.shown, facing), prepared.mesh, info, flat)
 
 
 def _3mf_thumbnail(zf: zipfile.ZipFile) -> tuple[bytes, str] | None:

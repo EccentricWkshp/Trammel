@@ -11,7 +11,7 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
 from trammel.core import access, audit
-from trammel.core.web import permission_required
+from trammel.core.web import document_response, document_view, permission_required
 
 from . import services
 from .models import Attachment, Document, DocumentRevision, DocumentType
@@ -195,6 +195,128 @@ def model(request, pk):
     response["X-Content-Type-Options"] = "nosniff"
     response["Content-Security-Policy"] = "sandbox; default-src 'none'"
     response["Cache-Control"] = "private, max-age=3600"
+    return response
+
+
+def _flat(request, pk):
+    """A document the visitor may see, and its flat pattern: (document,
+    pattern, choice), or 404 when its file isn't a sheet metal part."""
+    document = get_object_or_404(
+        Document.objects.select_related("current__blob", "sheet_material"), pk=pk
+    )
+    if not _may_see(request, document):
+        raise Http404
+    made = services.flat_pattern(document, metric=_metric(request))
+    if made is None:
+        raise Http404
+    return document, *made
+
+
+def _metric(request) -> bool:
+    return getattr(getattr(request, "business", None), "unit_system", "") == "metric"
+
+
+@permission_required("files.view")
+def flat_pattern(request, pk):
+    """A sheet metal part's flat pattern (0.11.2): the picture, what the shop
+    prices it from, its K-factor and material, and its DXF."""
+    from trammel.files import flat
+
+    document, pattern, choice = _flat(request, pk)
+    can_choose = access.has_perm(request.actor, "files.upload")
+    if request.method == "POST":
+        if not can_choose:
+            raise PermissionDenied
+        if "traveler" in request.POST:
+            services.flat_on_traveler(document, request.POST.get("traveler") == "1")
+        else:
+            picked = request.POST.get("material", "")
+            material = next((m for m in choice.options if str(m.pk) == picked), None)
+            services.choose_sheet_material(document, material)
+        return redirect(
+            f"{request.path}?{request.GET.urlencode()}" if request.GET else request.path
+        )
+    unit = (document.current.blob.model or {}).get("unit") or "millimeter"
+    link = document.attachments.first()
+    return render(
+        request,
+        "files/flat.html",
+        {
+            "document": document,
+            "pattern": pattern,
+            "choice": choice,
+            "facts": flat.facts(pattern, metric=_metric(request)),
+            "dxf_unit": flat.UNIT_NAMES.get(unit, "millimeters"),
+            "back": _back(request, link.target.get_absolute_url() if link and link.target else "/"),
+            "can_choose": can_choose,
+        },
+    )
+
+
+@permission_required("files.view")
+@document_view
+def flat_sheet(request, pk):
+    """A sheet metal part's flat pattern on paper: ?print=1 to print it, or
+    ?format=pdf for its PDF."""
+    from django.http import HttpResponse
+    from django.template.loader import render_to_string
+    from django.utils.http import content_disposition_header
+    from django.utils.timezone import now
+
+    from trammel.core import templating
+
+    document = get_object_or_404(
+        Document.objects.select_related("current__blob", "sheet_material"), pk=pk
+    )
+    if not _may_see(request, document):
+        raise Http404
+    fp = services.flat_print(document, metric=_metric(request))
+    if fp is None:
+        raise Http404
+    html = render_to_string(
+        "files/flat_sheet.html",
+        {"fp": fp, "business": request.business, "printed_at": now()},
+        request=request,
+    )
+    if request.GET.get("format") == "pdf":
+        try:
+            data = templating.render_pdf(html)
+        except templating.PdfUnavailable as exc:
+            messages.error(request, str(exc))
+            return redirect("files:flat", pk=document.pk)
+        response = HttpResponse(data, content_type="application/pdf")
+        name = f"{document.title.rsplit('.', 1)[0]} flat pattern.pdf"
+        response["Content-Disposition"] = content_disposition_header(True, name)
+        return response
+    return document_response(request, html)
+
+
+@permission_required("files.view")
+def flat_picture(request, pk):
+    from django.http import HttpResponse
+
+    from trammel.files import flat
+
+    _document, pattern, _choice = _flat(request, pk)
+    response = HttpResponse(flat.svg(pattern), content_type="image/svg+xml")
+    response["X-Content-Type-Options"] = "nosniff"
+    response["Content-Security-Policy"] = "sandbox; default-src 'none'; style-src 'unsafe-inline'"
+    response["Cache-Control"] = "private, no-cache"
+    return response
+
+
+@permission_required("files.view")
+def flat_dxf(request, pk):
+    from django.http import HttpResponse
+
+    from trammel.files import flat
+
+    document, pattern, _choice = _flat(request, pk)
+    unit = (document.current.blob.model or {}).get("unit") or "millimeter"
+    response = HttpResponse(flat.dxf(pattern, unit), content_type="image/vnd.dxf")
+    name = f"{document.title.rsplit('.', 1)[0]} flat pattern.dxf".replace('"', "")
+    response["Content-Disposition"] = f'attachment; filename="{name}"'
+    response["X-Content-Type-Options"] = "nosniff"
     return response
 
 

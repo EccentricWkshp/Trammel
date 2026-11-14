@@ -8,13 +8,14 @@
   <ul class="file-grid">
     {% for link in group.list %}{% with doc=link.document rev=link.document.current %}
     <li class="file-card">
-      {% url 'files:download' rev.pk as file_url %}{% url 'files:thumbnail' doc.pk as thumb_url %}{% url 'files:thumbnail_status' doc.pk as status_url %}{% url 'files:model' doc.pk as model_url %}
-      {% file_preview rev file_url thumb_url status_url doc.title model=model_url %}
+      {% url 'files:download' rev.pk as file_url %}{% url 'files:thumbnail' doc.pk as thumb_url %}{% url 'files:thumbnail_status' doc.pk as status_url %}{% url 'files:model' doc.pk as model_url %}{% url 'files:flat' doc.pk as flat_url %}
+      {% file_preview rev file_url thumb_url status_url doc.title model=model_url flat=flat_url %}
       <div>
         <a href="{% url 'files:download' rev.pk %}{% if rev.blob.is_previewable_inline %}?inline=1" target="_blank" rel="noopener{% endif %}">{{ doc.title }}</a>
         <span class="muted">r{{ rev.number }} · {{ rev.blob.size|filesizeformat }}{% if rev.blob.model %} · {% model_size rev.blob %}{% endif %}</span>
         {% if doc.doc_type and groups|length == 1 %}<span class="badge">{{ doc.doc_type }}</span>{% endif %}
         {% if link.shared_with_customer %}<span class="badge">shared</span>{% endif %}
+        {% if rev.blob.flat %}<a class="file-flat" href="{{ flat_url }}?next={{ here|urlencode }}">Flat pattern</a> <span class="muted small">{{ rev.blob.model.sheet.bends }} bend{{ rev.blob.model.sheet.bends|pluralize }}</span>{% endif %}
       </div>
       {% if can_upload %}
       <details class="file-actions"><summary>Manage</summary>

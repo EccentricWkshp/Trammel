@@ -58,7 +58,20 @@ def read(path: Path):
         truncated,
         edges=edges,
         exact=exact,
+        flat=_unfold(shape, exact.get("volume")),
     )
+
+
+def _unfold(shape, volume):
+    """A sheet metal part's flat pattern (unfold.py, 0.11.2), or None. Never
+    costs the file its preview: a part it can't unfold just has none."""
+    from . import unfold
+
+    try:
+        return unfold.unfold(shape, volume)
+    except Exception:
+        log.warning("Couldn't unfold a STEP file", exc_info=True)
+        return None
 
 
 def _shape(path: Path):

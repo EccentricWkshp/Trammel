@@ -1,0 +1,20 @@
+<div class="flat-print">
+  {% if not sheet %}<h3>{{ fp.title }} <span class="file">{{ fp.file }} · r{{ fp.revision }} · {{ fp.k_note }}</span></h3>{% endif %}
+  <img src="{{ fp.picture }}" alt="Flat pattern of {{ fp.title }}">
+  <p class="note">Seen from one side of the sheet: bends marked up fold towards you. Bend lines dashed, bend extents grey.</p>
+  <table class="blank">
+    <tbody>
+      <tr><td class="k">Blank</td><td>{{ fp.facts.size }}</td></tr>
+      <tr><td class="k">Area</td><td>{{ fp.facts.area }}</td></tr>
+      <tr><td class="k">Cut length</td><td>{{ fp.facts.cut }}</td></tr>
+      <tr><td class="k">Pierces</td><td>{{ fp.facts.pierces }}</td></tr>
+      <tr><td class="k">Thickness</td><td>{{ fp.facts.thickness }}</td></tr>
+    </tbody>
+  </table>
+  {% if fp.facts.bends %}
+  <table class="bends">
+    <thead><tr><th>Bend</th><th>Direction</th><th>Angle</th><th>Inside radius</th><th>Bend line length</th><th>Bend allowance</th></tr></thead>
+    <tbody>{% for b in fp.facts.bends %}<tr><td>{{ b.number }}</td><td>{{ b.direction }}</td><td>{{ b.angle }}</td><td>{{ b.radius }}</td><td>{{ b.line }}</td><td>{{ b.allowance }}</td></tr>{% endfor %}</tbody>
+  </table>
+  {% endif %}
+</div>

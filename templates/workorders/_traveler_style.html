@@ -60,7 +60,7 @@
   .images img { width: 100%; border: .5pt solid #888; }
   .images figcaption { font-size: 8pt; margin-top: 2pt; }
   .muted { color: #555; }
-
+{% include "files/_flat_print_style.html" %}
   /* Travelers printed together (0.8.3): each starts a page, with its own footer. */
   .running-footer { string-set: footer content(); height: 0; margin: 0; overflow: hidden; font-size: 0; }
   section.traveler + section.traveler { break-before: page; page-break-before: always; }

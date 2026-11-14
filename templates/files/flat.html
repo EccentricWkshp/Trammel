@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% load trammel %}
+{% block title %}Flat pattern · {{ document.title }}{% endblock %}
+{% block content %}
+<header class="record-header">
+  <div class="record-title">
+    <p class="breadcrumb"><a href="{{ back }}">Back</a></p>
+    <h1>{{ document.title }} <span class="muted">flat pattern</span></h1>
+    <dl class="facts-inline">
+      <div><dt>Thickness</dt><dd>{{ facts.thickness }}</dd></div>
+      <div><dt>Bends</dt><dd>{{ pattern.bends|length }}</dd></div>
+      <div><dt>K-factor</dt><dd>{{ choice.k_factor|qty }}</dd></div>
+    </dl>
+  </div>
+  <div class="actions">
+    <a class="button primary" href="{% url 'files:flat_dxf' document.pk %}" download>Download DXF</a>
+    <a class="button" href="{% url 'files:flat_sheet' document.pk %}?print=1" target="_blank" rel="noopener">Print</a>
+    <a class="button" href="{% url 'files:flat_sheet' document.pk %}?format=pdf">Download PDF</a>
+  </div>
+</header>
+
+<figure class="flat-figure">
+  <img src="{% url 'files:flat_picture' document.pk %}?k={{ choice.k_factor }}" alt="Flat pattern of {{ document.title }}, seen from the side the bends are marked from">
+  <figcaption class="muted small">Seen from one side of the sheet: bends marked up fold towards you. Bend lines dashed, bend extents grey.</figcaption>
+</figure>
+
+<div class="overview-grid">
+  <section class="card" aria-labelledby="blank-heading">
+    <h2 id="blank-heading">The blank</h2>
+    <dl class="facts">
+      <dt>Size</dt><dd>{{ facts.size }}</dd>
+      <dt>Area</dt><dd>{{ facts.area }}</dd>
+      <dt>Cut length</dt><dd>{{ facts.cut }}</dd>
+      <dt>Pierces</dt><dd>{{ facts.pierces }}</dd>
+      <dt>Thickness</dt><dd>{{ facts.thickness }}</dd>
+    </dl>
+    <p class="muted small">The DXF is in {{ dxf_unit }}, the unit the part was drawn in, on the layers CAD programs use: OUTER_PROFILES, INTERIOR_PROFILES, BEND and BEND_EXTENT.</p>
+    <h3>Travelers</h3>
+    {% if can_choose %}
+    <form method="post" class="flat-choose">{% csrf_token %}
+      <input type="hidden" name="traveler" value="{% if document.flat_on_traveler %}0{% else %}1{% endif %}">
+      <p>{% if document.flat_on_traveler %}Printed on the travelers of the jobs and work orders this file is on.{% else %}Not printed on travelers.{% endif %}</p>
+      <button type="submit">{% if document.flat_on_traveler %}Leave it off travelers{% else %}Include it on travelers{% endif %}</button>
+    </form>
+    {% else %}
+    <p>{% if document.flat_on_traveler %}Printed on the travelers of the jobs and work orders this file is on.{% else %}Not printed on travelers.{% endif %}</p>
+    {% endif %}
+  </section>
+
+  <section class="card" aria-labelledby="k-heading">
+    <h2 id="k-heading">K-factor</h2>
+    {% if choice.material %}
+    <p>{{ choice.k_factor|qty }}, from <a href="{{ choice.material.get_absolute_url }}">{{ choice.material }}</a>.</p>
+    {% else %}
+    <p>{{ choice.k_factor|qty }}, Trammel's default: none of the shop's materials this thickness has a K-factor{% if choice.without_k %} (set one on {% for m in choice.without_k %}<a href="{{ m.get_absolute_url }}">{{ m }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}){% endif %}.</p>
+    {% endif %}
+    {% if can_choose and choice.options|length > 1 %}
+    <form method="post" class="flat-choose">{% csrf_token %}
+      <label>Made of
+        <select name="material">
+          {% for m in choice.options %}<option value="{{ m.pk }}"{% if m.pk == choice.material.pk %} selected{% endif %}>{{ m }} (K {{ m.k_factor|qty }})</option>{% endfor %}
+        </select>
+      </label>
+      <button type="submit">Use it</button>
+    </form>
+    {% endif %}
+    <p class="muted small">Where the neutral line sits in a bend, as a share of the thickness: it sets how much each bend adds to the blank. It comes from the material of the part's thickness, set on Materials.</p>
+  </section>
+</div>
+
+{% if facts.bends %}
+<section class="card flat-bends" aria-labelledby="bends-heading">
+  <h2 id="bends-heading">Bends</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th scope="col">Bend</th><th scope="col">Direction</th><th scope="col">Angle</th><th scope="col">Inside radius</th><th scope="col">Bend line length</th><th scope="col">Bend allowance</th></tr></thead>
+    <tbody>
+    {% for b in facts.bends %}<tr><td>{{ b.number }}</td><td>{{ b.direction }}</td><td>{{ b.angle }}</td><td>{{ b.radius }}</td><td>{{ b.line }}</td><td>{{ b.allowance }}</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</section>
+{% endif %}
+{% endblock %}

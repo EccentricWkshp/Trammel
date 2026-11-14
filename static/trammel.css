@@ -336,6 +336,14 @@ dialog.model-viewer .lightbox-close { z-index: 2; }
 .mv-note { color: var(--warn-text); }
 .mv-unit { margin: .4rem 0 0; padding: 0 .9rem; font-size: .9rem; }
 .mv-unit:empty { display: none; }
+.mv-links { display: inline-flex; gap: 1rem; }
+/* Flat patterns of sheet metal parts (files/flat.html) */
+.flat-figure { margin: 0 0 var(--space-4); }
+.flat-figure img { display: block; width: 100%; max-height: 34rem; object-fit: contain; background: #fff; border: 1px solid var(--border); border-radius: var(--radius); }
+.flat-figure figcaption { margin-top: var(--space-1); }
+.flat-choose { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: end; margin: var(--space-3) 0; }
+.flat-choose label { display: grid; gap: var(--space-1); }
+.flat-bends { margin-top: var(--space-4); }
 .review-preview img { max-width: 100%; max-height: 32rem; object-fit: contain; background: #fff; border: 1px solid var(--border); border-radius: var(--radius); }
 .file-kind { display: grid; place-items: center; height: 8rem; background: var(--bg); border-radius: 4px; font-weight: 700; color: var(--muted); letter-spacing: .05em; }
 .preview-wait { align-content: center; gap: .25rem; }

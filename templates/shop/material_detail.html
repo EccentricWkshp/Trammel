@@ -31,6 +31,7 @@
       <dl class="facts">
         <dt>Markup</dt><dd>{% if material.markup is not None %}{{ material.markup|floatformat:"-3" }}%{% else %}<span class="muted">Default markup on materials</span>{% endif %}</dd>
         {% if material.thickness %}<dt>Thickness</dt><dd>{{ material.thickness }}</dd>{% endif %}
+        {% if material.k_factor is not None %}<dt>K-factor</dt><dd>{{ material.k_factor|qty }} <span class="muted small">for flat patterns of sheet metal parts this thickness</span></dd>{% endif %}
         {% if material.sheet_width %}<dt>Sheet size</dt><dd>{{ material.sheet_width|floatformat:"-3" }} × {{ material.sheet_length|floatformat:"-3" }} {{ material.sheet_dimension_unit }}</dd>{% endif %}
       </dl>
       {% if material.url %}<p><a href="{{ material.url }}" target="_blank" rel="noopener noreferrer">Open the product page</a></p>{% endif %}

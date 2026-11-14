@@ -619,9 +619,10 @@ def materials_confirm(request, pk):
 
 
 def _traveler_context(request, wo: WorkOrder) -> dict:
-    from trammel.files.services import attachments_for, media_root, thumbnail_mime
+    from trammel.files.services import attachments_for, flat_print, media_root, thumbnail_mime
 
-    images, files = [], []
+    images, files, flats = [], [], []
+    metric = getattr(request.business, "unit_system", "") == "metric"
     for link in [*attachments_for(wo.job), *attachments_for(wo)]:
         doc = link.document
         # Files with a type are printed only when the type says so; files
@@ -629,6 +630,12 @@ def _traveler_context(request, wo: WorkOrder) -> dict:
         if doc.doc_type is not None and not doc.doc_type.show_on_traveler:
             continue
         blob = doc.current.blob if doc.current else None
+        # A sheet metal part's flat pattern too, unless it's been left off
+        # travelers (0.11.2).
+        if blob and blob.flat and doc.flat_on_traveler:
+            printed = flat_print(doc, metric=metric)
+            if printed is not None:
+                flats.append(printed)
         if blob and not blob.thumbnail:
             files.append(
                 {
@@ -658,6 +665,7 @@ def _traveler_context(request, wo: WorkOrder) -> dict:
         "printed_at": now(),
         "images": images,
         "files": files,
+        "flats": flats,
         "qr": qr_svg(url),
         "url": url,
         "business": request.business,

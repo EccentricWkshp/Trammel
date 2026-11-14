@@ -13,7 +13,16 @@ register = template.Library()
 
 @register.inclusion_tag("files/_preview.html", takes_context=True)
 def file_preview(
-    context, revision, file_url, thumb_url, status_url, title="", alt="", lazy=True, model=""
+    context,
+    revision,
+    file_url,
+    thumb_url,
+    status_url,
+    title="",
+    alt="",
+    lazy=True,
+    model="",
+    flat="",
 ):
     """A file's preview on a card: its picture, opening over the page (a PDF in a
     new tab); while it is being made, a placeholder the page swaps for it when
@@ -25,6 +34,8 @@ def file_preview(
     return {
         "model": model if blob.kind in MODEL_KINDS else "",
         "model_info": json.dumps(blob.model) if model and blob.model else "",
+        # A sheet metal part: the viewer links to its flat pattern (0.11.2).
+        "flat": flat if blob.flat else "",
         "units": "metric" if _metric(context) else "imperial",
         "ready": blob.thumb_state == "ready" or blob.kind == "svg",
         "waiting": blob.thumb_state == "pending",
