@@ -125,3 +125,114 @@ def gcode(thumbnail: bool = True) -> bytes:
             lines.append("; thumbnail end")
     lines += ["G21", "G90", "G28", "G1 X10 Y10 F1200", "M104 S200", "M5"]
     return "\n".join(lines).encode()
+
+
+# ---------------------------------------------------------------------------
+# Boxes, for measuring (0.11.0)
+# ---------------------------------------------------------------------------
+
+#: A unit cube's corners and its 12 triangles, wound counterclockwise seen
+#: from outside.
+CUBE_POINTS = [
+    (0, 0, 0),
+    (1, 0, 0),
+    (1, 1, 0),
+    (0, 1, 0),
+    (0, 0, 1),
+    (1, 0, 1),
+    (1, 1, 1),
+    (0, 1, 1),
+]
+CUBE_FACES = [
+    (0, 2, 1), (0, 3, 2),  # bottom
+    (4, 5, 6), (4, 6, 7),  # top
+    (0, 1, 5), (0, 5, 4),  # front
+    (2, 3, 7), (2, 7, 6),  # back
+    (1, 2, 6), (1, 6, 5),  # right
+    (3, 0, 4), (3, 4, 7),  # left
+]  # fmt: skip
+
+
+def box_triangles(size=(10, 20, 30), at=(0, 0, 0), inward=False, open_top=False) -> list:
+    faces = CUBE_FACES[:2] + CUBE_FACES[4:] if open_top else CUBE_FACES
+    out = []
+    for face in faces:
+        tri = [tuple(at[k] + CUBE_POINTS[i][k] * size[k] for k in range(3)) for i in face]
+        out.append(tuple(reversed(tri)) if inward else tuple(tri))
+    return out
+
+
+def stl_of(triangles) -> bytes:
+    out = bytearray(b"\0" * 80 + struct.pack("<I", len(triangles)))
+    for tri in triangles:
+        out += struct.pack("<3f", 0, 0, 0)
+        for v in tri:
+            out += struct.pack("<3f", *v)
+        out += b"\0\0"
+    return bytes(out)
+
+
+def _mesh_xml(size=(10, 20, 30)) -> str:
+    verts = "".join(
+        f'<vertex x="{x * size[0]}" y="{y * size[1]}" z="{z * size[2]}"/>'
+        for x, y, z in CUBE_POINTS
+    )
+    tris = "".join(f'<triangle v1="{a}" v2="{b}" v3="{c}"/>' for a, b, c in CUBE_FACES)
+    return f"<mesh><vertices>{verts}</vertices><triangles>{tris}</triangles></mesh>"
+
+
+CORE = "http://schemas.microsoft.com/3dmanufacturing/core/2015/02"
+PRODUCTION = "http://schemas.microsoft.com/3dmanufacturing/production/2015/06"
+
+
+def three_mf_boxes(unit: str = "millimeter", doctype: bool = False) -> bytes:
+    """Two 10 × 20 × 30 boxes, the second placed 50 along X by its build item,
+    the first turned a quarter turn about Z (so 20 × 10 × 30) by a component."""
+    model = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        + ('<!DOCTYPE model [<!ENTITY x "x">]>' if doctype else "")
+        + f'<model unit="{unit}" xmlns="{CORE}"><resources>'
+        f'<object id="1" type="model">{_mesh_xml()}</object>'
+        '<object id="2" type="model"><components>'
+        # A quarter turn about Z: x' = -y, y' = x; then moved back to positive.
+        '<component objectid="1" transform="0 1 0 -1 0 0 0 0 1 20 0 0"/>'
+        "</components></object>"
+        "</resources><build>"
+        '<item objectid="2"/>'
+        '<item objectid="1" transform="1 0 0 0 1 0 0 0 1 50 0 0"/>'
+        "</build></model>"
+    )
+    return _package({"3D/3dmodel.model": model})
+
+
+def three_mf_production() -> bytes:
+    """A box kept in a part of its own (the production extension, as Bambu
+    Studio and PrusaSlicer write), placed by the main model 5 up along Z."""
+    part = (
+        f'<?xml version="1.0"?><model unit="millimeter" xmlns="{CORE}"><resources>'
+        f'<object id="7" type="model">{_mesh_xml((10, 10, 10))}</object>'
+        "</resources><build/></model>"
+    )
+    root = (
+        f'<?xml version="1.0"?><model unit="millimeter" xmlns="{CORE}" xmlns:p="{PRODUCTION}">'
+        '<resources><object id="1" type="model"><components>'
+        '<component p:path="/3D/Objects/box.model" objectid="7"/>'
+        "</components></object></resources>"
+        '<build><item objectid="1" transform="1 0 0 0 1 0 0 0 1 0 0 5"/></build></model>'
+    )
+    return _package({"3D/3dmodel.model": root, "3D/Objects/box.model": part})
+
+
+def _package(parts: dict) -> bytes:
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w") as zf:
+        zf.writestr(
+            "_rels/.rels",
+            '<?xml version="1.0"?><Relationships>'
+            '<Relationship Target="/3D/3dmodel.model" Id="rel0" '
+            'Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>'
+            "</Relationships>",
+        )
+        for name, text in parts.items():
+            zf.writestr(name, text)
+    return out.getvalue()

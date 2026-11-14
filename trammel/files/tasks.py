@@ -14,7 +14,7 @@ log = logging.getLogger(__name__)
 def make_thumbnail(payload: dict) -> None:
     from . import previews
     from .models import Blob
-    from .services import blob_path, media_root
+    from .services import blob_path
 
     blob = Blob.objects.filter(pk=payload["blob"]).first()
     if blob is None or blob.thumb_state == Blob.Thumb.READY:
@@ -25,7 +25,7 @@ def make_thumbnail(payload: dict) -> None:
         # Read in a child with memory and time limits (SEC-02, 0.10.6): a file
         # that asks for too much fails alone, not the worker with it.
         made = limits.run(
-            previews.render,
+            previews.make,
             blob.kind,
             blob_path(blob),
             memory_mb=previews.MEMORY_MB,
@@ -37,14 +37,24 @@ def make_thumbnail(payload: dict) -> None:
         log.warning("No preview for %s (%s)", blob.sha256[:12], blob.kind, exc_info=True)
         Blob.objects.filter(pk=blob.pk).update(thumb_state=Blob.Thumb.FAILED)
         return
-    if made is None:
+    if made is None or made.picture is None:
         Blob.objects.filter(pk=blob.pk).update(thumb_state=Blob.Thumb.NONE)
         return
-    data, ext = made
+    data, ext = made.picture
+    relative = _write(blob, ext, data)
+    # A model's mesh for the 3D viewer sits beside its picture, so backups
+    # carry it too.
+    mesh = _write(blob, "mesh.gz", made.mesh) if made.mesh else ""
+    Blob.objects.filter(pk=blob.pk).update(
+        thumbnail=relative, mesh=mesh, model=made.model, thumb_state=Blob.Thumb.READY
+    )
+
+
+def _write(blob, ext: str, data: bytes) -> str:
+    from .services import media_root
+
     relative = Path("thumbs") / blob.sha256[:2] / f"{blob.sha256}.{ext}"
     target = media_root() / relative
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(data)
-    Blob.objects.filter(pk=blob.pk).update(
-        thumbnail=str(relative).replace("\\", "/"), thumb_state=Blob.Thumb.READY
-    )
+    return str(relative).replace("\\", "/")

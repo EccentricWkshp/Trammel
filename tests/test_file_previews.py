@@ -178,7 +178,10 @@ def test_a_page_waits_for_a_preview_and_shows_it_when_ready(
     assert admin_client.get(status).json() == {"ready": False, "waiting": True}
     tasks.run_pending()
     response = admin_client.get(status)
-    assert response.json() == {"ready": True, "waiting": False}
+    state = response.json()
+    assert (state["ready"], state["waiting"]) == (True, False)
+    # A model's measurements come with it, for the viewer (0.11.0).
+    assert state["model"]["triangles"] > 0
     assert response["Cache-Control"] == "no-store"
     page = admin_client.get(f"/customers/{customer.pk}/?tab=files").content.decode()
     assert "data-preview-wait" not in page and 'data-lightbox="ring.stl"' in page

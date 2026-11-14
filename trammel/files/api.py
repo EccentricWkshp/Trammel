@@ -28,6 +28,10 @@ class FileOut(Schema):
     shared_with_customer: bool
     doc_type: UUID | None
     doc_type_name: str
+    #: A 3D model's measurements (0.11.0): size [x, y, z] in mm, area in mm²,
+    #: volume in mm³, solid (closed, so the volume is exact), unit (the file's;
+    #: "" for STL), triangles, objects. None for other files, or until read.
+    model: dict | None = None
 
 
 class DocumentTypeOut(Schema):
@@ -64,6 +68,7 @@ def _out(link) -> dict:
         "shared_with_customer": link.shared_with_customer,
         "doc_type": link.document.doc_type_id,
         "doc_type_name": link.document.doc_type.name if link.document.doc_type else "",
+        "model": rev.blob.model,
     }
 
 

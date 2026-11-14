@@ -9,6 +9,7 @@ urlpatterns = [
     path("<uuid:pk>/revision/", views.new_revision, name="new_revision"),
     path("<uuid:pk>/thumbnail/", views.thumbnail, name="thumbnail"),
     path("<uuid:pk>/thumbnail/status/", views.thumbnail_status, name="thumbnail_status"),
+    path("<uuid:pk>/model/", views.model, name="model"),
     path("revision/<uuid:pk>/", views.download, name="download"),
     path("link/<uuid:pk>/detach/", views.detach, name="detach"),
     path("link/<uuid:pk>/share/", views.toggle_share, name="toggle_share"),

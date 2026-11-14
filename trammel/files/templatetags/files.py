@@ -1,21 +1,31 @@
+import json
+
 from django import template
 
 from trammel.core import access
 
 from .. import services
 from ..models import DocumentType
+from ..previews import MODEL_KINDS
 
 register = template.Library()
 
 
-@register.inclusion_tag("files/_preview.html")
-def file_preview(revision, file_url, thumb_url, status_url, title="", alt="", lazy=True):
+@register.inclusion_tag("files/_preview.html", takes_context=True)
+def file_preview(
+    context, revision, file_url, thumb_url, status_url, title="", alt="", lazy=True, model=""
+):
     """A file's preview on a card: its picture, opening over the page (a PDF in a
     new tab); while it is being made, a placeholder the page swaps for it when
-    it's ready (previews.js); otherwise the kind of file."""
+    it's ready (previews.js); otherwise the kind of file. Given `model` (the
+    file's files:model address), a 3D model opens in the viewer (viewer.js)
+    instead of as a picture; the picture stays the fallback."""
     blob = revision.blob
     inline = blob.kind in ("image", "svg", "pdf")
     return {
+        "model": model if blob.kind in MODEL_KINDS else "",
+        "model_info": json.dumps(blob.model) if model and blob.model else "",
+        "units": "metric" if _metric(context) else "imperial",
         "ready": blob.thumb_state == "ready" or blob.kind == "svg",
         "waiting": blob.thumb_state == "pending",
         "kind": blob.kind,
@@ -27,6 +37,31 @@ def file_preview(revision, file_url, thumb_url, status_url, title="", alt="", la
         "alt": alt,
         "lazy": lazy,
     }
+
+
+def _metric(context) -> bool:
+    business = context.get("business")
+    if business is None and (request := context.get("request")) is not None:
+        business = getattr(request, "business", None)
+    return getattr(business, "unit_system", "") == "metric"
+
+
+def _number(value: float, places: int) -> str:
+    text = f"{value:,.{places}f}"
+    return text.rstrip("0").rstrip(".") if "." in text else text
+
+
+@register.simple_tag(takes_context=True)
+def model_size(context, blob) -> str:
+    """A 3D model's size across X, Y and Z, in the shop's units: "4.094 × 4.094 ×
+    0.945 in", or "104 × 104 × 24 mm"."""
+    info = getattr(blob, "model", None) or {}
+    size = info.get("size")
+    if not size or len(size) != 3:
+        return ""
+    if _metric(context):
+        return " × ".join(_number(v, 1) for v in size) + " mm"
+    return " × ".join(_number(v / 25.4, 3) for v in size) + " in"
 
 
 @register.inclusion_tag("files/_attachments.html", takes_context=True)

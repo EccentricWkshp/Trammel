@@ -63,6 +63,18 @@ def _plan():
     return scheduling.build(now=_now())
 
 
+def _schedule_page(client, wo) -> str:
+    """The Schedule page for the week the work order is planned to start in.
+    The page plans from the real time, so on a Friday evening or a weekend
+    the work is next week's, not this week's."""
+    from django.utils import timezone
+
+    ops = scheduling.build().for_work_order(wo).ops
+    start = min(op.start for op in ops if op.start)
+    week = timezone.localtime(start).date().isoformat()
+    return client.get(f"/work-orders/schedule/?week={week}").content.decode()
+
+
 def _span(plan, wo):
     found = plan.for_work_order(wo)
     return _wall(found.start), _wall(found.finish)
@@ -169,7 +181,7 @@ def test_late_work_and_waiting_work_orders(shop, admin):
 def test_the_schedule_page_the_work_order_and_the_api(shop, admin, admin_client):
     laser = Machine.objects.create(name="Laser")
     wo = _work_order(admin, "Sign", (30, 90, laser, 0), promised=dt.date(2030, 1, 1))
-    page = admin_client.get("/work-orders/schedule/").content.decode()
+    page = _schedule_page(admin_client, wo)
     assert "Hands-on work" in page and "Laser" in page and wo.number in page
     assert page.count('class="bar ') >= 2 and "<meter" in page
     # Every run of bars is labeled with the short number, and the key names it.

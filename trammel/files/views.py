@@ -180,6 +180,25 @@ def thumbnail(request, pk):
 
 
 @permission_required("files.view")
+def model(request, pk):
+    """A 3D model's mesh for the viewer (meshes.py): stored gzipped and sent as
+    it is, for the browser to unpack."""
+    document = get_object_or_404(Document.objects.select_related("current__blob"), pk=pk)
+    if not _may_see(request, document) or document.current is None:
+        raise Http404
+    blob = document.current.blob
+    path = services.media_root() / blob.mesh if blob.mesh else None
+    if path is None or not path.exists():
+        raise Http404
+    response = FileResponse(path.open("rb"), content_type="application/octet-stream")
+    response["Content-Encoding"] = "gzip"
+    response["X-Content-Type-Options"] = "nosniff"
+    response["Content-Security-Policy"] = "sandbox; default-src 'none'"
+    response["Cache-Control"] = "private, max-age=3600"
+    return response
+
+
+@permission_required("files.view")
 def thumbnail_status(request, pk):
     """Whether the file's preview is ready yet, for a page waiting on it."""
     document = get_object_or_404(Document.objects.select_related("current__blob"), pk=pk)

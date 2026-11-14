@@ -5,6 +5,9 @@
 // outside the picture. Ctrl-, Cmd- or Shift-click, or no script at all, opens
 // the link in a new tab as usual.
 //
+// 3D models: a link that also carries data-model opens in the 3D viewer
+// (viewer.js) instead, when the browser has WebGL 2; otherwise as a picture.
+//
 // Waiting previews: a placeholder marked data-preview-wait (the preview's
 // status address) asks every few seconds whether the preview is ready, and
 // swaps itself for the picture when it is; it stops after a few minutes, or
@@ -45,6 +48,10 @@
     if (!link || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey) return;
     if (!window.HTMLDialogElement) return;
     event.preventDefault();
+    // A 3D model opens in the viewer (viewer.js), when the browser can show it.
+    if (link.hasAttribute("data-model") && window.TrammelViewer && window.TrammelViewer.open(link)) {
+      return;
+    }
     if (!dialog) build();
     var title = link.getAttribute("data-lightbox") || "";
     image.alt = title ? "Preview of " + title : "Preview";
@@ -57,13 +64,18 @@
 
   var GIVE_UP_MS = 4 * 60 * 1000;
 
-  function showPreview(slot) {
+  function showPreview(slot, state) {
     var link = document.createElement("a");
     link.href = slot.getAttribute("data-preview-href");
     link.target = "_blank";
     link.rel = "noopener";
     if (slot.hasAttribute("data-preview-lightbox")) {
       link.setAttribute("data-lightbox", slot.getAttribute("data-preview-title") || "");
+    }
+    if (slot.hasAttribute("data-preview-model") && state && state.model) {
+      link.setAttribute("data-model", slot.getAttribute("data-preview-model"));
+      link.setAttribute("data-model-info", JSON.stringify(state.model));
+      link.setAttribute("data-units", slot.getAttribute("data-units") || "imperial");
     }
     var picture = document.createElement("img");
     picture.alt = slot.getAttribute("data-preview-alt") || "";
@@ -88,7 +100,7 @@
       })
         .then(function (response) { return response.ok ? response.json() : null; })
         .then(function (state) {
-          if (state && state.ready) return showPreview(slot);
+          if (state && state.ready) return showPreview(slot, state);
           if (state && !state.waiting) return noPreview(slot);
           next();
         })

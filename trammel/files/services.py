@@ -293,11 +293,15 @@ def blob_path(blob: Blob) -> Path:
 
 
 def preview_status(blob: Blob) -> dict:
-    """For a page waiting on a preview: whether it's ready, or still coming."""
-    return {
+    """For a page waiting on a preview: whether it's ready, or still coming, and
+    for a 3D model its measurements, for the viewer."""
+    status = {
         "ready": blob.thumb_state == Blob.Thumb.READY or blob.kind == "svg",
         "waiting": blob.thumb_state == Blob.Thumb.PENDING,
     }
+    if status["ready"] and blob.mesh and blob.model:
+        status["model"] = blob.model
+    return status
 
 
 def status_response(blob: Blob):

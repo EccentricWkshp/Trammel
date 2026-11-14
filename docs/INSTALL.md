@@ -143,6 +143,26 @@ Switching an existing install over: `docker compose rm -sf proxy`, then
   record as newline-delimited JSON plus every file, readable without Trammel.
 - **Email**: configure your SMTP server in Settings → Email. Nothing is sent
   until you do, and nothing at all while "outbound traffic" is switched off.
+- **Locked out**: when no admin can sign in (a forgotten password, a lost
+  phone, or an address nobody remembers), recover from the server itself:
+
+  ```bash
+  docker compose exec app python manage.py recover_admin
+  ```
+
+  lists the admin accounts (address, name, whether two-factor sign-in is on,
+  the last sign-in) and any network refused for too many failed sign-ins. Then
+
+  ```bash
+  docker compose exec app python manage.py recover_admin you@example.com
+  ```
+
+  prints a one-time link to set a new password (it works once, for three days).
+  It reactivates the account if it was deactivated. Add `--reset-mfa` to turn
+  off two-factor sign-in too, and run `--clear-failures` if your own machine is
+  refused for too many tries. Each step is in the audit log. Needing a shell on
+  the server is the safeguard, so keep the link to yourself. Outside Docker,
+  run `python manage.py recover_admin` from Trammel's folder instead.
 
 ## WSL2 (Windows 11) specifics
 

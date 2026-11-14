@@ -13,7 +13,15 @@ from trammel.shop.models import Machine
 from trammel.workorders import services as wos
 from trammel.workorders.models import Status
 
-from .test_scheduling import MONDAY, _plan, _span, _wall, _work_order, shop  # noqa: F401
+from .test_scheduling import (  # noqa: F401
+    MONDAY,
+    _plan,
+    _schedule_page,
+    _span,
+    _wall,
+    _work_order,
+    shop,
+)
 
 TUESDAY = MONDAY + dt.timedelta(days=1)
 
@@ -152,7 +160,7 @@ def test_pins_moves_and_groups_on_the_pages_and_api(shop, admin, admin_client): 
     assert f"Move {b.number} up" in page and "Back to its place" not in page
     response = admin_client.post(f"/work-orders/{b.pk}/queue/", {"direction": "up"})
     assert response.status_code == 302 and response["Location"] == "/work-orders/schedule/"
-    page = admin_client.get("/work-orders/schedule/").content.decode()
+    page = _schedule_page(admin_client, b)
     assert "Back to its place" in page and "instead of Printer 1" in page
 
     # The API.

@@ -32,6 +32,11 @@ class Blob(models.Model):
     path = models.CharField(max_length=200)
     thumbnail = models.CharField(max_length=200, blank=True)
     thumb_state = models.CharField(max_length=8, choices=Thumb.choices, default=Thumb.NONE)
+    #: A 3D model's mesh for the viewer (meshes.py), under the media root.
+    mesh = models.CharField(max_length=200, blank=True)
+    #: A 3D model's measurements: size, area and volume in millimeters, whether
+    #: it's a closed solid, its unit and counts (meshes.prepare).
+    model = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
 
     def __str__(self) -> str:
