@@ -63,8 +63,10 @@
 <ul class="file-grid">
 {% for link in drawings %}{% with rev=link.document.current %}
   <li class="file-card">
-    {% url 'files:download' rev.pk as file_url %}{% url 'files:thumbnail' link.document.pk as thumb_url %}{% url 'files:thumbnail_status' link.document.pk as status_url %}{% file_preview rev file_url thumb_url status_url link.document.title %}
-    <a href="{% url 'files:download' rev.pk %}{% if rev.blob.is_previewable_inline %}?inline=1" target="_blank" rel="noopener{% endif %}">{{ link.document.title }}</a></li>
+    {% url 'files:download' rev.pk as file_url %}{% url 'files:thumbnail' link.document.pk as thumb_url %}{% url 'files:thumbnail_status' link.document.pk as status_url %}{% url 'files:model' link.document.pk as model_url %}{% url 'files:flat' link.document.pk as flat_url %}{% file_preview rev file_url thumb_url status_url link.document.title model=model_url flat=flat_url %}
+    <a href="{% url 'files:download' rev.pk %}{% if rev.blob.is_previewable_inline %}?inline=1" target="_blank" rel="noopener{% endif %}">{{ link.document.title }}</a>
+    {% if rev.blob.model %}<span class="muted small">{% model_size rev.blob %}</span>{% endif %}
+    {% if rev.blob.flat %}<a href="{{ flat_url }}?next={{ request.get_full_path|urlencode }}">Flat pattern</a>{% endif %}</li>
 {% endwith %}{% endfor %}
 </ul>
 {% endif %}

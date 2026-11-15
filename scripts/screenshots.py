@@ -8,6 +8,11 @@ previews):
     set TRAMMEL_SHOTS_EMAIL=... and TRAMMEL_SHOTS_PASSWORD=... (an admin)
     python scripts/screenshots.py [out dir]
 
+TRAMMEL_SHOTS_CHROME, set to a Chrome or Chromium you have, uses that
+instead of Playwright's own (no `playwright install` needed). The demo's 3D
+models (`seed_demo --only models` on an older demo) give the 3D viewer and
+flat pattern pictures.
+
 It signs in as that admin for the staff pages, and into the customer portal
 with one-time sign-in codes it makes for two demo customers. Two notices about
 the instance itself (no backup yet, two-factor not yet required of admins) are
@@ -69,6 +74,14 @@ def pages():
         ("reports", "/reports/"),
         ("floor", "/floor/"),
     ]
+    # 3D models (0.11.x): the sheet metal bracket's flat pattern; the viewer is
+    # opened from its job's files (see main).
+    from trammel.files.services import attachments_for
+
+    brackets = Job.objects.filter(tags__contains=["models"]).first()
+    link = next(iter(attachments_for(brackets)), None) if brackets is not None else None
+    if link is not None and link.document.current and link.document.current.blob.flat:
+        staff.append(("flat-pattern", f"/files/{link.document.pk}/flat/"))
     portal = {
         cafe: [("portal-home", "/portal/"), ("portal-quote", f"/portal/quotes/{menu.pk}/")],
         grace: [
@@ -77,6 +90,24 @@ def pages():
         ],
     }
     return staff, portal
+
+
+def viewer(page, out, job_url: str | None) -> None:
+    """The 3D viewer, opened on the demo's sheet metal bracket from its job's
+    files, showing its edges. (The job is looked up beforehand: Django won't
+    query the database inside Playwright's event loop.)"""
+    if job_url is None:
+        return
+    page.goto(f"{BASE}{job_url}?tab=files", wait_until="networkidle")
+    page.evaluate(HIDE)
+    page.click("a[data-model]")
+    page.wait_for_selector("dialog.model-viewer[open]")
+    page.wait_for_selector(".mv-status[hidden]", state="attached", timeout=30000)
+    page.check("dialog.model-viewer >> text=Edges")
+    page.wait_for_timeout(600)
+    page.screenshot(path=str(out / "model-viewer.png"))
+    print("model-viewer: the bracket in the 3D viewer")
+    page.keyboard.press("Escape")
 
 
 def main() -> None:
@@ -95,6 +126,10 @@ def main() -> None:
     password = os.environ["TRAMMEL_SHOTS_PASSWORD"]
     admin = User.objects.get(email=email)
     staff, portal = pages()
+    from trammel.jobs.models import Job
+
+    brackets = Job.objects.filter(tags__contains=["models"]).first()
+    bracket_url = brackets.get_absolute_url() if brackets else None
     with audit.acting_as(admin, source="cli"):
         codes = {c: portal_services.make_code(c, user=admin)[0] for c in portal}
 
@@ -113,12 +148,17 @@ def main() -> None:
         page.wait_for_load_state("networkidle")
 
     with sync_playwright() as p:
-        browser = p.chromium.launch()
+        # The 3D viewer needs WebGL, drawn in software where there's no GPU.
+        browser = p.chromium.launch(
+            executable_path=os.environ.get("TRAMMEL_SHOTS_CHROME") or None,
+            args=["--use-angle=swiftshader", "--enable-unsafe-swiftshader"],
+        )
         context = browser.new_context(viewport={"width": 1440, "height": 900}, color_scheme="light")
         page = context.new_page()
         sign_in(page)
         for name, path in staff:
             shot(page, name, path)
+        viewer(page, out, bracket_url)
         context.close()
 
         for customer, customer_pages in portal.items():

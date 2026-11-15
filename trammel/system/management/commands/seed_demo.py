@@ -92,7 +92,7 @@ class Command(BaseCommand):
         parser.add_argument("--yes", action="store_true", help="Do not ask for confirmation.")
         parser.add_argument(
             "--only",
-            choices=["schedule", "portal"],
+            choices=["schedule", "models", "portal"],
             help="Add just this part (to an instance that already has demo data).",
         )
 
@@ -143,7 +143,106 @@ class Builder:
         self.purchasing()
         self.direct_sale()
         self.schedule()
+        self.models()
         self.portal()
+
+    # ------------------------------------------------------------------
+    MODELS_MARK = "Floating shelf brackets"
+
+    def models(self):
+        """3D models (0.11.x): a turned tap handle prototype (STL) on the rush
+        tap handle job, for the 3D viewer; and a floating-shelf bracket in
+        3/16 in steel (STEP) on a job of its own with an open work order, which
+        unfolds to a flat pattern that prints on its traveler, with the steel
+        and SendCutSend's K-factor for it. Adds to an instance already holding
+        demo data (``--only models``) as well as to a fresh one. Their previews
+        and flat patterns are made by the worker, as for any upload."""
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        from trammel.customers.models import Customer
+        from trammel.files import samples, step
+        from trammel.files import services as files
+        from trammel.jobs.models import Job
+        from trammel.quotes import services as quotes
+        from trammel.shop.models import Material
+        from trammel.workorders import services as wos
+        from trammel.workorders.models import WorkOrder
+
+        if Job.objects.filter(tags__contains=["models"]).exists():
+            self.say("the 3D model demo was loaded")
+            return
+        steel, _ = Material.objects.get_or_create(
+            name="Mild steel sheet, HRPO",
+            defaults={
+                "category": "metal",
+                "thickness": "0.187 in",
+                "k_factor": D("0.36"),
+                "unit": "sheet",
+                "unit_cost": D("96.00"),
+                "sheet_width": D("48"),
+                "sheet_length": D("96"),
+                "sheet_dimension_unit": "in",
+                "notes": "K-factor 0.36 and a 0.125 in inside bend radius: SendCutSend's "
+                "rule for 0.187 in HRPO mild steel.",
+            },
+        )
+
+        rush = WorkOrder.objects.filter(title=self.SCHEDULE_MARK).select_related("job").first()
+        if rush is not None:
+            files.upload(
+                SimpleUploadedFile("tap-handle-prototype.stl", samples.turned_stl()),
+                name="tap-handle-prototype.stl",
+                title="Tap handle prototype",
+                attach_to=rush.job,
+                user=self.admin,
+            )
+
+        if not step.available():
+            self.say(f"{steel} and the tap handle model (no OpenCascade: no STEP bracket)")
+            return
+        demo = {c.email.split("@")[0]: c for c in Customer.objects.filter(email__endswith=MARKER)}
+        customer = demo.get("ava", Customer.internal())
+        job = self._job(
+            customer,
+            self.MODELS_MARK,
+            "Six steel brackets for the walnut floating shelves: 3/16 in mild steel, laser "
+            "cut and bent, powder coated black.",
+            due=18,
+            tags=["models", "metal"],
+        )
+        rev = self._quote(
+            job,
+            [
+                (
+                    "adhoc",
+                    {
+                        "description": "Shelf bracket, 3/16 in steel, cut, bent and powder coated",
+                        "quantity": "6",
+                        "unit": "each",
+                        "unit_price": "38",
+                        "unit_cost": "14",
+                    },
+                )
+            ],
+        )
+        # The approval's staff notification would only queue a test email.
+        notify = [h for h in quotes.on_approved if h.__module__.endswith("notifications.wiring")]
+        for hook in notify:
+            quotes.on_approved.remove(hook)
+        try:
+            self._approve(rev, "Ava Lindqvist")
+        finally:
+            quotes.on_approved.extend(notify)
+        files.upload(
+            SimpleUploadedFile("shelf-bracket.step", samples.shelf_bracket()),
+            name="shelf-bracket.step",
+            title="Shelf bracket",
+            attach_to=job,
+            user=self.admin,
+        )
+        job.refresh_from_db()
+        wos.create(job, title="Cut and bend six shelf brackets", revision=rev)
+        self.say(f"{steel}, a tap handle model, and a sheet metal bracket job with a work order")
 
     # ------------------------------------------------------------------
     SCHEDULE_MARK = "Rush: 40 engraved tap handles"

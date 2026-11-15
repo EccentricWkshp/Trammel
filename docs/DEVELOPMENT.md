@@ -31,12 +31,17 @@ and nothing is lost.
 
 **Demo data.** `manage.py seed_demo --yes` fills a fresh instance (after the
 setup page) with customers, quotes, jobs at every stage, work orders, time,
-invoices and payments, the shop schedule, and the customer portal (customers
-who can sign in, files they sent for review, a shared update), all made through
-the real services. Two invoices are paid online, through Stripe and PayPal,
-recorded as if the providers had reported them; nothing calls either. Its dates
-are the shop's, in its time zone. It refuses to run twice; `--only schedule` or
-`--only portal` adds just that part to an instance that has the rest.
+invoices and payments, the shop schedule, 3D models (a turned tap handle as
+STL, and a sheet metal shelf bracket as STEP, with the steel and its K-factor,
+on a job with a work order), and the customer portal (customers who can sign
+in, files they sent for review, a shared update), all made through the real
+services. Two invoices are paid online, through Stripe and PayPal, recorded as
+if the providers had reported them; nothing calls either. Its dates are the
+shop's, in its time zone. Run the worker's queue once afterwards for the file
+previews and the bracket's flat pattern. It refuses to run twice; `--only
+schedule`, `--only models` or `--only portal` adds just that part to an
+instance that has the rest. The models are built from numbers in
+`trammel/files/samples.py`, which the tests use too.
 
 **Screenshots.** `scripts/screenshots.py` retakes the pictures in
 `docs/screenshots/` from a demo instance, with Playwright (a development tool

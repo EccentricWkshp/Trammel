@@ -2,8 +2,9 @@
 //
 // A link to a model's picture marked data-model (the address of its mesh, made
 // by the worker: trammel/files/meshes.py) opens here instead of as a picture:
-// turned with a drag, moved with a right-drag or Shift-drag, zoomed with the
-// wheel or a pinch, with standard views, edges, triangles, a section and the
+// turned freely with a drag (rolled when dragged around near the edge, or
+// with a two-finger twist), moved with a right-drag or Shift-drag, zoomed
+// with the wheel or a pinch, with standard views, edges, triangles, a section and the
 // model's size, volume and surface area. previews.js calls TrammelViewer.open;
 // without WebGL 2 the picture opens as before.
 //
@@ -64,6 +65,13 @@
   function normalize(a) {
     var l = Math.sqrt(dot(a, a)) || 1;
     return [a[0] / l, a[1] / l, a[2] / l];
+  }
+
+  // Turns v by angle (radians) about the unit axis k, right-handed.
+  function turn(v, k, angle) {
+    var c = Math.cos(angle);
+    var s = Math.sin(angle);
+    return add(add(scale(v, c), scale(cross(k, v), s)), scale(k, dot(k, v) * (1 - c)));
   }
 
   function lookAt(eye, target, up) {
@@ -271,7 +279,7 @@
     var canvas = el("canvas", {
       tabindex: "0",
       role: "img",
-      "aria-label": "3D view. Drag to turn, right-drag or Shift-drag to move, scroll to zoom; arrow keys turn, Shift and arrows move, + and - zoom, 0 fits it.",
+      "aria-label": "3D view. Drag to turn, drag around near the edge to roll, right-drag or Shift-drag to move, scroll to zoom; arrow keys turn, [ and ] roll, Shift and arrows move, + and - zoom, 0 fits it.",
     });
     var status = el("p", { class: "mv-status" });
     var axes = el("div", { class: "mv-axes", "aria-hidden": "true" });
@@ -512,16 +520,21 @@
 
   // -- the camera --------------------------------------------------------------
 
+  // The camera is a direction from the target to the eye and an up vector,
+  // turned freely (no pole, no fixed Z up), so a round part turned about Z can
+  // be tipped over. The named views start from a turntable angle with Z up.
   Viewer.prototype.view = function (yawDeg, pitchDeg) {
-    this.yaw = (yawDeg * Math.PI) / 180;
-    this.pitch = (Math.max(-89.9, Math.min(89.9, pitchDeg)) * Math.PI) / 180;
+    var yaw = (yawDeg * Math.PI) / 180;
+    var pitch = (pitchDeg * Math.PI) / 180;
+    this.dir = [Math.cos(pitch) * Math.cos(yaw), Math.cos(pitch) * Math.sin(yaw), Math.sin(pitch)];
+    this.up = [-Math.sin(pitch) * Math.cos(yaw), -Math.sin(pitch) * Math.sin(yaw), Math.cos(pitch)];
     this.zoom = 1;
     this.pan = [0, 0, 0];
     this.redraw();
   };
 
   Viewer.prototype.fit = function () {
-    if (this.yaw === undefined) return this.view(-54.5, 32.6);
+    if (!this.dir) return this.view(-54.5, 32.6);
     this.zoom = 1;
     this.pan = [0, 0, 0];
     this.redraw();
@@ -529,25 +542,21 @@
 
   Viewer.prototype.camera = function (aspect) {
     var mesh = this.mesh;
-    var dir = [
-      Math.cos(this.pitch) * Math.cos(this.yaw),
-      Math.cos(this.pitch) * Math.sin(this.yaw),
-      Math.sin(this.pitch),
-    ];
+    var dir = this.dir;
     var target = add(mesh.center, this.pan);
     var fit = (mesh.radius * 1.08) / Math.sin(FOV / 2) / Math.min(1, aspect);
     var distance = fit / this.zoom;
     var eye = add(target, scale(dir, Math.max(distance, mesh.radius * 0.05)));
     var forward = scale(dir, -1);
-    var right = normalize(cross(forward, [0, 0, 1]));
+    var right = normalize(cross(forward, this.up));
     var up = cross(right, forward);
-    var view = lookAt(eye, target, [0, 0, 1]);
+    var view = lookAt(eye, target, up);
     var proj;
     var halfH;
     if (this.opts.ortho) {
       halfH = (mesh.radius * 1.08) / Math.min(1, aspect) / this.zoom;
       eye = add(target, scale(dir, mesh.radius * 4));
-      view = lookAt(eye, target, [0, 0, 1]);
+      view = lookAt(eye, target, up);
       proj = orthographic(halfH * aspect, halfH, mesh.radius * 0.01, mesh.radius * 8);
     } else {
       var near = Math.max(distance - mesh.radius * 1.5, distance * 0.01);
@@ -595,7 +604,7 @@
   Viewer.prototype.draw = function () {
     var gl = this.gl;
     var mesh = this.mesh;
-    if (!gl || !mesh || this.yaw === undefined) return;
+    if (!gl || !mesh || !this.dir) return;
     var canvas = this.canvas;
     var ratio = Math.min(window.devicePixelRatio || 1, 2);
     var w = Math.max(1, Math.round(canvas.clientWidth * ratio));
@@ -680,10 +689,45 @@
 
   // -- input --------------------------------------------------------------------
 
-  Viewer.prototype.orbit = function (dx, dy) {
-    this.yaw -= dx * 0.008;
-    this.pitch = Math.max(-1.5691, Math.min(1.5691, this.pitch + dy * 0.008));
+  // A trackball. Near the middle, across the screen turns about the screen's
+  // vertical and up and down about its horizontal, so the model follows the
+  // pointer whichever way it lies. Toward the edge, going around the middle
+  // rolls it instead, about the line of sight: that's how a part turned about
+  // Z, seen from the front, gets its axis tipped sideways. x and y are the
+  // pointer's place from the middle of the view, in CSS pixels.
+  Viewer.prototype.orbit = function (dx, dy, x, y) {
+    var r = x === undefined ? 0 : Math.hypot(x, y);
+    if (r > 1) {
+      var reach = Math.min(this.canvas.clientWidth, this.canvas.clientHeight) / 2;
+      var weight = Math.max(0, Math.min(1, (r / reach - 0.55) / 0.35));
+      if (weight > 0) {
+        // The part of the motion going around the middle (clockwise positive).
+        var around = (x * dy - y * dx) / r;
+        this.roll(weight * around / r, true);
+        dx += (weight * around * y) / r;
+        dy -= (weight * around * x) / r;
+      }
+    }
+    var dir = this.dir;
+    var up = this.up;
+    var right = normalize(cross(up, dir));
+    var a = -dx * 0.008;
+    dir = turn(dir, up, a);
+    right = turn(right, up, a);
+    var b = -dy * 0.008;
+    dir = normalize(turn(dir, right, b));
+    up = turn(up, right, b);
+    // Keep the pair square so rounding doesn't build up over a long drag.
+    this.up = normalize(sub(up, scale(dir, dot(up, dir))));
+    this.dir = dir;
     this.redraw();
+  };
+
+  // Rolls the model clockwise on screen by angle (radians), about the line of
+  // sight.
+  Viewer.prototype.roll = function (angle, quiet) {
+    this.up = normalize(turn(this.up, this.dir, angle));
+    if (!quiet) this.redraw();
   };
 
   Viewer.prototype.move = function (dx, dy) {
@@ -711,6 +755,8 @@
       var b = list[1];
       return {
         distance: Math.hypot(a.x - b.x, a.y - b.y),
+        // Clockwise on screen, since y runs down.
+        angle: Math.atan2(b.y - a.y, b.x - a.x),
         x: (a.x + b.x) / 2,
         y: (a.y + b.y) / 2,
       };
@@ -738,11 +784,19 @@
       if (count === 2 && pinch) {
         var now = spread();
         if (pinch.distance > 0 && now.distance > 0) self.zoomBy(now.distance / pinch.distance);
+        // A twist of the two fingers rolls the model with them.
+        var twist = now.angle - pinch.angle;
+        if (twist > Math.PI) twist -= 2 * Math.PI;
+        if (twist < -Math.PI) twist += 2 * Math.PI;
+        if (now.distance > 20) self.roll(twist);
         self.move(now.x - pinch.x, now.y - pinch.y);
         pinch = now;
       } else if (count === 1) {
         if (p.move) self.move(dx, dy);
-        else self.orbit(dx, dy);
+        else {
+          var rect = canvas.getBoundingClientRect();
+          self.orbit(dx, dy, p.x - rect.left - rect.width / 2, p.y - rect.top - rect.height / 2);
+        }
       }
     });
     function lift(event) {
@@ -768,6 +822,8 @@
         case "ArrowRight": event.shiftKey ? self.move(step * 2, 0) : self.orbit(step, 0); break;
         case "ArrowUp": event.shiftKey ? self.move(0, -step * 2) : self.orbit(0, -step); break;
         case "ArrowDown": event.shiftKey ? self.move(0, step * 2) : self.orbit(0, step); break;
+        case "[": self.roll(-Math.PI / 24); break;
+        case "]": self.roll(Math.PI / 24); break;
         case "+": case "=": self.zoomBy(1.15); break;
         case "-": case "_": self.zoomBy(1 / 1.15); break;
         case "0": case "Home": self.fit(); break;
@@ -806,7 +862,7 @@
     var viewer = ui.viewer;
     viewer.opts = { edges: false, wire: false, ortho: false };
     viewer.cut = null;
-    viewer.yaw = undefined;
+    viewer.dir = null;
     ui.dialog.showModal();
     viewer.open(link.getAttribute("data-model"), info, link.getAttribute("data-units") === "metric");
     ui.canvas.focus();

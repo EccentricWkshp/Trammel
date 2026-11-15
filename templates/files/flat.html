@@ -35,7 +35,7 @@
       <dt>Thickness</dt><dd>{{ facts.thickness }}</dd>
     </dl>
     <p class="muted small">The DXF is in {{ dxf_unit }}, the unit the part was drawn in, on the layers CAD programs use: OUTER_PROFILES, INTERIOR_PROFILES, BEND and BEND_EXTENT.</p>
-    <h3>Travelers</h3>
+    <h3 class="flat-travelers">Travelers</h3>
     {% if can_choose %}
     <form method="post" class="flat-choose">{% csrf_token %}
       <input type="hidden" name="traveler" value="{% if document.flat_on_traveler %}0{% else %}1{% endif %}">

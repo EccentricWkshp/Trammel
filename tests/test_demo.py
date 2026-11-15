@@ -87,6 +87,46 @@ def test_the_schedule_part_adds_alone_without_notifying(admin, monkeypatch):
 
 
 @pytest.mark.django_db
+def test_the_models_part_adds_a_tap_handle_and_a_bracket_once(
+    admin, monkeypatch, django_capture_on_commit_callbacks
+):
+    from decimal import Decimal
+
+    from trammel.core import tasks
+    from trammel.files.services import attachments_for
+    from trammel.notifications import wiring
+    from trammel.shop.models import Material
+
+    pytest.importorskip("OCP", reason="the bracket is a STEP file, made with OpenCascade")
+    sent = []
+    monkeypatch.setattr(wiring, "notify", lambda kind, **kw: sent.append(kind))
+    Customer.objects.create(name="Ava Lindqvist", email="ava@demo.trammel.test")
+    with django_capture_on_commit_callbacks(execute=True):
+        call_command("seed_demo", yes=True, only="schedule")
+        call_command("seed_demo", yes=True, only="models")
+    tasks.run_pending()
+
+    steel = Material.objects.get(name="Mild steel sheet, HRPO")
+    assert steel.k_factor == Decimal("0.36") and steel.thickness == "0.187 in"
+    job = Job.objects.get(tags__contains=["models"])
+    assert job.customer.name == "Ava Lindqvist" and job.status == "approved"
+    wo = WorkOrder.objects.get(job=job)
+    (bracket,) = [link.document for link in attachments_for(job)]
+    blob = bracket.current.blob
+    # Previewed, measured in the inches it was drawn in, and unfolded.
+    assert blob.model["unit"] == "inch" and blob.model["sheet"]["bends"] == 1
+    assert blob.flat
+    rush = WorkOrder.objects.get(title="Rush: 40 engraved tap handles").job
+    (handle,) = [link.document for link in attachments_for(rush)]
+    assert handle.current.blob.model["solid"] is True
+    assert sent == []
+    count = Job.objects.count()
+    call_command("seed_demo", yes=True, only="models")
+    assert Job.objects.count() == count  # added once
+    assert WorkOrder.objects.filter(job=job).count() == 1 and wo.job_id == job.pk
+
+
+@pytest.mark.django_db
 def test_seed_demo_needs_setup_first(db):
     with pytest.raises(CommandError, match="setup"):
         call_command("seed_demo", yes=True)

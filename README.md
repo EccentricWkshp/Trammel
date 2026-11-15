@@ -34,10 +34,20 @@ printing, laser work. Self-hosted: the data stays on the shop's own hardware.
   machines that run unattended (a printer overnight) planned around the clock.
   A printable schedule sheet (and PDF) sequences each day's work for the shop,
   beside the travelers, and the shop-floor app shows the day's schedule.
-- **Files** — drawings, photos, DXF, LightBurn, STL/3MF and G-code on
+- **Files** — drawings, photos, DXF, LightBurn, STL, 3MF, STEP and G-code on
   customers, jobs, quotes, work orders and products, with revisions and
-  previews: DXF drawings, STL and 3MF models, and the thumbnails LightBurn and
-  G-code files carry.
+  previews: DXF drawings, 3D models, and the thumbnails LightBurn and G-code
+  files carry.
+- **3D models** — STL, 3MF and STEP files open in a 3D viewer, on the desktop
+  and in the shop-floor app on a phone: turn, move and zoom them, show their
+  edges or a section, and read their size, volume and surface area (exact for
+  STEP, measured on the CAD geometry).
+- **Sheet metal** — a bent part in a STEP file is unfolded into its flat
+  pattern, laid out with the K-factor of the shop's material that thickness:
+  the blank's size, area, cut length and pierces, each bend's direction,
+  angle, bend line length and allowance, a DXF for the laser or plasma CAM,
+  and a printed sheet (or PDF). The flat pattern prints on the traveler.
+  Checked against Fusion's own flat pattern export, to within 0.0001 in.
 - **Machines, materials and vendors** — a machine rate calculator, a materials
   price list linked to vendors with product pages and files.
 - **Stock and purchasing** — stock locations, lots and a ledger, units and
@@ -88,8 +98,8 @@ printing, laser work. Self-hosted: the data stays on the shop's own hardware.
   off-site copies (a network folder or S3-compatible storage), restore and
   export, and an update check.
 
-Not yet: the rest of Phase 4 (STEP previews and an interactive 3D viewer,
-woodworking and metal fabrication estimators, and WebAuthn sign-in), then
+Not yet: the rest of Phase 4 (woodworking and metal fabrication estimators,
+and WebAuthn sign-in), then
 importing and exporting customers, machines, materials and vendors,
 user-defined reports, and in-app help.
 
@@ -110,6 +120,8 @@ From the demo data (`manage.py seed_demo`). More in
 | **The customer portal**: approving a quote. | **The customer portal**: a job's updates and files. |
 | ![Files customers sent, waiting for review](docs/screenshots/files-to-review.png) | ![The shop-floor app on a phone: active work orders](docs/screenshots/floor-phone.png) |
 | **Files from customers**, waiting for review. | **The shop-floor app** on a phone. |
+| ![A steel shelf bracket from a STEP file in the 3D viewer, with its size, volume and surface area](docs/screenshots/model-viewer.png) | ![The bracket's flat pattern: the blank with its bend line, its size, cut length and pierces, and the K-factor from the shop's steel](docs/screenshots/flat-pattern.png) |
+| **The 3D viewer**: a STEP part, measured. | **Its flat pattern**, for the laser and the brake. |
 
 ## Documentation
 
